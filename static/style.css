@@ -11,6 +11,9 @@
   --amber:#e8a33d;      /* money / budgets */
   --ok:#5fd39a;
   --bad:#ff5d6c;
+  --slot-overbarrel:#4fc3d9;   /* weapon-mod slot colors */
+  --slot-underbarrel:#e8a33d;
+  --slot-chassis:#9d7bff;
   --mono:'IBM Plex Mono',ui-monospace,monospace;
   --body:'IBM Plex Sans',system-ui,sans-serif;
   --disp:'Chakra Petch','IBM Plex Sans',sans-serif;
@@ -187,6 +190,12 @@ label.opt input{margin-top:3px}
   position:sticky;top:8px;z-index:40;box-shadow:0 6px 18px rgba(0,0,0,.45)}
 .sh-top{display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap;justify-content:space-between}
 .sh-ident{display:flex;gap:12px;align-items:center;min-width:200px;flex:1}
+.sh-desc{flex:1 1 240px;min-width:220px;max-width:520px;display:flex}
+.sh-desc-input{width:100%;min-height:56px;resize:vertical;background:var(--panel-2);
+  border:1px solid var(--line);border-radius:8px;color:var(--text);padding:6px 9px;
+  font-family:var(--body);font-size:12px;line-height:1.4}
+.sh-desc-input:focus{outline:2px solid var(--manon-dim);outline-offset:1px}
+.sh-desc-input::placeholder{color:var(--dim)}
 .sh-meters{margin-left:auto;justify-content:end}
 .sh-avatar{width:52px;height:52px;border-radius:50%;background:var(--panel-2);border:1px solid var(--line);
   display:flex;align-items:center;justify-content:center;font-family:var(--disp);font-size:22px;color:var(--dim)}
@@ -345,6 +354,25 @@ label.opt input{margin-top:3px}
 .sh-windfall li.wf-hit{color:var(--ok);font-weight:600}
 .sheet-foot{display:flex;gap:8px;margin-top:24px;padding-top:14px;border-top:1px solid var(--line)}
 .chip.ok{color:var(--ok);border-color:var(--ok)}
+/* header heritage abilities line */
+.sh-heritage-abilities{font-size:11px;color:var(--dim);max-width:640px;margin-top:4px}
+.sh-heritage-abilities b{color:var(--text)}
+/* weapon-mod slot color coding (applies to browser items + fitted chips) */
+.mod-overbarrel{color:var(--slot-overbarrel)}
+.mod-underbarrel{color:var(--slot-underbarrel)}
+.mod-chassis{color:var(--slot-chassis)}
+.chip.mod-overbarrel{color:var(--slot-overbarrel);border-color:var(--slot-overbarrel)}
+.chip.mod-underbarrel{color:var(--slot-underbarrel);border-color:var(--slot-underbarrel)}
+.chip.mod-chassis{color:var(--slot-chassis);border-color:var(--slot-chassis)}
+.mod-slot-legend{display:flex;gap:12px;flex-wrap:wrap;font-size:11px;margin:2px 0 6px}
+/* gear-tab jump submenu */
+.gear-submenu{display:flex;flex-wrap:wrap;gap:6px;position:sticky;top:0;z-index:5;
+  background:var(--ink);padding:8px 0;margin-bottom:6px;border-bottom:1px solid var(--line)}
+.gear-submenu button{background:var(--panel-2);border:1px solid var(--line);color:var(--dim);
+  border-radius:14px;padding:3px 12px;font-size:12px;cursor:pointer}
+.gear-submenu button:hover{border-color:var(--manon-dim);color:var(--text)}
+/* skill-list bonus dice */
+.skill-dice{color:var(--ok);font-family:var(--mono);font-size:12px;margin-left:2px}
 
 @media(max-width:900px){
   #app{grid-template-columns:1fr}

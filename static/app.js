@@ -1112,6 +1112,13 @@ function fittedItemsEditor({ items, placeholder, optionElements, onAdd, onRemove
 /** Build categoryBrowser groups from a mod/extra table. Groups by `catCol`
  * (e.g. weapon mods by Slot); tables with no category column collapse to a
  * single group named `fallback`. */
+/* A CSS class for a weapon-mod slot, e.g. "Overbarrel" -> "mod-overbarrel".
+ * Returns null for slots without a dedicated colour. */
+function modSlotClass(slot) {
+  const s = String(slot || "").toLowerCase().replace(/\s+/g, "-");
+  return ["overbarrel", "underbarrel", "chassis"].includes(s) ? `mod-${s}` : null;
+}
+
 function modGroups(table, nameCol, catCol, fallback) {
   const byCat = {};
   for (const r of table) {
@@ -1120,21 +1127,24 @@ function modGroups(table, nameCol, catCol, fallback) {
   }
   return Object.entries(byCat).map(([label, rows]) => ({
     label,
+    cls: modSlotClass(label),   // colour the group header by slot, when applicable
     items: rows.map(r => ({
       name: r[nameCol],
       cost: (r.Cost != null && r.Cost !== "") ? +r.Cost : null,
       sub: r.Effect || r.ModeEffect || "",
+      cls: catCol ? modSlotClass(r[catCol]) : null,   // colour each item name by slot
     })),
   }));
 }
 
 /** Like fittedItemsEditor but the "add more" UI is the nested collapsible
  * categoryBrowser instead of a flat dropdown. Used for weapon/rig/deck mods. */
-function fittedCategoryEditor({ id, items, groups, onAdd, onRemove, effectOf, guard, rerender, afterAdd }) {
+function fittedCategoryEditor({ id, items, groups, onAdd, onRemove, effectOf, classOf, guard, rerender, afterAdd }) {
   const postRemove = afterAdd || refresh;
   const chips = el("div", { class: "sub" },
     ...items.map((name, index) => el("span", {
-      class: "chip", style: "margin:2px 4px 0 0;cursor:pointer", title: "Click to remove this mod",
+      class: "chip" + (classOf && classOf(name) ? " " + classOf(name) : ""),
+      style: "margin:2px 4px 0 0;cursor:pointer", title: "Click to remove this mod",
       onclick: () => { onRemove(index); postRemove(); },
     }, name + " \u2715")));
   const effects = effectOf
@@ -1171,7 +1181,8 @@ function categoryBrowser({ id, groups, onAdd, rerender, afterAdd }) {
       onclick: () => { state[g.label] = !open; redraw(); },
       onkeydown: e => { if (e.key === "Enter" || e.key === " ") e.currentTarget.click(); },
     },
-      el("span", {}, g.label, " ", el("span", { class: "sub" }, `(${visible.length})`)),
+      el("span", {}, el("span", { class: g.cls || null }, g.label), " ",
+        el("span", { class: "sub" }, `(${visible.length})`)),
       el("span", { class: "cat-arrow" }, open ? "\u25be" : "\u25b8")));
     if (!open) continue;
     const list = el("div", { class: "cat-items" });
@@ -1188,7 +1199,7 @@ function categoryBrowser({ id, groups, onAdd, rerender, afterAdd }) {
             onclick: () => { onAdd(it.name); postAdd(); } }, "Add");
       list.append(el("div", { class: cls },
         el("div", { class: "cat-item-info" },
-          el("b", {}, it.name),
+          el("b", { class: it.cls || null }, it.name),
           sub ? el("div", { class: "sub" }, sub) : null),
         el("div", { class: "cat-item-right" },
           it.cost != null ? el("span", { class: "cat-cost" }, fmt(it.cost)) : null,

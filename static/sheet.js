@@ -288,6 +288,7 @@ function sheetHeader() {
   const heritageLabel = CHAR.heritage.type
     + (CHAR.heritage.uplift_type ? ` (${CHAR.heritage.uplift_type})` : "");
   const activeLs = (play.lifestyles || []).find(l => l.active);
+  const heritageAbilities = heritageAbilityLines();
   const ident = el("div", { class: "sh-ident" },
     el("div", { class: "sh-avatar" }, (CHAR.name || "?").slice(0, 1).toUpperCase()),
     el("div", {},
@@ -299,7 +300,10 @@ function sheetHeader() {
         activeLs ? el("span", { class: "sh-tag", title: LIFESTYLE_EFFECTS[activeLs.name] || "" },
           `${activeLs.name} lifestyle · ${activeLs.months || 0} mo`) : null),
       activeLs && LIFESTYLE_EFFECTS[activeLs.name]
-        ? el("div", { class: "sh-ls-effect" }, LIFESTYLE_EFFECTS[activeLs.name]) : null));
+        ? el("div", { class: "sh-ls-effect" }, LIFESTYLE_EFFECTS[activeLs.name]) : null,
+      heritageAbilities.length
+        ? el("div", { class: "sh-heritage-abilities" },
+            el("b", {}, "Abilities: "), heritageAbilities.join(" · ")) : null));
 
   // interactive pool tiles live up here — pools matter more than attributes
   const pools = el("div", { class: "sh-head-pools" },
@@ -327,8 +331,15 @@ function sheetHeader() {
       el("div", { class: "k" }, "Zuzus"),
       el("div", { class: "v" }, fmt(play.cash), el("span", { class: "plus" }, " +"))));
 
-  // Top band: identity on the left, ZP/ZR/Ghost/Zuzus meters on the right.
-  const top = el("div", { class: "sh-top" }, ident, right);
+  // Freeform character description, sitting between identity and the meters.
+  const descField = el("div", { class: "sh-desc" },
+    el("textarea", { class: "sh-desc-input", placeholder: "Character description…",
+      spellcheck: "true",
+      oninput: e => { CHAR.description = e.target.value; schedulePlaySave(); } },
+      CHAR.description || ""));
+
+  // Top band: identity on the left, description in the middle, meters on the right.
+  const top = el("div", { class: "sh-top" }, ident, descField, right);
   // Pool band: Save/Load/New on the left, then the four pool tiles as a single
   // 1×4 row travelling across to sit under the meters.
   const poolBar = el("div", { class: "sh-poolbar" }, sheetActions(), pools);
@@ -510,7 +521,9 @@ function shOverview(body) {
       "Every 3 boxes marked on either track: −1 die on tasks, cumulative. Biotech can remove these penalties during combat."));
 
   // --- initiative + wound + combat numbers
-  const wound = -(Math.floor(play.physical_damage / 3) + Math.floor(play.stun_damage / 3));
+  const rawWound = -(Math.floor(play.physical_damage / 3) + Math.floor(play.stun_damage / 3));
+  const woundNegated = !!CALC.combat.wound_penalty_negated;   // Pain Nullifier, Shibumi, …
+  const wound = woundNegated ? 0 : rawWound;
   // Initiative: roll Focus-pool dice, add Reaction — e.g. "12d+8".
   const init = CALC.initiative
     || { dice: CALC.pools.Focus, bonus: CALC.attributes.Reaction.final, notes: [] };
@@ -529,8 +542,12 @@ function shOverview(body) {
     el("h3", {}, "Wound Penalty"),
     el("div", { class: "big", style: wound < 0 ? "color:var(--bad)" : "color:var(--ok)" },
       wound < 0 ? `${wound} dice` : "0"),
-    el("div", { class: "sub" }, "−1 per 3 boxes on each track, cumulative"),
-    el("div", { class: "sub" }, "Biotech can treat in combat"));
+    woundNegated
+      ? el("div", { class: "sub", style: "color:var(--ok)" },
+          rawWound < 0 ? `Negated — would be ${rawWound}` : "Wound penalties negated")
+      : el("div", { class: "sub" }, "−1 per 3 boxes on each track, cumulative"),
+    el("div", { class: "sub" },
+      woundNegated ? "Removed by an augment / martial art" : "Biotech can treat in combat"));
 
   const c = CALC.combat;
   const combatCard = el("div", { class: "card sh-card" },
@@ -548,6 +565,11 @@ function shOverview(body) {
     el("div", {}, poolCard),
     el("div", {}, cond),
     el("div", {}, initCard, woundCard, combatCard)));
+
+  // Heritage / uplift special abilities (e.g. a Bat's Echolocation) — surfaced
+  // here on the Overview, not just buried on the Notes tab.
+  const heritageCard = heritageTraitsCard();
+  if (heritageCard) body.append(heritageCard);
 
   // --- equipped weapons (+ mods) and worn armor, mirrored from the Gear tab
   const equippedWeapons = CHAR.weapons.filter(w => w.equipped !== false);
@@ -691,11 +713,13 @@ function poolSkillList(pool) {
     el("h4", {}, `${pool} skills`));
   for (const { name, s } of rows) {
     const rating = s.final > 0 ? String(s.final)
+      : s.dice_bonus ? "0"
       : s.group_value != null ? `grp ${s.group_value}` : "—";
-    box.append(el("div", { class: "sh-poolskill" + (s.final > 0 ? "" : " dim") },
+    box.append(el("div", { class: "sh-poolskill" + (s.final > 0 || s.dice_bonus ? "" : " dim") },
       el("span", {}, name, s.group ? el("span", { class: "sub" }, ` ·${s.group}`) : null),
       skillDots(s.final, pool),
-      el("b", {}, rating)));
+      el("b", {}, rating,
+        s.dice_bonus ? el("span", { class: "skill-dice" }, `+${s.dice_bonus}d`) : null)));
   }
   return box;
 }
@@ -715,13 +739,15 @@ function shSkills(body) {
       el("div", { class: "colhead" }, el("span", {}, pool),
         el("b", {}, String(CALC.pools[pool]))));
     const trained = Object.entries(DATA.skills)
-      .filter(([n, m]) => m.pool === pool && CALC.skills[n].final > 0)
+      .filter(([n, m]) => m.pool === pool && (CALC.skills[n].final > 0 || CALC.skills[n].dice_bonus))
       .sort((a, b) => CALC.skills[b[0]].final - CALC.skills[a[0]].final);
     if (!trained.length) col.append(el("p", { class: "hint" }, "No trained skills."));
     for (const [name] of trained) {
       const s = CALC.skills[name];
       col.append(el("div", { class: "sh-poolskill" },
-        el("span", {}, name), skillDots(s.final, pool), el("b", {}, String(s.final))));
+        el("span", {}, name), skillDots(s.final, pool),
+        el("b", {}, String(s.final),
+          s.dice_bonus ? el("span", { class: "skill-dice" }, `+${s.dice_bonus}d`) : null)));
     }
     grid.append(col);
   }
@@ -762,13 +788,26 @@ function shSkills(body) {
     body.append(rc);
   }
 
+  // Martial Art: pick a style (needed when you buy Martial Arts in play), then
+  // its level effects unlock as the skill rises.
+  const maPts = (CALC.skills["Martial Arts"] || { points: 0 }).points;
+  const maStyles = [...new Set(DATA.tables.martial_arts.map(r => r.Style))].sort();
+  const maCard = el("div", { class: "card sh-card" },
+    el("h3", {}, "Martial Art" + (CALC.martial_art.style ? ` — ${CALC.martial_art.style}` : "")));
+  const maSel = el("select", {},
+    el("option", { value: "" }, "Choose style…"),
+    ...maStyles.map(st =>
+      el("option", { value: st, ...(CHAR.martial_art === st ? { selected: 1 } : {}) }, st)));
+  maSel.addEventListener("change", () => { CHAR.martial_art = maSel.value; playChangedRecalc(); });
+  maCard.append(el("div", { class: "add-row" }, el("span", { class: "sub" }, "Style"), maSel));
   if (CALC.martial_art.style) {
-    const ma = el("div", { class: "card sh-card" },
-      el("h3", {}, `Martial Art — ${CALC.martial_art.style}`));
-    CALC.martial_art.levels.forEach(l =>
-      ma.append(statLine(`Level ${l.Level}`, l.Effect)));
-    body.append(ma);
+    CALC.martial_art.levels.forEach(l => maCard.append(statLine(`Level ${l.Level}`, l.Effect)));
+  } else {
+    maCard.append(el("p", { class: "hint" }, maPts > 0
+      ? "Pick a style to see its level effects."
+      : "Buy the Martial Arts skill on the Kismet tab (Unarmed Combat first), then pick a style."));
   }
+  body.append(maCard);
 }
 
 /* ------------------------------------------------ kismet tab */
@@ -873,6 +912,20 @@ function shKismet(body) {
       onclick: async () => {
         const name = learnSel.value;
         if (!name) return;
+        // Martial Arts can never exceed Unarmed Combat, so it can't be the
+        // first-learned rank unless Unarmed Combat is already trained — and it
+        // needs a chosen style to do anything.
+        if (name === "Martial Arts") {
+          const uc = (CALC.skills["Unarmed Combat"] || { points: 0 }).points;
+          if (uc < 1) {
+            alert("Martial Arts can never exceed Unarmed Combat — raise Unarmed Combat first.");
+            return;
+          }
+          if (!CHAR.martial_art) {
+            alert("Choose a martial art style on the Skills tab first.");
+            return;
+          }
+        }
         if (!spendKismet(`Learned new skill: ${name}`, NEW_SKILL_KISMET_COST)) return;
         play.skill_advances[name] = (play.skill_advances[name] || 0) + 1;
         await playChangedRecalc();
@@ -1029,7 +1082,16 @@ function shGear(body) {
   const overdrawOK = (name, cost) => CHAR.play.cash >= cost
     || confirm(`${name} costs ${fmt(cost)} but you have ${fmt(CHAR.play.cash)}. Overdraw?`);
 
-  // ===== 1. Zuzus on hand (kept at the top; the ledger lives at the bottom now)
+  // ===== Jump submenu: scroll to any section within the gear tab.
+  const jump = id => () => document.getElementById(id)
+    ?.scrollIntoView({ behavior: "smooth", block: "start" });
+  body.append(el("div", { class: "gear-submenu" },
+    ...[["gear-cash", "Zuzus"], ["gear-lifestyle", "Lifestyle"], ["gear-weapons", "Weapons"],
+        ["gear-armor", "Armor"], ["gear-augments", "Augments"], ["gear-gear", "Gear"],
+        ["gear-vehicles", "Vehicles"], ["gear-buy", "Buy"]]
+      .map(([id, label]) => el("button", { onclick: jump(id) }, label))));
+
+  // ===== Zuzus on hand + Lifestyle — half-width, side by side.
   const amt = el("input", { type: "number", value: "100", min: "1", style: "width:90px" });
   const applyCash = sign => {
     const n = parseInt(amt.value, 10);
@@ -1037,7 +1099,7 @@ function shGear(body) {
     logCash(sign > 0 ? "Cash awarded" : "Cash spent", sign * n);
     playChanged();
   };
-  body.append(el("div", { class: "card sh-card" },
+  const zuzusCard = el("div", { class: "card sh-card", id: "gear-cash" },
     el("h3", {}, "Zuzus on hand"),
     el("div", { class: "sh-cash-row" },
       el("div", { class: "big cash" }, fmt(play.cash)),
@@ -1047,14 +1109,50 @@ function shGear(body) {
         el("button", { class: "btn warn", onclick: () => applyCash(-1) }, "− Subtract"))),
     el("p", { class: "hint" },
       "Unspent chargen cash was forfeited at finalize; starting cash was rolled 4d6×100. "
-      + "Money gained in play can be spent at any time — buy gear, weapons, armor and augments below.")));
+      + "Money gained in play can be spent any time — buy equipment in the Buy section below."));
+  const lsCard = lifestyleCard();
+  lsCard.id = "gear-lifestyle";
 
-  // ===== 2. Lifestyle
-  body.append(lifestyleCard());
+  // Carried load: equipped weapons + worn armor + gear vs Strength. Sits
+  // half-width, stacked under Zuzus.
+  const wtNum = n => +n || 0;
+  let load = 0;
+  CHAR.weapons.filter(w => w.equipped !== false).forEach(w => {
+    const r = DATA.tables.weapons.find(x => x.Weapon === w.name) || {};
+    load += wtNum(r.Weight);
+  });
+  CHAR.armor.filter(a => a.active !== false).forEach(a => {
+    const r = DATA.tables.armor.find(x => x.Armor === a.name) || {};
+    load += wtNum(r.wt);
+  });
+  [...CHAR.gear, ...play.purchases.gear].forEach(g => {
+    const r = DATA.tables.misc_gear.find(x => x.Item === g.name) || {};
+    load += wtNum(r.Weight) * (g.qty || 1);
+  });
+  load = Math.round(load * 10) / 10;
+  const strength = CALC.attributes.Strength.final;
+  const overburdened = load > strength;
+  const loadCard = el("div", { class: "card sh-card", id: "gear-load" }, el("h3", {}, "Carried load"),
+    el("div", { class: "sh-advrow" },
+      el("span", {}, "Equipped/worn weight vs Strength"),
+      el("b", { style: overburdened ? "color:var(--bad)" : "" }, `${load} / ${strength}`)));
+  if (overburdened)
+    loadCard.append(el("div", { class: "sh-callout", style: "border-color:var(--bad);color:var(--bad)" },
+      el("b", {}, "Overburdened — "),
+      `carrying ${load} weight exceeds Strength ${strength}.`));
 
-  // ===== 3. Weapons — buy new + owned table (equipped toggle stays live, remove)
-  const weaponCard = el("div", { class: "card sh-card" }, el("h3", {}, "Weapons"));
+  body.append(el("div", { class: "sh-two" },
+    el("div", {}, zuzusCard, loadCard),
+    lsCard));
+
+  // ===== Weapons — owned table (equipped toggle stays live, remove). Buying
+  // moved to the Buy section at the bottom.
+  const weaponCard = el("div", { class: "card sh-card", id: "gear-weapons" }, el("h3", {}, "Weapons"));
   if (mult > 1) weaponCard.append(el("p", { class: "hint" }, `Heritage surcharge: all costs ×${mult}.`));
+  weaponCard.append(el("div", { class: "mod-slot-legend" },
+    el("span", { class: "mod-overbarrel" }, "● Overbarrel"),
+    el("span", { class: "mod-underbarrel" }, "● Underbarrel"),
+    el("span", { class: "mod-chassis" }, "● Chassis")));
   const weaponBuyGroups = Object.entries(
     DATA.tables.weapons.reduce((acc, r) => (((acc[r.Type] ??= []).push(r)), acc), {}))
     .map(([type, rows]) => ({
@@ -1086,6 +1184,8 @@ function shGear(body) {
             onRemove: index => { w.mods.splice(index, 1); },
             effectOf: name =>
               (DATA.tables.weapon_mods.find(m => m.Modification === name) || {}).Effect || "",
+            classOf: name =>
+              modSlotClass((DATA.tables.weapon_mods.find(m => m.Modification === name) || {}).Slot),
             rerender: renderSheet,
             afterAdd: () => playChangedRecalc(),
           })
@@ -1108,21 +1208,14 @@ function shGear(body) {
           } }, "✕"))));
     });
     weaponCard.append(t);
+  } else {
+    weaponCard.append(el("p", { class: "hint" }, "No weapons owned — buy some in the Buy section below."));
   }
-  weaponCard.append(el("div", { class: "sh-unit-add" }, el("b", {}, "Buy weapon"),
-    categoryBrowser({ id: "sh-buy-weapons", groups: weaponBuyGroups,
-      rerender: renderSheet, afterAdd: () => playChangedRecalc(),
-      onAdd: name => {
-        const r = DATA.tables.weapons.find(x => x.Weapon === name) || {};
-        const cost = Math.round((+r.Cost || 0) * mult);
-        if (!overdrawOK(name, cost)) return;
-        CHAR.weapons.push({ name, smart: false, mods: [], equipped: true, qty: 1 });
-        logCash(`Bought ${name}`, -cost);
-      } })));
   body.append(weaponCard);
 
-  // ===== 4. Armor — buy new + owned table (worn toggle stays live, remove)
-  const armorCard = el("div", { class: "card sh-card" }, el("h3", {}, "Armor"),
+  // ===== Armor — owned table (worn toggle stays live, remove). Buying moved
+  // to the Buy section at the bottom.
+  const armorCard = el("div", { class: "card sh-card", id: "gear-armor" }, el("h3", {}, "Armor"),
     el("p", { class: "hint" },
       `Current totals: ${CALC.combat.ballistic_armor}B / ${CALC.combat.impact_armor}I (augments and powers included). One Outer and one Under piece worn at a time.`));
   const armorItem = r => ({ name: r.Armor, cost: Math.round((+r.Cost || 0) * mult),
@@ -1186,70 +1279,16 @@ function shGear(body) {
           } }, "✕"))));
     });
     armorCard.append(t);
+  } else {
+    armorCard.append(el("p", { class: "hint" }, "No armor owned — buy some in the Buy section below."));
   }
-  armorCard.append(el("div", { class: "sh-unit-add" }, el("b", {}, "Buy armor"),
-    categoryBrowser({ id: "sh-buy-armor", groups: armorBuyGroups,
-      rerender: renderSheet, afterAdd: () => playChangedRecalc(),
-      onAdd: name => {
-        const r = DATA.tables.armor.find(x => x.Armor === name) || {};
-        const cost = Math.round((+r.Cost || 0) * mult);
-        if (!overdrawOK(name, cost)) return;
-        CHAR.armor.push({ name, style: "", material: "", extras: [], active: true });
-        logCash(`Bought ${name}`, -cost);
-      } })));
   body.append(armorCard);
 
-  // ===== 5. Carried load: equipped weapons + worn armor + gear, vs Strength
-  const wtNum = n => +n || 0;
-  let load = 0;
-  CHAR.weapons.filter(w => w.equipped !== false).forEach(w => {
-    const r = DATA.tables.weapons.find(x => x.Weapon === w.name) || {};
-    load += wtNum(r.Weight);
-  });
-  CHAR.armor.filter(a => a.active !== false).forEach(a => {
-    const r = DATA.tables.armor.find(x => x.Armor === a.name) || {};
-    load += wtNum(r.wt);
-  });
-  [...CHAR.gear, ...play.purchases.gear].forEach(g => {
-    const r = DATA.tables.misc_gear.find(x => x.Item === g.name) || {};
-    load += wtNum(r.Weight) * (g.qty || 1);
-  });
-  load = Math.round(load * 10) / 10;
-  const strength = CALC.attributes.Strength.final;
-  const overburdened = load > strength;
-  const loadCard = el("div", { class: "card sh-card" }, el("h3", {}, "Carried load"),
-    el("div", { class: "sh-advrow" },
-      el("span", {}, "Equipped/worn weight vs Strength"),
-      el("b", { style: overburdened ? "color:var(--bad)" : "" }, `${load} / ${strength}`)));
-  if (overburdened)
-    loadCard.append(el("div", { class: "sh-callout", style: "border-color:var(--bad);color:var(--bad)" },
-      el("b", {}, "Overburdened — "),
-      `carrying ${load} weight exceeds Strength ${strength}.`));
-  body.append(loadCard);
-
-  // ===== 6. Buy other gear + augments (quick dropdowns)
-  const buyCard = el("div", { class: "card sh-card" }, el("h3", {}, "Buy gear & augments (paid from zuzus)"));
-  const gearSel = el("select", {}, el("option", { value: "" }, "Buy gear…"));
-  const classes = {};
-  DATA.tables.misc_gear.forEach(r => (classes[r.Class] ??= []).push(r));
-  for (const [cls, rows] of Object.entries(classes)) {
-    gearSel.append(el("optgroup", { label: cls },
-      ...rows.map(r => el("option", { value: r.Item }, `${r.Item} — ${fmt(Math.round(r.Cost * mult))}`))));
-  }
-  const augSel = el("select", {}, el("option", { value: "" }, "Buy augment…"),
-    ...DATA.tables.augments.map(r =>
-      el("option", { value: r.Name }, `${r.Name} — ${fmt(Math.round(r.Cost * mult))} · ZR ${r.ZR || 0} · BI ${r.BI || 0}`)));
-  buyCard.append(
-    el("div", { class: "add-row" }, gearSel,
-      el("button", { class: "btn-add", onclick: () => buyGear(gearSel.value, mult) }, "Buy")),
-    el("div", { class: "add-row" }, augSel,
-      el("button", { class: "btn-add", onclick: () => buyAugment(augSel.value, mult) }, "Buy")));
-  body.append(buyCard);
-
-  // ===== 7. Augments (chargen + bought in play) — Alpha toggle + remove
+  // ===== Augments (chargen + bought in play) — Alpha toggle + remove
   const augEntries = [
     ...CHAR.augments.map(a => ({ ref: a, inPlay: false })),
     ...play.purchases.augments.map(a => ({ ref: a, inPlay: true }))];
+  const augCard = el("div", { class: "card sh-card", id: "gear-augments" }, el("h3", {}, "Augments"));
   if (augEntries.length) {
     const t = el("table");
     t.append(el("tr", {}, el("th", {}, "Augment"), el("th", { class: "num" }, "×"),
@@ -1286,12 +1325,14 @@ function shGear(body) {
             await playChangedRecalc();
           } }, "✕"))));
     });
-    body.append(el("div", { class: "card sh-card" }, el("h3", {}, "Augments"),
-      el("p", { class: "hint" },
-        "α-cyber Augments are bleeding edge, reducing the ZR by 20% but doubling the cost."), t));
+    augCard.append(el("p", { class: "hint" },
+      "α-cyber Augments are bleeding edge, reducing the ZR by 20% but doubling the cost."), t);
+  } else {
+    augCard.append(el("p", { class: "hint" }, "No augments — buy some in the Buy section below."));
   }
+  body.append(augCard);
 
-  // ===== 8. Gear list (chargen + bought in play) — remove buttons
+  // ===== Gear list (chargen + bought in play) — remove buttons
   const gearEntries = [
     ...CHAR.gear.map(g => ({ ref: g, inPlay: false })),
     ...play.purchases.gear.map(g => ({ ref: g, inPlay: true }))];
@@ -1316,9 +1357,9 @@ function shGear(body) {
   });
   if (!gearEntries.length)
     gt.append(el("tr", {}, el("td", { class: "sub", colspan: "4" }, "No gear.")));
-  body.append(el("div", { class: "card sh-card" }, el("h3", {}, "Gear"), gt));
+  body.append(el("div", { class: "card sh-card", id: "gear-gear" }, el("h3", {}, "Gear"), gt));
 
-  // ===== 9. Vehicles / rigs / decks owned (configured on their own tabs)
+  // ===== Vehicles / rigs / decks owned (configured on their own tabs)
   if (CHAR.rigs.length || CHAR.decks.length || CHAR.drones.length || CHAR.vehicles.length) {
     const vt = el("table");
     vt.append(el("tr", {}, el("th", {}, "Item"), el("th", {}, "Type")));
@@ -1331,12 +1372,62 @@ function shGear(body) {
     addRows(CHAR.decks, "Cyberdeck", "name");
     addRows(CHAR.drones, "Drone", "name");
     addRows(CHAR.vehicles, "Vehicle", "name");
-    body.append(el("div", { class: "card sh-card" },
+    body.append(el("div", { class: "card sh-card", id: "gear-vehicles" },
       el("h3", {}, "Vehicles, Rigs & Decks"),
       el("p", { class: "hint" }, "Bought, modified and removed on the Rigging and Decking tabs."), vt));
   }
 
-  // ===== 10. Activity (cash ledger) — moved to the bottom
+  // ===== Buy equipment — all purchasing lives here, collapsible by type.
+  const augBuyGroups = Object.entries(
+    DATA.tables.augments.reduce((acc, r) => (((acc[r.Type || "Augment"] ??= []).push(r)), acc), {}))
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([type, rows]) => ({
+      label: type,
+      items: rows.map(r => ({ name: r.Name, cost: Math.round((+r.Cost || 0) * mult),
+        sub: `ZR ${r.ZR || 0} · BI ${r.BI || 0}${r.Effect ? " · " + r.Effect : ""}` })),
+    }));
+  const gearBuyGroups = Object.entries(
+    DATA.tables.misc_gear.reduce((acc, r) => (((acc[r.Class || "Gear"] ??= []).push(r)), acc), {}))
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([cls, rows]) => ({
+      label: cls,
+      items: rows.map(r => ({ name: r.Item, cost: Math.round((+r.Cost || 0) * mult),
+        sub: r.Effect || "" })),
+    }));
+  const buySection = el("div", { class: "card sh-card", id: "gear-buy" },
+    el("h3", {}, "Buy equipment"),
+    el("p", { class: "hint" }, "Everything purchasable from zuzus, grouped by type. "
+      + (mult > 1 ? `Heritage surcharge ×${mult} applied. ` : "")
+      + "Decks, programs, rigs, drones and vehicles are bought on the Decking and Rigging tabs."));
+  const buyBlock = (title, browser) =>
+    buySection.append(el("div", { class: "sh-unit-add" }, el("b", {}, title), browser));
+  buyBlock("Weapons", categoryBrowser({ id: "sh-buy-weapons", groups: weaponBuyGroups,
+    rerender: renderSheet, afterAdd: () => playChangedRecalc(),
+    onAdd: name => {
+      const r = DATA.tables.weapons.find(x => x.Weapon === name) || {};
+      const cost = Math.round((+r.Cost || 0) * mult);
+      if (!overdrawOK(name, cost)) return;
+      CHAR.weapons.push({ name, smart: false, mods: [], equipped: true, qty: 1 });
+      logCash(`Bought ${name}`, -cost);
+    } }));
+  buyBlock("Armor", categoryBrowser({ id: "sh-buy-armor", groups: armorBuyGroups,
+    rerender: renderSheet, afterAdd: () => playChangedRecalc(),
+    onAdd: name => {
+      const r = DATA.tables.armor.find(x => x.Armor === name) || {};
+      const cost = Math.round((+r.Cost || 0) * mult);
+      if (!overdrawOK(name, cost)) return;
+      CHAR.armor.push({ name, style: "", material: "", extras: [], active: true });
+      logCash(`Bought ${name}`, -cost);
+    } }));
+  buyBlock("Augments", categoryBrowser({ id: "sh-buy-augments", groups: augBuyGroups,
+    rerender: renderSheet, afterAdd: () => {},
+    onAdd: name => buyAugment(name, mult) }));
+  buyBlock("Gear", categoryBrowser({ id: "sh-buy-gear", groups: gearBuyGroups,
+    rerender: renderSheet, afterAdd: () => {},
+    onAdd: name => buyGear(name, mult) }));
+  body.append(buySection);
+
+  // ===== Activity (cash ledger) — moved to the bottom
   if (play.cash_log.length) {
     const t = el("table", { style: "max-width:560px" });
     play.cash_log.slice(0, 20).forEach(entry =>
@@ -1703,6 +1794,9 @@ function shDecking(body) {
   const active = DATA.tables.decks.find(x => x.Name === dk.active_deck);
 
   const mult = CALC.budget.gear_cost_multiplier || 1;
+  // Buy browsers collect here and render at the bottom of the tab.
+  const deckBuySection = el("div", { class: "card sh-card", id: "deck-buy" },
+    el("h3", {}, "Buy decks & programs"));
   const deckCard = el("div", { class: "card sh-card" }, el("h3", {}, "Cyberdecks"));
   decks.forEach((d, di) => {
     const r = DATA.tables.decks.find(x => x.Name === d.name) || {};
@@ -1749,7 +1843,7 @@ function shDecking(body) {
   const deckGroups = [{ label: "Cyberdecks", items: DATA.tables.decks.map(x => ({
     name: x.Name, cost: Math.round((+x.Cost || 0) * mult),
     sub: `MCP ${x.MCP} · Threads ${x.Threads} · Core ${x.Core} · I/O ${x.IO}` })) }];
-  deckCard.append(el("div", { class: "sh-unit-add" }, el("b", {}, "Buy cyberdeck"),
+  deckBuySection.append(el("div", { class: "sh-unit-add" }, el("b", {}, "Buy cyberdeck"),
     categoryBrowser({ id: "buy-decks", groups: deckGroups,
       rerender: renderSheet, afterAdd: () => playChangedRecalc(),
       onAdd: name => {
@@ -1767,7 +1861,6 @@ function shDecking(body) {
   const boughtLevels = CHAR.play.purchases.hacking_levels || 0;
   const rating = baseRating + boughtLevels;
   const required = active ? Math.max(1, Math.floor(+active.MCP / 2)) : 0;
-  const effective = active ? Math.min(rating, required, HACKING_RATING_MAX) : 0;
   const meets = !active || rating >= required;
   const levelCost = Math.round(HACKING_RATING_COST * mult);
   const hackBox = el("div", { class: "sh-hackbox" },
@@ -1776,12 +1869,11 @@ function shDecking(body) {
       el("span", { class: "chip" + (meets ? " ok" : " neg") },
         active ? `rating ${rating} / required ${required}` : `rating ${rating}`)),
     el("p", { class: "hint" },
-      "The loaded Hacking program must be rated at least ½ the active deck's MCP (round down, min 1). "
-      + `Each level costs ${fmt(levelCost)}. Effective Hacking skill = ½ MCP, max ${HACKING_RATING_MAX}.`),
+      "The loaded Hacking program must be rated at least ½ the active deck's MCP (round down, min 1)"
+      + (active ? ` — min ${required} for ${active.Name} (MCP ${active.MCP})` : "")
+      + `, plus any levels bought on top. Each level costs ${fmt(levelCost)} (max ${HACKING_RATING_MAX}).`),
     statLine("Program rating", String(rating)
       + (boughtLevels ? ` (${baseRating} at chargen + ${boughtLevels} in play)` : "")),
-    active ? statLine(`Required (½ MCP ${active.MCP})`, String(required)) : null,
-    active ? statLine("Effective Hacking skill", String(effective)) : null,
     el("div", { class: "add-row" },
       el("button", {
         class: "btn-add", disabled: rating >= HACKING_RATING_MAX ? "1" : null,
@@ -1847,7 +1939,7 @@ function shDecking(body) {
         hidden: ownedProg.has(pr.Name),
       })),
     }));
-  progCard.append(el("div", { class: "sh-unit-add" }, el("b", {}, "Buy program"),
+  deckBuySection.append(el("div", { class: "sh-unit-add" }, el("b", {}, "Buy program"),
     categoryBrowser({ id: "buy-programs", groups: progGroups,
       rerender: renderSheet, afterAdd: () => playChangedRecalc(),
       onAdd: name => {
@@ -1859,6 +1951,7 @@ function shDecking(body) {
         logCash(`Bought program ${name}`, -cost);
       } })));
   body.append(progCard);
+  body.append(deckBuySection);
 }
 
 /* ------------------------------------------------ rigging tab */
@@ -1891,6 +1984,10 @@ function shRigging(body) {
   const activeRig = CHAR.rigs.find(r => r.name === rg.active_rig);
   const linkLimit = activeRig ? RULES.rigStats(activeRig, DATA.tables).links : 0;
   const linkedCount = () => Object.values(rg.linked).filter(Boolean).length;
+  // All "buy new unit" browsers collect here and render at the bottom.
+  const rigBuySection = el("div", { class: "card sh-card", id: "rig-buy" },
+    el("h3", {}, "Buy rigs, drones & vehicles"),
+    el("p", { class: "hint" }, "New units are purchased here; configure owned ones above."));
 
   // --- VCRs
   const rigCard = el("div", { class: "card sh-card" }, el("h3", {}, "Vehicle Control Rigs"));
@@ -1940,7 +2037,7 @@ function shRigging(body) {
   const rigGroups = [{ label: "Vehicle Control Rigs", items: DATA.tables.rigs.map(x => ({
     name: x["Rig Type"], cost: Math.round((+x.Cost || 0) * mult),
     sub: `+${x["Bonus Dice"]}d · Links ${x.Links} · Cores ${x.Cores}` })) }];
-  rigCard.append(el("div", { class: "sh-unit-add" }, el("b", {}, "Buy VCR"),
+  rigBuySection.append(el("div", { class: "sh-unit-add" }, el("b", {}, "Buy VCR"),
     categoryBrowser({ id: "buy-rigs", groups: rigGroups,
       rerender: renderSheet, afterAdd: () => playChangedRecalc(),
       onAdd: name => {
@@ -2076,12 +2173,13 @@ function shRigging(body) {
             } }, "✕"))));
     });
     if (!list.length) card.append(el("p", { class: "hint" }, `No ${cfg.title.toLowerCase()} owned.`));
+    body.append(card);
 
-    // buy a new unit
-    const buyGroups = [{ label: `Buy ${cfg.title}`, items: DATA.tables[cfg.table].map(x => ({
+    // buy a new unit — rendered in the bottom Buy section
+    const buyGroups = [{ label: cfg.title, items: DATA.tables[cfg.table].map(x => ({
       name: x[cfg.nameKey], cost: Math.round((+x.Cost || 0) * mult),
       sub: `Body ${x.Body} · Move ${x.Move} · Handling ${x.Handling}` })) }];
-    card.append(el("div", { class: "sh-unit-add" }, el("b", {}, `Buy new ${cfg.title.toLowerCase().replace(/s$/, "")}`),
+    rigBuySection.append(el("div", { class: "sh-unit-add" }, el("b", {}, `Buy new ${cfg.title.toLowerCase().replace(/s$/, "")}`),
       categoryBrowser({ id: `buy-${cfg.table}`, groups: buyGroups,
         rerender: renderSheet, afterAdd: () => playChangedRecalc(),
         onAdd: name => {
@@ -2092,10 +2190,10 @@ function shRigging(body) {
           list.push({ name, weapons: [], mods: [] });
           logCash(`Bought ${name}`, -cost);
         } })));
-    body.append(card);
   };
   unitBlock(RIG_UNIT_CFG.drones, CHAR.drones, CALC.drones);
   unitBlock(RIG_UNIT_CFG.vehicles, CHAR.vehicles, CALC.vehicles);
+  body.append(rigBuySection);
 }
 
 /* ------------------------------------------------ notes tab */
@@ -2114,7 +2212,8 @@ function shNotes(body) {
 }
 
 /* All heritage traits (features + uplift animal) with their listed effects. */
-function heritageTraitsCard() {
+/* [name, effect] for the character's uplift type + each chosen heritage feature. */
+function heritageTraitEntries() {
   const feats = DATA.tables.heritage_features || [];
   const rowOf = name => feats.find(f => f.Name === name);
   const traitEffect = f => f.Effects
@@ -2130,6 +2229,18 @@ function heritageTraitsCard() {
     const f = rowOf(name);
     entries.push([name, f ? traitEffect(f) : "—"]);
   });
+  return entries;
+}
+
+/* Compact "Name: effect" strings for the header, skipping empty effects. */
+function heritageAbilityLines() {
+  return heritageTraitEntries()
+    .filter(([, effect]) => effect && effect !== "—")
+    .map(([name, effect]) => `${name.replace(" (uplift)", "")}: ${effect}`);
+}
+
+function heritageTraitsCard() {
+  const entries = heritageTraitEntries();
   if (!entries.length) return null;
   const card = el("div", { class: "card sh-card" },
     el("h3", {}, "Heritage Traits"),

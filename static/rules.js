@@ -197,6 +197,7 @@ function defaultCharacter() {
   return {
     name: "",
     player: "",
+    description: "",
     notes: "",
     priorities: { heritage: 0, magic: 0, attributes: 0, skills: 0, resources: 0 },
     heritage: {
@@ -892,6 +893,45 @@ function scoreSkills(character, heritage, amp, augments, warnings, errors) {
   };
 }
 
+// Short forms used in gear/drone effect text -> canonical skill name.
+const SKILL_ALIASES = {
+  "Reconnaissance": ["Reconnaissance", "Recon"],
+  "Computer: Hacking": ["Computer: Hacking", "Hacking"],
+  "Computer: Programming": ["Computer: Programming", "Programming"],
+};
+
+/**
+ * Bonus skill DICE granted by active + linked drones (play mode). A linked
+ * drone contributes the numeric bonus it lists per skill, e.g. the Bug-Spy's
+ * "+1 to Observation/Recon" becomes +1d to Observation and Reconnaissance.
+ * Returns { skillName: dice }. Only drones currently feed this layer, so it
+ * never double-counts the heritage/augment bonuses already folded into rank.
+ */
+function droneSkillDice(character, data) {
+  const bonus = {};
+  const linked = ((character.play || {}).rigging || {}).linked || {};
+  const drones = character.drones || [];
+  const aliasesFor = skill => SKILL_ALIASES[skill] || [skill];
+  const escape = s => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  for (const [key, on] of Object.entries(linked)) {
+    if (!on || !key.startsWith("drones:")) continue;
+    const unit = drones[+key.split(":")[1]];
+    if (!unit) continue;
+    const effect = (findRow(data.drones, "Drone", unit.name) || {}).Effect || "";
+    for (const clause of effect.split(/[,.;]/)) {
+      const m = clause.match(/([+-]?\d+)\s*d?/);
+      const n = m ? parseInt(m[1], 10) : 0;
+      if (!n) continue;
+      for (const skill of Object.keys(SKILLS)) {
+        if (aliasesFor(skill).some(a => new RegExp(`\\b${escape(a)}\\b`, "i").test(clause))) {
+          bonus[skill] = (bonus[skill] || 0) + n;
+        }
+      }
+    }
+  }
+  return bonus;
+}
+
 function scoreKnowledgeSkills(character, finalIntelligence, finalCharisma, warnings, errors) {
   const knowledgeBudget = KNOWLEDGE_POINTS_PER_INTELLIGENCE * finalIntelligence;
   const knowledgeSpent = sumBy(character.knowledge_skills,
@@ -1010,6 +1050,13 @@ function budgetMagic(character, data, magicType, warnings, errors) {
 function priceWeapons(character, data, gearCostMultiplier, warnings) {
   const priced = [];
   let totalCost = 0.0, totalWeight = 0.0;
+  // Some mods (e.g. Laser Sight, Flashlight) are listed under more than one
+  // barrel slot, meaning they can mount in either. Those don't count toward
+  // the one-per-slot limit; collect their names once.
+  const slotsByMod = {};
+  for (const m of data.weapon_mods) (slotsByMod[m.Modification] ??= new Set()).add(m.Slot);
+  const dualSlotMods = new Set(
+    Object.entries(slotsByMod).filter(([, slots]) => slots.size > 1).map(([name]) => name));
   for (const entry of character.weapons) {
     const row = findRow(data.weapons, "Weapon", entry.name);
     if (!row) continue;
@@ -1026,8 +1073,20 @@ function priceWeapons(character, data, gearCostMultiplier, warnings) {
         fittedMods.push({ name: modName, slot: modRow.Slot, effect: modRow.Effect });
       }
     }
+    // The same mod can't be fitted twice (e.g. two Laser Sights).
+    const seenMods = new Set();
+    for (const mod of fittedMods) {
+      if (seenMods.has(mod.name)) {
+        warnings.push(`${entry.name}: ${mod.name} fitted more than once.`);
+      }
+      seenMods.add(mod.name);
+    }
+    // One mod per fixed barrel slot. Dual-slot mods fit either slot, so they're
+    // excluded from this check (only their duplicate is caught, above).
     for (const slot of ["underbarrel", "overbarrel"]) {
-      if (fittedMods.filter(mod => (mod.slot || "").toLowerCase() === slot).length > 1) {
+      const inSlot = fittedMods.filter(mod =>
+        !dualSlotMods.has(mod.name) && (mod.slot || "").toLowerCase() === slot);
+      if (inSlot.length > 1) {
         warnings.push(`${entry.name}: more than one ${slot} mod fitted.`);
       }
     }
@@ -1561,6 +1620,12 @@ function calculate(character) {
     errors.push(`Skill points overspent by ${-skillScoring.points.remaining}.`);
   }
 
+  // Bonus skill dice from active + linked drones (shown as "rank+Nd").
+  const skillDice = droneSkillDice(character, data);
+  for (const [name, dice] of Object.entries(skillDice)) {
+    if (skillScoring.skills[name]) skillScoring.skills[name].dice_bonus = dice;
+  }
+
   const knowledgeScoring = scoreKnowledgeSkills(
     character, finalAttributes.Intelligence, finalAttributes.Charisma,
     warnings, errors);
@@ -1661,6 +1726,16 @@ function calculate(character) {
   for (const [k, v] of Object.entries(combat)) {
     if (k !== "physical" && k !== "stun") combatOut[k] = v;
   }
+
+  // Some sources zero out condition-track wound penalties (Pain Nullifier
+  // augment, the Shibumi martial art, …). Detect data-driven: any effect text
+  // that both mentions "wound penalt(y)" and a removal verb.
+  const removesWoundPenalty = text =>
+    /wound penalt/i.test(text) && /(remove|ignore|negat|nullif|zero|no\b)/i.test(text);
+  combatOut.wound_penalty_negated =
+    augments.rows.some(([row]) => removesWoundPenalty(row.Effect || row.Description || ""))
+    || martialArt.levels.some(lvl => removesWoundPenalty(lvl.Effect || ""))
+    || heritage.traits.some(row => removesWoundPenalty(row.Effects || ""));
 
   return {
     priorities: {
