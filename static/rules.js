@@ -373,8 +373,36 @@ function applyHeritage(character, data, warnings, errors) {
   const attributePointModifier = toInt(sumColumn("Modifier"));
 
   const attributeAdjustment = {};
+  const attributeMaxAdjustment = {};
+
+  // Initialize both adjustment objects
   for (const [name, column] of Object.entries(ATTRIBUTE_COLUMN)) {
     attributeAdjustment[name] = toInt(sumColumn(column));
+    attributeMaxAdjustment[name] = 0;
+  }
+
+  // For Small Uplifts, move STR and BOD to max-only adjustments
+  const isSmallUplift = traits.some(row => row.SmallUplift === "true" || row.SmallUplift === true);
+  if (isSmallUplift) {
+    attributeMaxAdjustment["Strength"] = attributeAdjustment["Strength"];
+    attributeMaxAdjustment["Body"] = attributeAdjustment["Body"];
+    attributeAdjustment["Strength"] = 0;
+    attributeAdjustment["Body"] = 0;
+  }
+
+  // Handle max-only attributes for any heritage trait
+  for (const trait of traits) {
+    const maxOnlyAttrs = trait.MaxOnlyAttributes;
+    if (maxOnlyAttrs) {
+      const attrNames = maxOnlyAttrs.split(",").map(s => s.trim());
+      for (const attrName of attrNames) {
+        const fullName = attrName.charAt(0).toUpperCase() + attrName.slice(1).toLowerCase();
+        if (ATTRIBUTES.includes(fullName)) {
+          attributeMaxAdjustment[fullName] = attributeAdjustment[fullName];
+          attributeAdjustment[fullName] = 0;
+        }
+      }
+    }
   }
 
   if (traits.some(row => row.Name === "Nature's Blessing")) {
@@ -406,10 +434,17 @@ function applyHeritage(character, data, warnings, errors) {
   const heritageRow = findRow(data.heritages, "Name", heritageType);
   const baseZoeticPotential = toInt(asNumber((heritageRow || {}).ZP, 6));
 
+  // Calculate gear cost multiplier (Small Uplifts get 40% increase)
+  let gearCostMult = traits.some(row => row.Name === "Extra Arm")
+    ? EXTRA_ARM_GEAR_COST_MULTIPLIER : 1.0;
+  const smallUpliftMult = traits.reduce((max, row) => Math.max(max, asNumber(row.GearCostMultiplier, 1.0)), 1.0);
+  gearCostMult *= smallUpliftMult;
+
   return {
     type: heritageType,
     traits,
     attribute_adjustment: attributeAdjustment,
+    attribute_max_adjustment: attributeMaxAdjustment,
     uplift_attribute_point_modifier: attributePointModifier,
     specialization_pool: specializationPool,
     zoetic_potential: baseZoeticPotential + toInt(sumColumn("ZP")),
@@ -435,8 +470,7 @@ function applyHeritage(character, data, warnings, errors) {
     has_hephestus: traits.some(row => row.Name === "Hephestus"),
     has_cyclopean: traits.some(row => row.Name === "Cyclopean"),
     has_antlers: traits.some(row => row.Name === "Antlers"),
-    gear_cost_multiplier: traits.some(row => row.Name === "Extra Arm")
-      ? EXTRA_ARM_GEAR_COST_MULTIPLIER : 1.0,
+    gear_cost_multiplier: gearCostMult,
   };
 }
 
@@ -733,7 +767,7 @@ function scoreAttributes(character, data, startingAttributePoints, heritage, aug
                         + amp.attribute_adjustment[name]);
     const finalValue = baseLevel[name] + adjustment;
     const maxValue = (ATTRIBUTE_MAX_BASELINE
-                      + heritage.attribute_adjustment[name]
+                      + (heritage.attribute_max_adjustment[name] || heritage.attribute_adjustment[name])
                       + augments.attribute_max_adjustment[name]
                       + amp.attribute_max_adjustment[name]);
     attributes[name] = { base: baseLevel[name], adjust: adjustment,
