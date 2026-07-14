@@ -152,6 +152,12 @@ input[type=checkbox]{accent-color:var(--manon)}
 .skill-group-row td{font-family:var(--disp);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;
   color:var(--dim);padding-top:10px;border-bottom:1px solid var(--line)}
 tr.skill-grouped td:first-child{border-left:2px solid var(--manon-dim);padding-left:12px}
+.skill-name-line{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.skill-spec-toggle{display:inline-flex;align-items:center;gap:3px;margin-left:auto;
+  font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--dim);cursor:pointer;user-select:none}
+.skill-spec-toggle input[type=checkbox]{margin:0}
+.skill-spec-text{margin-top:4px;width:100%;font-size:12px;padding:3px 6px}
+.skill-spec-note{color:var(--manon);font-style:italic}
 
 /* signature: priority grid */
 .prio-grid{display:grid;grid-template-columns:150px repeat(5,54px) 1fr;gap:6px;align-items:center;max-width:760px}
@@ -184,6 +190,7 @@ label.opt input{margin-top:3px}
   --pool-finesse:#5fd39a;
   --pool-focus:#5aa9ff;
   --pool-resolve:#9d7bff;
+  --pool-kismet:#f2c14e;
 }
 #sheet{max-width:1280px;margin:0 auto;padding:18px 26px 60px}
 .sheet-head{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px 18px 0;margin-bottom:16px;
@@ -260,6 +267,7 @@ label.opt input{margin-top:3px}
 .sh-pool.finesse{border-color:var(--pool-finesse)}.sh-pool.finesse .k{color:var(--pool-finesse)}
 .sh-pool.focus{border-color:var(--pool-focus)}   .sh-pool.focus .k{color:var(--pool-focus)}
 .sh-pool.resolve{border-color:var(--pool-resolve)}.sh-pool.resolve .k{color:var(--pool-resolve)}
+.sh-pool.kismet{border-color:var(--pool-kismet);cursor:default}.sh-pool.kismet .k{color:var(--pool-kismet)}
 .sh-pool:hover,.sh-pool.open{box-shadow:0 0 14px rgba(157,123,255,.25);transform:translateY(-1px)}
 
 /* pool tiles living in the sheet header (compact, with dice tracking) */
@@ -365,6 +373,17 @@ label.opt input{margin-top:3px}
 .chip.mod-underbarrel{color:var(--slot-underbarrel);border-color:var(--slot-underbarrel)}
 .chip.mod-chassis{color:var(--slot-chassis);border-color:var(--slot-chassis)}
 .mod-slot-legend{display:flex;gap:12px;flex-wrap:wrap;font-size:11px;margin:2px 0 6px}
+/* 3x1 weapon mod-slot strip — one fixed box per barrel/chassis slot, spread
+ * across the bottom of the weapon row instead of stacked chips at the side. */
+tr.sh-modslots-row td{padding-top:0;padding-bottom:10px;border-bottom:1px solid #1d2330}
+.sh-modslots{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.sh-modslot{border:1px solid var(--line);border-radius:6px;padding:6px 8px;text-align:center;background:var(--panel)}
+.sh-modslot-label{font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--dim)}
+.sh-modslot-active{font-size:12px;font-weight:600;margin:2px 0 5px;min-height:14px}
+.sh-modslot select{width:100%;font-size:12px;padding:3px 4px}
+.sh-modslot.mod-overbarrel{border-color:var(--slot-overbarrel)}
+.sh-modslot.mod-underbarrel{border-color:var(--slot-underbarrel)}
+.sh-modslot.mod-chassis{border-color:var(--slot-chassis)}
 /* gear-tab jump submenu */
 .gear-submenu{display:flex;flex-wrap:wrap;gap:6px;position:sticky;top:0;z-index:5;
   background:var(--ink);padding:8px 0;margin-bottom:6px;border-bottom:1px solid var(--line)}

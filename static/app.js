@@ -680,7 +680,7 @@ function tabStats(p) {
     "1 point per rank, max 6 at creation. Untrained skills in a group roll at the group's best skill \u22122. "
     + "Martial Arts costs 2 points per rank and can never exceed your Unarmed Combat rank."));
   const GROUP_LABELS = { close_combat: "Close Combat", ranged_combat: "Ranged Combat",
-    engineering: "Engineering", hacking: "Hacking", vehicle: "Vehicle" };
+    hacking: "Hacking", vehicle: "Vehicle" };
   const byPool = {};
   Object.entries(DATA.skills).forEach(([name, s]) => (byPool[s.pool] ??= []).push(name));
   const grid = el("div", { class: "grid-2" });
@@ -699,14 +699,37 @@ function tabStats(p) {
 
     const skillRow = (name, grouped) => {
       const s = CALC.skills[name];
+      CHAR.skill_specializations ??= {};
+      const spec = CHAR.skill_specializations[name];
+      const specOn = !!(spec && spec.on);
+      // Specialized skills split into a lower / higher rating (\u22121 / +1).
+      const ratingText = specOn ? `${s.final - 1} / ${s.final + 1}` : String(s.final);
       const bonusCell = el("td", { class: "num sub" }, s.bonus ? "+" + s.bonus : "");
       const finCell = el("td", { class: "num" },
-        el("b", {}, String(s.final)),
+        el("b", {}, ratingText),
         s.soft ? el("span", { class: "sub" }, ` (soft ${s.soft})`) : null,
         s.group_value != null ? el("span", { class: "sub" }, ` (grp ${s.group_value})`) : null);
+      const specToggle = el("label", { class: "skill-spec-toggle" },
+        el("input", { type: "checkbox", ...(specOn ? { checked: 1 } : {}),
+          onchange: e => {
+            const entry = CHAR.skill_specializations[name] ??= { on: false, text: "" };
+            entry.on = e.target.checked;
+            refresh();
+          } }),
+        el("span", {}, "Spec"));
+      const specText = specOn
+        ? el("input", { type: "text", class: "skill-spec-text",
+            value: (spec && spec.text) || "", placeholder: "Specialization\u2026",
+            oninput: e => {
+              (CHAR.skill_specializations[name] ??= { on: true, text: "" }).text = e.target.value;
+            } })
+        : null;
       return el("tr", { class: grouped ? "skill-grouped" : null },
-        el("td", {}, name,
-          name === "Martial Arts" ? el("span", { class: "sub" }, " \u00b72 pts/rank, \u2264 Unarmed Combat") : null),
+        el("td", {},
+          el("div", { class: "skill-name-line" }, name,
+            name === "Martial Arts" ? el("span", { class: "sub" }, " \u00b72 pts/rank, \u2264 Unarmed Combat") : null,
+            specToggle),
+          specText),
         el("td", { class: "num" }, stepper(
           () => CHAR.skills[name] || 0,
           v => { CHAR.skills[name] = v; }, 0, 6)),
@@ -1306,7 +1329,7 @@ function tabWeapons(p) {
       return el("tr", {},
         el("td", {}, el("b", {}, it.name),
           el("div", { class: "sub" },
-            `${r.Type} \u00b7 Acc ${r.Accuracy || 0} \u00b7 DMG ${r.Damage} \u00b7 ${r["Firing modes"] || "melee"} \u00b7 Pen ${r.Pen || 0}`
+            `${r.Type} \u00b7 Acc ${r.Accuracy || 0} \u00b7 DMG ${r.Damage} \u00b7 ${r["Firing modes"] || "melee"} \u00b7 Pen ${r.Pen || 0} \u00b7 Weight ${r.Weight || 0}`
             + (isThrown ? ` \u00b7 \u00d7${it.qty || 1}` : "")),
           canMod ? fittedCategoryEditor({
             id: `wmods-${i}-${it.name}`,
@@ -1375,6 +1398,7 @@ function tabWeapons(p) {
             optionElements: extras.map(x => el("option", { value: x.Extra }, `${x.Extra} \u00d7${x.Multiplier}`)),
             onAdd: name => it.extras.push(name),
             onRemove: index => it.extras.splice(index, 1),
+            effectOf: name => (extras.find(x => x.Extra === name) || {}).Effects || "",
           }));      }
       return el("tr", {},
         el("td", {}, el("b", {}, it.name),
@@ -1667,7 +1691,7 @@ function tabGear(p) {
   p.append(listEditor({
     items: CHAR.gear,
     picker: categoryBrowser({ id: "gear", groups: gearGroups,
-      onAdd: n => CHAR.gear.push({ name: n, qty: 1, link: "" }) }),
+      onAdd: n => CHAR.gear.push({ name: n, qty: 1, link: "", carried: true }) }),
     onRemove: i => CHAR.gear.splice(i, 1),
     render: (it, i, del) => {
       const r = DATA.tables.misc_gear.find(x => x.Item === it.name) || {};
@@ -1678,6 +1702,11 @@ function tabGear(p) {
         costCell,
         el("td", { class: "num" }, stepper(() => it.qty || 1,
           v => { it.qty = v; costCell.textContent = fmt((+r.Cost || 0) * v); }, 1, 99)),
+        el("td", {},
+          el("label", { class: "opt" },
+            el("input", { type: "checkbox", ...(it.carried !== false ? { checked: 1 } : {}),
+              onchange: e => { it.carried = e.target.checked; } }),
+            el("span", {}, "Carried"))),
         el("td", {}, el("button", { class: "row-del", onclick: del }, "\u2715")));
     },
   }));

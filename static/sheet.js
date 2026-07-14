@@ -307,7 +307,7 @@ function sheetHeader() {
 
   // interactive pool tiles live up here — pools matter more than attributes
   const pools = el("div", { class: "sh-head-pools" },
-    ...POOL_ORDER.map(headerPoolTile));
+    ...POOL_ORDER.map(headerPoolTile), kismetPoolTile());
 
   const z = CALC.zoetics;
   const right = el("div", { class: "sh-meters" },
@@ -434,6 +434,32 @@ function headerPoolTile(pool) {
     ...notes.map(n => el("div", { class: "sh-pool-note" }, n)));
 }
 
+/* Kismet die pool — 1 die to start, +1 per 10 Kismet earned during play
+ * (lifetime, from play.kismet_earned; never shrinks). Tracked as its own
+ * used-dice counter, same pattern as the four attribute pools above. */
+function kismetPoolTile() {
+  const play = CHAR.play;
+  play.pool_used = play.pool_used || {};
+  const max = 1 + Math.floor((play.kismet_earned || 0) / 10);
+  const used = Math.max(0, Math.min(play.pool_used.Kismet || 0, max));
+  const remaining = max - used;
+  const setUsed = v => { play.pool_used.Kismet = Math.max(0, Math.min(max, v)); playChanged(); };
+  const btn = (label, fn, title) => el("button", { class: "mini-btn", title,
+    onclick: e => { e.stopPropagation(); fn(); } }, label);
+  return el("div", {
+    class: "sh-pool kismet",
+    title: `Kismet dice: ${remaining} of ${max} left — 1 to start, +1 per 10 Kismet earned`,
+    "aria-label": `Kismet dice ${remaining} of ${max}`,
+  },
+    el("div", { class: "k" }, "Kismet"),
+    el("div", { class: "v" }, String(remaining),
+      el("span", { class: "max" }, ` / ${max}`)),
+    el("div", { class: "sh-pool-btns" },
+      btn("−", () => setUsed(used + 1), "Spend a Kismet die"),
+      btn("+", () => setUsed(used - 1), "Return a spent Kismet die"),
+      btn("↺", () => setUsed(0), "Reset Kismet dice to full")));
+}
+
 function adjustCash() {
   const raw = prompt("Adjust zuzus by (negative to spend):", "0");
   if (raw == null) return;
@@ -445,6 +471,26 @@ function adjustCash() {
 }
 
 function sheetFooter() {
+  const importInput = el("input", {
+    type: "file", accept: ".json,application/json", hidden: "1",
+    onchange: async e => {
+      const file = e.target.files[0];
+      e.target.value = "";
+      if (!file) return;
+      let parsed;
+      try { parsed = JSON.parse(await file.text()); } catch { parsed = null; }
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed) || !parsed.attributes) {
+        alert("That file doesn't look like an exported Sinless character.");
+        return;
+      }
+      if (!confirm("Import this character? Unsaved changes to the current one are lost.")) return;
+      CHAR = RULES.mergeDefaults(parsed);
+      STORAGE.saveCharacter(CHAR);
+      if (typeof refreshLoadList === "function") refreshLoadList();
+      await recalc();
+      if (CHAR.finalized) renderSheet(); else { exitSheet(); renderTabs(); renderPanel(); }
+    },
+  });
   return el("div", { class: "sheet-foot" },
     el("button", { class: "btn ghost", onclick: backToChargen }, "← Back to Chargen"),
     el("button", { class: "btn warn", onclick: revertToChargenEnd }, "Revert to Post-Chargen"),
@@ -454,7 +500,9 @@ function sheetFooter() {
       const a = el("a", { href: URL.createObjectURL(blob),
         download: (CHAR.name || "character") + ".json" });
       a.click();
-    } }, "Export JSON"));
+    } }, "Export JSON"),
+    el("button", { class: "btn ghost", onclick: () => importInput.click() }, "Import JSON"),
+    importInput);
 }
 async function backToChargen() {
   if (!confirm("Return to character generation?\n\nChargen budgets become editable again. "
@@ -503,7 +551,10 @@ function shOverview(body) {
     el("h4", { class: "sh-h4" }, "Attributes"), attrsRow);
   if (expandedPool) poolCard.append(poolSkillList(expandedPool));
 
-  // --- condition
+  // --- condition (wound penalty folded in — it's derived straight from these tracks)
+  const rawWound = -(Math.floor(play.physical_damage / 3) + Math.floor(play.stun_damage / 3));
+  const woundNegated = !!CALC.combat.wound_penalty_negated;   // Pain Nullifier, Shibumi, …
+  const wound = woundNegated ? 0 : rawWound;
   const cond = el("div", { class: "card sh-card" },
     el("div", { class: "sh-card-head" }, el("h3", {}, "Condition"),
       el("span", {},
@@ -518,12 +569,17 @@ function shOverview(body) {
     conditionTrack("Stun", CALC.condition.stun,
       () => play.stun_damage, v => { play.stun_damage = v; }),
     el("p", { class: "hint", style: "margin:8px 0 0" },
-      "Every 3 boxes marked on either track: −1 die on tasks, cumulative. Biotech can remove these penalties during combat."));
+      "Every 3 boxes marked on either track: −1 die on tasks, cumulative. Biotech can remove these penalties during combat."),
+    el("div", { class: "stat-line", style: "margin-top:8px" },
+      "Wound Penalty",
+      el("b", { style: wound < 0 ? "color:var(--bad)" : "color:var(--ok)" },
+        wound < 0 ? `${wound} dice` : "0")),
+    woundNegated
+      ? el("div", { class: "sub", style: "color:var(--ok)" },
+          rawWound < 0 ? `Negated — would be ${rawWound}` : "Wound penalties negated")
+      : null);
 
-  // --- initiative + wound + combat numbers
-  const rawWound = -(Math.floor(play.physical_damage / 3) + Math.floor(play.stun_damage / 3));
-  const woundNegated = !!CALC.combat.wound_penalty_negated;   // Pain Nullifier, Shibumi, …
-  const wound = woundNegated ? 0 : rawWound;
+  // --- initiative + combat numbers
   // Initiative: roll Focus-pool dice, add Reaction — e.g. "12d+8".
   const init = CALC.initiative
     || { dice: CALC.pools.Focus, bonus: CALC.attributes.Reaction.final, notes: [] };
@@ -538,16 +594,6 @@ function shOverview(body) {
       el("div", { class: "sub", style: "color:var(--amber);margin-top:4px" }, "★ " + n)),
     el("div", { class: "sh-counter-btns", style: "margin-top:8px" },
       el("span", { class: "sub", style: "align-self:center" }, "Rolled:"), initInput));
-  const woundCard = el("div", { class: "card sh-card sh-counter" },
-    el("h3", {}, "Wound Penalty"),
-    el("div", { class: "big", style: wound < 0 ? "color:var(--bad)" : "color:var(--ok)" },
-      wound < 0 ? `${wound} dice` : "0"),
-    woundNegated
-      ? el("div", { class: "sub", style: "color:var(--ok)" },
-          rawWound < 0 ? `Negated — would be ${rawWound}` : "Wound penalties negated")
-      : el("div", { class: "sub" }, "−1 per 3 boxes on each track, cumulative"),
-    el("div", { class: "sub" },
-      woundNegated ? "Removed by an augment / martial art" : "Biotech can treat in combat"));
 
   const c = CALC.combat;
   const combatCard = el("div", { class: "card sh-card" },
@@ -560,11 +606,17 @@ function shOverview(body) {
     c.dodge_bonus ? statLine("Dodge bonus", `+${c.dodge_bonus}`) : null,
     c.soak_bonus ? statLine("Soak bonus", `+${c.soak_bonus}`) : null,
     statLine("Carried weight", String(c.carried_weight)));
+  const dodgeCard = el("div", { class: "card sh-card sh-counter" },
+    el("h3", {}, "Dodge Dice"),
+    el("div", { class: "big" }, String(play.dodge_dice || 0)),
+    el("div", { class: "sub" },
+      c.dodge_bonus ? `+ ${c.dodge_bonus} passive dodge bonus` : "Bonus dice gained in play (Full Defense, cover, …)"),
+    miniCounter("Dodge dice", () => play.dodge_dice || 0, v => { play.dodge_dice = v; }, 0, 99));
 
   body.append(el("div", { class: "sh-ov-grid" },
     el("div", {}, poolCard),
     el("div", {}, cond),
-    el("div", {}, initCard, woundCard, combatCard)));
+    el("div", {}, initCard, dodgeCard, combatCard)));
 
   // Heritage / uplift special abilities (e.g. a Bat's Echolocation) — surfaced
   // here on the Overview, not just buried on the Notes tab.
@@ -712,11 +764,15 @@ function poolSkillList(pool) {
   const box = el("div", { class: `sh-poolskills ${pool.toLowerCase()}` },
     el("h4", {}, `${pool} skills`));
   for (const { name, s } of rows) {
-    const rating = s.final > 0 ? String(s.final)
+    const spec = (CHAR.skill_specializations || {})[name];
+    const specOn = !!(spec && spec.on) && s.final > 0;
+    const rating = specOn ? `${s.final - 1} / ${s.final + 1}`
+      : s.final > 0 ? String(s.final)
       : s.dice_bonus ? "0"
       : s.group_value != null ? `grp ${s.group_value}` : "—";
     box.append(el("div", { class: "sh-poolskill" + (s.final > 0 || s.dice_bonus ? "" : " dim") },
-      el("span", {}, name, s.group ? el("span", { class: "sub" }, ` ·${s.group}`) : null),
+      el("span", {}, name, s.group ? el("span", { class: "sub" }, ` ·${s.group}`) : null,
+        specOn && spec.text ? el("span", { class: "sub skill-spec-note" }, ` — ${spec.text}`) : null),
       skillDots(s.final, pool),
       el("b", {}, rating,
         s.dice_bonus ? el("span", { class: "skill-dice" }, `+${s.dice_bonus}d`) : null)));
@@ -744,9 +800,14 @@ function shSkills(body) {
     if (!trained.length) col.append(el("p", { class: "hint" }, "No trained skills."));
     for (const [name] of trained) {
       const s = CALC.skills[name];
+      const spec = (CHAR.skill_specializations || {})[name];
+      const specOn = !!(spec && spec.on) && s.final > 0;
+      const rating = specOn ? `${s.final - 1} / ${s.final + 1}` : String(s.final);
       col.append(el("div", { class: "sh-poolskill" },
-        el("span", {}, name), skillDots(s.final, pool),
-        el("b", {}, String(s.final),
+        el("span", {}, name,
+          specOn && spec.text ? el("span", { class: "sub skill-spec-note" }, ` — ${spec.text}`) : null),
+        skillDots(s.final, pool),
+        el("b", {}, rating,
           s.dice_bonus ? el("span", { class: "skill-dice" }, `+${s.dice_bonus}d`) : null)));
     }
     grid.append(col);
@@ -935,6 +996,44 @@ function shKismet(body) {
   two.append(attrBox, skillBox);
   spend.append(two);
 
+  const ritualBox = el("div", {}, el("h4", { class: "sh-h4" }, "Raise Rituals"));
+  const ritualNames = DATA.tables.rituals.map(r => r.Name);
+  const rankedRituals = ritualNames.filter(n => (CALC.ritual_skills[n] || 0) > 0)
+    .sort((a, b) => (CALC.ritual_skills[b] || 0) - (CALC.ritual_skills[a] || 0));
+  if (!rankedRituals.length) ritualBox.append(el("p", { class: "hint" }, "No trained rituals yet."));
+  for (const name of rankedRituals) {
+    const points = CALC.ritual_skills[name] || 0;
+    const atCap = points >= SKILL_KISMET_CAP;
+    const cost = skillRaiseCost(points);
+    ritualBox.append(el("div", { class: "sh-advrow" },
+      el("span", {}, el("b", {}, name), el("span", { class: "sub" }, ` rank ${points}`)),
+      el("button", {
+        class: "btn small", disabled: (atCap || play.kismet < cost) ? "1" : null,
+        title: atCap ? "Rank 6 is the Kismet cap — use a mastery boon for 7" : null,
+        onclick: async () => {
+          if (!spendKismet(`Raised ritual ${name} to rank ${points + 1}`, cost)) return;
+          play.ritual_advances[name] = (play.ritual_advances[name] || 0) + 1;
+          await playChangedRecalc();
+        },
+      }, atCap ? "cap 6" : `+1 (${cost})`)));
+  }
+  const untrainedRituals = ritualNames.filter(n => (CALC.ritual_skills[n] || 0) === 0).sort();
+  const learnRitualSel = el("select", {},
+    el("option", { value: "" }, "Learn new ritual…"),
+    ...untrainedRituals.map(n => el("option", {}, n)));
+  ritualBox.append(el("div", { class: "add-row" }, learnRitualSel,
+    el("button", {
+      class: "btn-add", disabled: play.kismet < NEW_SKILL_KISMET_COST ? "1" : null,
+      onclick: async () => {
+        const name = learnRitualSel.value;
+        if (!name) return;
+        if (!spendKismet(`Learned new ritual: ${name}`, NEW_SKILL_KISMET_COST)) return;
+        play.ritual_advances[name] = (play.ritual_advances[name] || 0) + 1;
+        await playChangedRecalc();
+      },
+    }, `Learn (${NEW_SKILL_KISMET_COST})`)));
+  spend.append(ritualBox);
+
   // ZP advancement: unlocks higher-Force casting (drain Stun instead of
   // lethal when Force <= ZP) and widens Amp/augment headroom.
   // Cost rate is an assumption: same tiers as attributes (3 / 4 / 5).
@@ -1075,6 +1174,65 @@ function shKismet(body) {
   body.append(ledger);
 }
 
+/* Fixed 3x1 mod-slot strip for a weapon (Overbarrel / Underbarrel / Chassis),
+ * replacing the old side-stacked mod chip list. Each box shows the currently
+ * fitted mod's name above its chip (or "—" when empty), with an inline picker
+ * to fit a new mod once a box is empty. Dual-slot mods (e.g. Laser Sight, fits
+ * either barrel slot) land in whichever of their candidate slots is free. */
+function weaponModSlots(w, mult, weaponName) {
+  const table = DATA.tables.weapon_mods;
+  const order = ["Overbarrel", "Underbarrel", "Chassis"];
+  const slotsByMod = {};
+  for (const m of table) (slotsByMod[m.Modification] ??= new Set()).add(m.Slot);
+  const boxes = {};
+  for (const name of w.mods || []) {
+    const candidates = order.filter(s => (slotsByMod[name] || new Set()).has(s));
+    const slot = candidates.find(s => !boxes[s]);
+    if (slot) boxes[slot] = name;
+  }
+  const grid = el("div", { class: "sh-modslots" });
+  for (const slot of order) {
+    const modName = boxes[slot];
+    const modRow = modName ? table.find(m => m.Modification === modName && m.Slot === slot) : null;
+    const cls = modSlotClass(slot);
+    const box = el("div", { class: `sh-modslot ${cls}` },
+      el("div", { class: "sh-modslot-label" }, slot),
+      el("div", { class: "sh-modslot-active" }, modName || "—"));
+    if (modName) {
+      box.append(el("span", {
+        class: `chip ${cls}`, style: "cursor:pointer",
+        title: (modRow && modRow.Effect) ? `${modRow.Effect} — click to remove` : "Click to remove",
+        onclick: () => {
+          const idx = w.mods.indexOf(modName);
+          if (idx >= 0) w.mods.splice(idx, 1);
+          playChangedRecalc();
+        },
+      }, modName + " ✕"));
+    } else {
+      const options = table.filter(m => m.Slot === slot);
+      box.append(el("select", {
+        onchange: e => {
+          const name = e.target.value;
+          if (!name) return;
+          const mr = table.find(m => m.Modification === name && m.Slot === slot);
+          const cost = Math.round((+(mr && mr.Cost) || 0) * mult);
+          if (CHAR.play.cash < cost
+              && !confirm(`${name} costs ${fmt(cost)} but you have ${fmt(CHAR.play.cash)}. Overdraw?`)) {
+            e.target.value = ""; return;
+          }
+          (w.mods = w.mods || []).push(name);
+          logCash(`Fitted ${name} to ${weaponName}`, -cost);
+          playChangedRecalc();
+        },
+      }, el("option", { value: "" }, `+ ${slot}…`),
+        ...options.map(m => el("option", { value: m.Modification },
+          `${m.Modification} (${fmt(Math.round((+m.Cost || 0) * mult))})`))));
+    }
+    grid.append(box);
+  }
+  return grid;
+}
+
 /* ------------------------------------------------ gear tab */
 function shGear(body) {
   const play = CHAR.play;
@@ -1125,7 +1283,7 @@ function shGear(body) {
     const r = DATA.tables.armor.find(x => x.Armor === a.name) || {};
     load += wtNum(r.wt);
   });
-  [...CHAR.gear, ...play.purchases.gear].forEach(g => {
+  [...CHAR.gear, ...play.purchases.gear].filter(g => g.carried !== false).forEach(g => {
     const r = DATA.tables.misc_gear.find(x => x.Item === g.name) || {};
     load += wtNum(r.Weight) * (g.qty || 1);
   });
@@ -1164,41 +1322,17 @@ function shGear(body) {
   if (CHAR.weapons.length) {
     const t = el("table");
     t.append(el("tr", {}, el("th", {}, "Weapon"), el("th", {}, "Stats"),
-      el("th", {}, "Mods"), el("th", {}, "Equip"), el("th", {}, "")));
+      el("th", {}, "Equip"), el("th", {}, "")));
     CHAR.weapons.forEach((w, wi) => {
       const r = DATA.tables.weapons.find(x => x.Weapon === w.name) || {};
       const canMod = !["Melee", "Thrown", "GrenadeLauncher"].includes(r.Type);
       const calcRow = (CALC.weapons || []).find(x => x.Weapon === w.name) || {};
-      const modsCell = canMod
-        ? fittedCategoryEditor({
-            id: `sh-wmods-${wi}-${w.name}`,
-            items: w.mods || [],
-            groups: modGroups(DATA.tables.weapon_mods, "Modification", "Slot"),
-            onAdd: name => {
-              const mr = DATA.tables.weapon_mods.find(m => m.Modification === name) || {};
-              const cost = Math.round((+mr.Cost || 0) * mult);
-              if (!overdrawOK(name, cost)) return;
-              (w.mods = w.mods || []).push(name);
-              logCash(`Fitted ${name} to ${w.name}`, -cost);
-            },
-            onRemove: index => { w.mods.splice(index, 1); },
-            effectOf: name =>
-              (DATA.tables.weapon_mods.find(m => m.Modification === name) || {}).Effect || "",
-            classOf: name =>
-              modSlotClass((DATA.tables.weapon_mods.find(m => m.Modification === name) || {}).Slot),
-            rerender: renderSheet,
-            afterAdd: () => playChangedRecalc(),
-          })
-        : ((w.mods || []).length
-            ? el("div", { class: "sub" }, ...w.mods.map(m => el("div", {}, m)))
-            : "—");
       t.append(el("tr", {},
         el("td", {}, el("b", {}, w.name + (w.smart ? " (smart)" : "")),
           el("div", { class: "sub", style: "color:var(--manon)" }, weaponRoll(r.Type))),
         el("td", { class: "sub" },
-          `${r.Type || ""} · Acc ${r.Accuracy || 0} · DMG ${r.Damage || "—"} · ${r["Firing modes"] || "melee"} · Pen ${r.Pen || 0}` +
+          `${r.Type || ""} · Acc ${r.Accuracy || 0} · DMG ${r.Damage || "—"} · ${r["Firing modes"] || "melee"} · Pen ${r.Pen || 0} · Weight ${r.Weight || 0}` +
           ((calcRow.Ammo ?? r.Ammo) ? ` · Ammo ${calcRow.Ammo ?? r.Ammo}` : "")),
-        el("td", { class: "sub" }, modsCell),
         el("td", {}, el("input", { type: "checkbox", ...(w.equipped !== false ? { checked: 1 } : {}),
           onchange: async e => { w.equipped = e.target.checked; await playChangedRecalc(); } })),
         el("td", {}, el("button", { class: "row-del", title: "Sell / remove weapon",
@@ -1206,6 +1340,9 @@ function shGear(body) {
             if (!confirm(`Remove ${w.name}?`)) return;
             CHAR.weapons.splice(wi, 1); await playChangedRecalc();
           } }, "✕"))));
+      if (canMod)
+        t.append(el("tr", { class: "sh-modslots-row" },
+          el("td", { colspan: "4" }, weaponModSlots(w, mult, w.name))));
     });
     weaponCard.append(t);
   } else {
@@ -1250,13 +1387,15 @@ function shGear(body) {
               logCash(`Added ${name} to ${a.name}`, -cost);
             },
             onRemove: index => { a.extras.splice(index, 1); },
+            effectOf: name => (DATA.tables.armor_extras.find(x => x.Extra === name) || {}).Effects || "",
             rerender: renderSheet,
             afterAdd: () => playChangedRecalc(),
           })
         : "—";
       t.append(el("tr", {},
         el("td", {}, el("b", {}, a.name),
-          el("div", { class: "sub" }, [a.style, a.material].filter(Boolean).join(" · ") || r.Slot || "")),
+          el("div", { class: "sub" },
+            ([a.style, a.material].filter(Boolean).join(" · ") || r.Slot || "") + ` · wt ${r.wt || 0}`)),
         el("td", { class: "num" }, `${r.Ballistic || 0} / ${r.Impact || 0}`),
         el("td", { class: "sub" }, extrasCell),
         el("td", {}, el("input", { type: "checkbox", ...(a.active !== false ? { checked: 1 } : {}),
@@ -1338,7 +1477,7 @@ function shGear(body) {
     ...play.purchases.gear.map(g => ({ ref: g, inPlay: true }))];
   const gt = el("table");
   gt.append(el("tr", {}, el("th", {}, "Item"), el("th", { class: "num" }, "Qty"),
-    el("th", {}, "Effect"), el("th", {}, "")));
+    el("th", {}, "Effect"), el("th", {}, "Carried"), el("th", {}, "")));
   gearEntries.forEach(({ ref: g, inPlay }) => {
     const r = DATA.tables.misc_gear.find(x => x.Item === g.name) || {};
     gt.append(el("tr", {},
@@ -1346,6 +1485,8 @@ function shGear(body) {
         inPlay ? el("span", { class: "sh-tag" }, "bought in play") : null),
       el("td", { class: "num" }, String(g.qty || 1)),
       el("td", { class: "sub" }, r.Effect || ""),
+      el("td", {}, el("input", { type: "checkbox", ...(g.carried !== false ? { checked: 1 } : {}),
+        onchange: e => { g.carried = e.target.checked; playChanged(); } })),
       el("td", {}, el("button", { class: "row-del", title: "Remove item",
         onclick: async () => {
           if (!confirm(`Remove ${g.name}?`)) return;
@@ -1356,7 +1497,7 @@ function shGear(body) {
         } }, "✕"))));
   });
   if (!gearEntries.length)
-    gt.append(el("tr", {}, el("td", { class: "sub", colspan: "4" }, "No gear.")));
+    gt.append(el("tr", {}, el("td", { class: "sub", colspan: "5" }, "No gear.")));
   body.append(el("div", { class: "card sh-card", id: "gear-gear" }, el("h3", {}, "Gear"), gt));
 
   // ===== Vehicles / rigs / decks owned (configured on their own tabs)

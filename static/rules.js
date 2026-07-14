@@ -57,12 +57,7 @@ const SKILLS = {
   "Observation": ["Focus", null],
   "Reconnaissance": ["Focus", null],
   "Shadow": ["Focus", null],
-  "Engineering: Aeronautics": ["Focus", "engineering"],
-  "Engineering: Armory": ["Focus", "engineering"],
-  "Engineering: Electronics": ["Focus", "engineering"],
-  "Engineering: Industrial": ["Focus", "engineering"],
-  "Engineering: Mechanical": ["Focus", "engineering"],
-  "Engineering: Nautical": ["Focus", "engineering"],
+  "Engineering": ["Focus", null],
   "Computer: Electronic Warfare": ["Focus", "hacking"],
   "Computer: Hacking": ["Focus", "hacking"],
   "Locksmithing": ["Focus", "hacking"],
@@ -211,6 +206,7 @@ function defaultCharacter() {
     attributes,
     cha_pool_choice: "Brawn",
     skills: {},
+    skill_specializations: {},
     ritual_skills: {},
     knowledge_skills: [],
     etiquettes: {},
@@ -255,12 +251,14 @@ function defaultCharacter() {
       physical_damage: 0,
       stun_damage: 0,
       initiative: 0,
+      dodge_dice: 0,
       pool_used: {},
       effects: [],
       modifiers: [],
       notes: "",
       attribute_advances: {},
       skill_advances: {},
+      ritual_advances: {},
       zp_advances: 0,
       spell_force_advances: {},
       purchases: {
@@ -1555,6 +1553,10 @@ function applyPlayAdvances(character) {
       character.skills[name] =
         toInt(asNumber(character.skills[name] || 0)) + toInt(asNumber(plus));
     }
+  }
+  for (const [name, plus] of Object.entries(play.ritual_advances || {})) {
+    character.ritual_skills[name] =
+      toInt(asNumber(character.ritual_skills[name] || 0)) + toInt(asNumber(plus));
   }
   const purchases = play.purchases || {};
   character.gear.push(...(purchases.gear || []));
