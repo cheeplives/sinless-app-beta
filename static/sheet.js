@@ -21,7 +21,7 @@
  *   every 10 earned       +1 Kismet pool -> pick a boon (windfall / free
  *                         asset / skill mastery 6→7); every 2nd is a major
  * Magic in play:
- *   spells cost their listed Cost in zuzus PER FORCE to learn or advance
+ *   spells cost their listed Cost in woolongs PER FORCE to learn or advance
  *   ZP advances cost Kismet (assumed: same tier costs as attributes) and
  *   unlock higher-Force casting — drain is lethal when Force > ZP, Stun
  *   when Force <= ZP
@@ -37,6 +37,7 @@ const ATTR_ABBR = [["Strength", "STR"], ["Body", "BOD"], ["Reaction", "REA"],
 const PLAY_SAVE_DEBOUNCE_MS = 600;
 const SKILL_KISMET_CAP = 6;        // Kismet raises stop at 6; mastery boon reaches 7
 const NEW_SKILL_KISMET_COST = 4;
+const KNOWLEDGE_RANK_CAP = 6;      // mirrors rules.js KNOWLEDGE_ETIQUETTE_RANK_CAP
 
 /* per KISMET.docx: "Grant Kismet at the end of a session as follows" */
 const KISMET_AWARDS = [
@@ -80,6 +81,8 @@ const WEAPON_SKILL_BY_TYPE = {
   Melee: "Melee Weapons",
   Thrown: "Throwing Weapons",
   GrenadeLauncher: "Heavy Weapons",
+  Heavy: "Heavy Weapons",
+  Energy: "Energy Weapons",
 };
 function weaponRoll(type) {
   const skill = WEAPON_SKILL_BY_TYPE[type] || "Firearms";
@@ -167,11 +170,33 @@ function awardKismet(label, n) {
   CHAR.play.kismet_earned += n;
   CHAR.play.kismet_log.unshift({ label, delta: n });
 }
-function spendKismet(label, n) {
+/* `undo`, when given, is a small serializable descriptor (not a closure —
+ * kismet_log is persisted to localStorage as JSON) letting a later
+ * undoKismetSpend() reverse the specific advance this spend made. */
+function spendKismet(label, n, undo) {
   if (CHAR.play.kismet < n) { alert(`Not enough Kismet (need ${n}, have ${CHAR.play.kismet}).`); return false; }
   CHAR.play.kismet -= n;
-  CHAR.play.kismet_log.unshift({ label, delta: -n });
+  CHAR.play.kismet_log.unshift({ label, delta: -n, undo: undo || null });
   return true;
+}
+
+/* Reverses a still-undoable kismet_log entry: refunds the Kismet and rolls
+ * back whichever play.*_advances counter the spend incremented, then drops
+ * the entry from the ledger. Safe to call out of order — every advance is a
+ * simple additive counter, so undoing one just subtracts 1 regardless of
+ * what was spent afterward. */
+function undoKismetSpend(entry) {
+  const play = CHAR.play;
+  const idx = play.kismet_log.indexOf(entry);
+  if (idx < 0 || entry.delta >= 0 || !entry.undo) return;
+  const u = entry.undo;
+  const dec = (obj, key) => { obj[key] = Math.max(0, (obj[key] || 0) - 1); };
+  if (u.kind === "attribute") dec(play.attribute_advances, u.name);
+  else if (u.kind === "skill") dec(play.skill_advances, u.name);
+  else if (u.kind === "ritual") dec(play.ritual_advances, u.name);
+  else if (u.kind === "zp") play.zp_advances = Math.max(0, (play.zp_advances || 0) - 1);
+  play.kismet -= entry.delta;   // delta is negative, so this refunds it
+  play.kismet_log.splice(idx, 1);
 }
 function logCash(label, delta) {
   CHAR.play.cash += delta;
@@ -215,7 +240,7 @@ async function revertToChargenEnd() {
     + "This permanently erases everything gained in play:\n"
     + `  • Kismet (${play.kismet} available, ${play.kismet_earned} lifetime) and all advances\n`
     + "  • Everything bought in play (gear, augments, powers, spells, Hacking levels)\n"
-    + `  • Zuzus beyond the original starting roll (back to ${fmt(play.starting_cash || 0)})\n`
+    + `  • Woolongs beyond the original starting roll (back to ${fmt(play.starting_cash || 0)})\n`
     + "  • Damage, initiative, effects, modifiers, ledgers, and notes\n\n"
     + "The chargen build itself (attributes, skills, purchased gear) is untouched."))
     return;
@@ -224,12 +249,14 @@ async function revertToChargenEnd() {
     || (play.cash_log.find(e => e.label.startsWith("Starting cash roll")) || {}).delta || 0;
   const rollEntry = play.cash_log.find(e => e.label.startsWith("Starting cash roll"));
   const wornSnapshot = play.armor_worn;
+  const keepGhost = play.ghost_rating;   // rolled once at first finalize — never re-rolled
   CHAR.play = {};
   ensurePlay();
   CHAR.play.cash_rolled = keepRolled;
   CHAR.play.starting_cash = keepStart;
   CHAR.play.cash = keepStart;
   if (rollEntry) CHAR.play.cash_log = [rollEntry];
+  if (keepGhost) CHAR.play.ghost_rating = keepGhost;
   if (Array.isArray(wornSnapshot)) {   // worn flags as they were at finalize
     CHAR.play.armor_worn = wornSnapshot;
     CHAR.armor.forEach((a, i) => { a.active = wornSnapshot[i] !== false; });
@@ -264,7 +291,7 @@ function sheetTabList() {
   // none at chargen.
   return [["overview", "Overview"], ["skills", "Skills"], ["kismet", "Kismet"],
     ["gear", "Gear"], ["magic", "Magic"], ["decking", "Decking"],
-    ["rigging", "Rigging"], ["notes", "Notes"]];
+    ["rigging", "Rigging"], ["actions", "Actions"], ["notes", "Notes"]];
 }
 
 function renderSheet() {
@@ -273,7 +300,8 @@ function renderSheet() {
   root.append(sheetHeader());
   const body = el("div", { class: "sheet-body" });
   ({ overview: shOverview, skills: shSkills, kismet: shKismet, gear: shGear,
-     magic: shMagic, decking: shDecking, rigging: shRigging, notes: shNotes })[sheetTab](body);
+     magic: shMagic, decking: shDecking, rigging: shRigging, actions: shActions,
+     notes: shNotes })[sheetTab](body);
   root.append(body, sheetFooter());
 }
 
@@ -310,13 +338,16 @@ function sheetHeader() {
     ...POOL_ORDER.map(headerPoolTile), kismetPoolTile());
 
   const z = CALC.zoetics;
+  // Current ZP = max ZP minus carried ZR, any fractional ZR knocking off a
+  // whole point (0.1 ZR on 6 ZP shows 5 / 6), floored at 0.
+  const zpCurrent = Math.max(0, z.zp - Math.ceil(z.zr_total || 0));
   const right = el("div", { class: "sh-meters" },
     el("div", { class: "sh-meter zoetic",
-      title: `Zoetic Potential ${z.zp} − Amp ZP spent ${z.amp_zp_spent}`
-        + (z.amp_zp_spent > 0 ? ` − carried ZR ${z.zr_total}` : "") },
+      title: `Zoetic Potential ${z.zp} − carried ZR ${z.zr_total} (fractions round up)`
+        + (z.amp_zp_spent > 0 ? ` · Amp ZP spent ${z.amp_zp_spent}` : "") },
       el("div", { class: "k" }, "ZP"),
       el("div", { class: "v", style: z.zp_remaining < 0 ? "color:var(--bad)" : "" },
-        String(z.zp_remaining))),
+        String(zpCurrent), el("span", { class: "max" }, ` / ${z.zp}`))),
     el("div", { class: "sh-meter zoetic",
       title: `Augment ZR ${z.augment_zr} + gear ZR ${z.gear_zr}`
         + (CHAR.heritage.type === "Synthetic" ? " (Synthetic: augment ZR untracked)" : "") },
@@ -326,9 +357,9 @@ function sheetHeader() {
       el("div", { class: "k" }, "Ghost"),
       el("div", { class: "v" }, z.ghost_rating || "2d6")),
     el("div", { class: "sh-meter cash", role: "button", tabindex: "0",
-      title: "Adjust zuzus", onclick: adjustCash,
+      title: "Adjust woolongs", onclick: adjustCash,
       onkeydown: e => { if (e.key === "Enter") adjustCash(); } },
-      el("div", { class: "k" }, "Zuzus"),
+      el("div", { class: "k" }, "Woolongs"),
       el("div", { class: "v" }, fmt(play.cash), el("span", { class: "plus" }, " +"))));
 
   // Freeform character description, sitting between identity and the meters.
@@ -461,7 +492,7 @@ function kismetPoolTile() {
 }
 
 function adjustCash() {
-  const raw = prompt("Adjust zuzus by (negative to spend):", "0");
+  const raw = prompt("Adjust woolongs by (negative to spend):", "0");
   if (raw == null) return;
   const delta = parseInt(raw, 10);
   if (!Number.isFinite(delta) || !delta) return;
@@ -824,30 +855,45 @@ function shSkills(body) {
     for (const [name, pts] of etq)
       row.append(el("span", { class: "sh-tag magic" }, `${name} ${pts}`));
     know.append(el("h4", { class: "sh-h4" }, "Etiquettes"), row);
+  } else {
+    know.append(el("h4", { class: "sh-h4" }, "Etiquettes"),
+      el("p", { class: "hint" }, "No etiquettes."));
   }
-  if (CHAR.knowledge_skills.some(k => k.name)) {
-    const row = el("div", { class: "sh-tagrow" });
-    for (const k of CHAR.knowledge_skills)
-      if (k.name) row.append(el("span", { class: "sh-tag" }, `${k.name} ${k.points || 0}`));
-    know.append(el("h4", { class: "sh-h4" }, "Knowledges"), row);
-  }
-  if (!etq.length && !CHAR.knowledge_skills.some(k => k.name))
-    know.append(el("p", { class: "hint" }, "No knowledge skills or etiquettes."));
-  body.append(know);
 
-  // rituals — each its own skill
-  const rituals = Object.entries(CALC.ritual_skills || {}).filter(([, v]) => v > 0);
-  if (rituals.length) {
-    const rc = el("div", { class: "card sh-card" }, el("h3", {}, "Ritual Skills"));
-    for (const [name, pts] of rituals) {
-      const r = DATA.tables.rituals.find(x => x.Name === name) || {};
-      rc.append(el("div", { class: "sh-poolskill" },
-        el("span", {}, name, el("span", { class: "sub" }, ` · Drain ${r.Drain || "—"}`)),
-        skillDots(pts, "resolve"),
-        el("b", {}, String(pts))));
-    }
-    body.append(rc);
-  }
+  // Knowledge points are never forfeited at finalize — any leftover (or
+  // freed up by a later Intelligence raise) budget stays spendable here.
+  CHAR.knowledge_skills ??= [];
+  const kBudget = CALC.knowledge || { budget: 0, spent: 0, remaining: 0 };
+  know.append(el("h4", { class: "sh-h4" }, "Knowledges"),
+    el("p", { class: "hint", style: "margin:0 0 6px" },
+      `${kBudget.remaining} / ${kBudget.budget} points left — 2 × Intelligence, free-form, spendable any time.`));
+  const kt = el("table", { style: "max-width:560px" });
+  CHAR.knowledge_skills.forEach((k, i) => {
+    const atCap = (k.points || 0) >= KNOWLEDGE_RANK_CAP;
+    const pointsCtl = el("span", { class: "sh-mini" },
+      el("button", { class: "mini-btn", title: "Reduce",
+        onclick: async () => { k.points = Math.max(0, (k.points || 0) - 1); await playChangedRecalc(); } }, "−"),
+      el("b", {}, String(k.points || 0)),
+      el("button", { class: "mini-btn", title: atCap ? `Rank ${KNOWLEDGE_RANK_CAP} is the cap`
+          : kBudget.remaining < 1 ? "No Knowledge points left" : "Raise",
+        disabled: (atCap || kBudget.remaining < 1) ? "1" : null,
+        onclick: async () => { k.points = Math.min(KNOWLEDGE_RANK_CAP, (k.points || 0) + 1); await playChangedRecalc(); } }, "+"));
+    kt.append(el("tr", {},
+      el("td", {}, el("input", { type: "text", value: k.name || "",
+        placeholder: "Knowledge area",
+        oninput: e => { k.name = e.target.value; playChanged(false); } })),
+      el("td", { class: "num" }, pointsCtl),
+      el("td", {}, el("button", { class: "row-del", title: "Remove",
+        onclick: async () => { CHAR.knowledge_skills.splice(i, 1); await playChangedRecalc(); } }, "✕"))));
+  });
+  if (!CHAR.knowledge_skills.length)
+    kt.append(el("tr", {}, el("td", { class: "sub", colspan: "3" }, "No knowledge skills yet.")));
+  know.append(kt, el("div", { class: "add-row" },
+    el("button", {
+      class: "btn-add", disabled: kBudget.remaining < 1 ? "1" : null,
+      onclick: async () => { CHAR.knowledge_skills.push({ name: "", points: 1 }); await playChangedRecalc(); },
+    }, "Add knowledge skill")));
+  body.append(know);
 
   // Martial Art: pick a style (needed when you buy Martial Arts in play), then
   // its level effects unlock as the skill rises.
@@ -906,7 +952,7 @@ function shKismet(body) {
     } }, "Award"),
     el("button", { class: "btn small warn", onclick: () => {
       const n = parseInt(customAmt.value, 10);
-      if (n > 0 && spendKismet("Custom spend", n)) playChanged();
+      if (n > 0 && spendKismet("Custom spend", n, { kind: "custom" })) playChanged();
     } }, "Spend")));
   balance.append(el("h4", { class: "sh-h4" }, "Session Awards"), awardRow);
   body.append(balance);
@@ -930,7 +976,7 @@ function shKismet(body) {
       el("button", {
         class: "btn small", disabled: (capped || play.kismet < cost) ? "1" : null,
         onclick: async () => {
-          if (!spendKismet(`Raised ${full} to ${a.final + 1}`, cost)) return;
+          if (!spendKismet(`Raised ${full} to ${a.final + 1}`, cost, { kind: "attribute", name: full })) return;
           play.attribute_advances[full] = (play.attribute_advances[full] || 0) + 1;
           await playChangedRecalc();
         },
@@ -956,7 +1002,7 @@ function shKismet(body) {
         title: maCapped ? "Martial Arts can never exceed Unarmed Combat"
           : atCap ? "Rank 6 is the Kismet cap — use a mastery boon for 7" : null,
         onclick: async () => {
-          if (!spendKismet(`Raised ${name} to rank ${s.points + 1}`, cost)) return;
+          if (!spendKismet(`Raised ${name} to rank ${s.points + 1}`, cost, { kind: "skill", name })) return;
           play.skill_advances[name] = (play.skill_advances[name] || 0) + 1;
           await playChangedRecalc();
         },
@@ -987,7 +1033,7 @@ function shKismet(body) {
             return;
           }
         }
-        if (!spendKismet(`Learned new skill: ${name}`, NEW_SKILL_KISMET_COST)) return;
+        if (!spendKismet(`Learned new skill: ${name}`, NEW_SKILL_KISMET_COST, { kind: "skill", name })) return;
         play.skill_advances[name] = (play.skill_advances[name] || 0) + 1;
         await playChangedRecalc();
       },
@@ -1011,7 +1057,7 @@ function shKismet(body) {
         class: "btn small", disabled: (atCap || play.kismet < cost) ? "1" : null,
         title: atCap ? "Rank 6 is the Kismet cap — use a mastery boon for 7" : null,
         onclick: async () => {
-          if (!spendKismet(`Raised ritual ${name} to rank ${points + 1}`, cost)) return;
+          if (!spendKismet(`Raised ritual ${name} to rank ${points + 1}`, cost, { kind: "ritual", name })) return;
           play.ritual_advances[name] = (play.ritual_advances[name] || 0) + 1;
           await playChangedRecalc();
         },
@@ -1027,7 +1073,7 @@ function shKismet(body) {
       onclick: async () => {
         const name = learnRitualSel.value;
         if (!name) return;
-        if (!spendKismet(`Learned new ritual: ${name}`, NEW_SKILL_KISMET_COST)) return;
+        if (!spendKismet(`Learned new ritual: ${name}`, NEW_SKILL_KISMET_COST, { kind: "ritual", name })) return;
         play.ritual_advances[name] = (play.ritual_advances[name] || 0) + 1;
         await playChangedRecalc();
       },
@@ -1049,7 +1095,7 @@ function shKismet(body) {
       el("button", {
         class: "btn small", disabled: play.kismet < zpCost ? "1" : null,
         onclick: async () => {
-          if (!spendKismet(`Raised Zoetic Potential to ${zp + 1}`, zpCost)) return;
+          if (!spendKismet(`Raised Zoetic Potential to ${zp + 1}`, zpCost, { kind: "zp" })) return;
           play.zp_advances = (play.zp_advances || 0) + 1;
           await playChangedRecalc();
         },
@@ -1163,12 +1209,16 @@ function shKismet(body) {
     ledger.append(el("p", { class: "hint" }, "No Kismet activity yet."));
   else {
     const t = el("table", { style: "max-width:640px" });
-    t.append(el("tr", {}, el("th", {}, "Entry"), el("th", { class: "num" }, "Kismet")));
+    t.append(el("tr", {}, el("th", {}, "Entry"), el("th", { class: "num" }, "Kismet"), el("th", {}, "")));
     play.kismet_log.slice(0, 40).forEach(entry =>
       t.append(el("tr", {},
         el("td", {}, entry.label),
         el("td", { class: "num", style: entry.delta > 0 ? "color:var(--ok)" : entry.delta < 0 ? "color:var(--bad)" : "" },
-          entry.delta > 0 ? `+${entry.delta}` : String(entry.delta)))));
+          entry.delta > 0 ? `+${entry.delta}` : String(entry.delta)),
+        el("td", {}, entry.delta < 0 && entry.undo
+          ? el("button", { class: "btn small", title: "Refund the Kismet and reverse this spend",
+              onclick: async () => { undoKismetSpend(entry); await playChangedRecalc(); } }, "Undo")
+          : null))));
     ledger.append(t);
   }
   body.append(ledger);
@@ -1244,12 +1294,12 @@ function shGear(body) {
   const jump = id => () => document.getElementById(id)
     ?.scrollIntoView({ behavior: "smooth", block: "start" });
   body.append(el("div", { class: "gear-submenu" },
-    ...[["gear-cash", "Zuzus"], ["gear-lifestyle", "Lifestyle"], ["gear-weapons", "Weapons"],
+    ...[["gear-cash", "Woolongs"], ["gear-lifestyle", "Lifestyle"], ["gear-weapons", "Weapons"],
         ["gear-armor", "Armor"], ["gear-augments", "Augments"], ["gear-gear", "Gear"],
         ["gear-vehicles", "Vehicles"], ["gear-buy", "Buy"]]
       .map(([id, label]) => el("button", { onclick: jump(id) }, label))));
 
-  // ===== Zuzus on hand + Lifestyle — half-width, side by side.
+  // ===== Woolongs on hand + Lifestyle — half-width, side by side.
   const amt = el("input", { type: "number", value: "100", min: "1", style: "width:90px" });
   const applyCash = sign => {
     const n = parseInt(amt.value, 10);
@@ -1257,8 +1307,8 @@ function shGear(body) {
     logCash(sign > 0 ? "Cash awarded" : "Cash spent", sign * n);
     playChanged();
   };
-  const zuzusCard = el("div", { class: "card sh-card", id: "gear-cash" },
-    el("h3", {}, "Zuzus on hand"),
+  const woolongsCard = el("div", { class: "card sh-card", id: "gear-cash" },
+    el("h3", {}, "Woolongs on hand"),
     el("div", { class: "sh-cash-row" },
       el("div", { class: "big cash" }, fmt(play.cash)),
       el("span", { class: "sh-inline-adjust" },
@@ -1272,7 +1322,7 @@ function shGear(body) {
   lsCard.id = "gear-lifestyle";
 
   // Carried load: equipped weapons + worn armor + gear vs Strength. Sits
-  // half-width, stacked under Zuzus.
+  // half-width, stacked under Woolongs.
   const wtNum = n => +n || 0;
   let load = 0;
   CHAR.weapons.filter(w => w.equipped !== false).forEach(w => {
@@ -1300,7 +1350,7 @@ function shGear(body) {
       `carrying ${load} weight exceeds Strength ${strength}.`));
 
   body.append(el("div", { class: "sh-two" },
-    el("div", {}, zuzusCard, loadCard),
+    el("div", {}, woolongsCard, loadCard),
     lsCard));
 
   // ===== Weapons — owned table (equipped toggle stays live, remove). Buying
@@ -1325,7 +1375,7 @@ function shGear(body) {
       el("th", {}, "Equip"), el("th", {}, "")));
     CHAR.weapons.forEach((w, wi) => {
       const r = DATA.tables.weapons.find(x => x.Weapon === w.name) || {};
-      const canMod = !["Melee", "Thrown", "GrenadeLauncher"].includes(r.Type);
+      const canMod = !["Melee", "Thrown", "GrenadeLauncher", "Heavy", "Energy"].includes(r.Type);
       const calcRow = (CALC.weapons || []).find(x => x.Weapon === w.name) || {};
       t.append(el("tr", {},
         el("td", {}, el("b", {}, w.name + (w.smart ? " (smart)" : "")),
@@ -1428,12 +1478,20 @@ function shGear(body) {
     ...CHAR.augments.map(a => ({ ref: a, inPlay: false })),
     ...play.purchases.augments.map(a => ({ ref: a, inPlay: true }))];
   const augCard = el("div", { class: "card sh-card", id: "gear-augments" }, el("h3", {}, "Augments"));
+  // Slotted Skillsofts grant their bonus; how many can be slotted at once is
+  // capped by the number of Chipjacks installed.
+  const ownedAugsAll = [...CHAR.augments, ...play.purchases.augments];
+  const chipjackCount = ownedAugsAll
+    .filter(a => a.name === "Chipjack").reduce((sum, a) => sum + (a.count || 1), 0);
+  const slottedSkillsoftCount = ownedAugsAll
+    .filter(a => a.name.startsWith("Skillsoft") && a.slotted !== false).length;
   if (augEntries.length) {
     const t = el("table");
     t.append(el("tr", {}, el("th", {}, "Augment"), el("th", { class: "num" }, "×"),
-      el("th", {}, "α-cyber"), el("th", {}, "Effect"), el("th", {}, "")));
+      el("th", {}, "α-cyber"), el("th", {}, "Slotted"), el("th", {}, "Effect"), el("th", {}, "")));
     augEntries.forEach(({ ref: a, inPlay }) => {
       const r = DATA.tables.augments.find(x => x.Name === a.name) || {};
+      const isSkillsoft = a.name.startsWith("Skillsoft");
       const hasZr = !!(+r.ZR);
       const alphaZr = hasZr ? Math.ceil(+r.ZR * 0.8 * 10) / 10 : 0;
       const base = Math.round((+r.Cost || 0) * mult);
@@ -1449,11 +1507,33 @@ function shGear(body) {
               } }),
             el("span", {}, `ZR ${a.alpha ? alphaZr : +r.ZR}`))
         : el("span", { class: "sub" }, "—");
+      // Skillsofts target a player-chosen skill (like chargen) and only grant
+      // their bonus while slotted, capped by owned Chipjacks.
+      let target = null, slottedCell = el("span", { class: "sub" }, "—");
+      if (isSkillsoft) {
+        target = el("select", { onchange: async e => { a.target = e.target.value; await playChangedRecalc(); } },
+          el("option", { value: "" }, "Skill…"),
+          ...Object.keys(DATA.skills).sort().map(x => el("option", {}, x)));
+        target.value = a.target || "";
+        const isSlotted = a.slotted !== false;
+        const atCap = !isSlotted && slottedSkillsoftCount >= chipjackCount;
+        slottedCell = el("label", {
+          class: "opt",
+          title: atCap
+            ? `Only ${chipjackCount} Chipjack(s) installed — unslot another Skillsoft first`
+            : "Apply this Skillsoft's bonus to its target skill",
+        },
+          el("input", { type: "checkbox", ...(isSlotted ? { checked: 1 } : {}),
+            disabled: atCap ? "1" : null,
+            onchange: async e => { a.slotted = e.target.checked; await playChangedRecalc(); } }));
+      }
       t.append(el("tr", {},
         el("td", {}, el("b", {}, a.name),
-          inPlay ? el("span", { class: "sh-tag" }, "bought in play") : null),
+          inPlay ? el("span", { class: "sh-tag" }, "bought in play") : null,
+          target),
         el("td", { class: "num" }, String(a.count || 1)),
         el("td", {}, alphaCell),
+        el("td", {}, slottedCell),
         el("td", { class: "sub" }, r.Effect || ""),
         el("td", {}, el("button", { class: "row-del", title: "Remove (surgical removal — not refunded)",
           onclick: async () => {
@@ -1484,7 +1564,9 @@ function shGear(body) {
       el("td", {}, el("b", {}, g.name),
         inPlay ? el("span", { class: "sh-tag" }, "bought in play") : null),
       el("td", { class: "num" }, String(g.qty || 1)),
-      el("td", { class: "sub" }, r.Effect || ""),
+      el("td", { class: "sub" },
+        [(+r.Dependence ? `Dependence ${r.Dependence}` : ""), r.Effect || ""]
+          .filter(Boolean).join(" · ")),
       el("td", {}, el("input", { type: "checkbox", ...(g.carried !== false ? { checked: 1 } : {}),
         onchange: e => { g.carried = e.target.checked; playChanged(); } })),
       el("td", {}, el("button", { class: "row-del", title: "Remove item",
@@ -1519,13 +1601,24 @@ function shGear(body) {
   }
 
   // ===== Buy equipment — all purchasing lives here, collapsible by type.
+  const augAvail = augmentAvailability([...CHAR.augments, ...play.purchases.augments]);
+  const syntheticNoBio = CHAR.heritage.type === "Synthetic";
   const augBuyGroups = Object.entries(
     DATA.tables.augments.reduce((acc, r) => (((acc[r.Type || "Augment"] ??= []).push(r)), acc), {}))
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([type, rows]) => ({
       label: type,
-      items: rows.map(r => ({ name: r.Name, cost: Math.round((+r.Cost || 0) * mult),
-        sub: `ZR ${r.ZR || 0} · BI ${r.BI || 0}${r.Effect ? " · " + r.Effect : ""}` })),
+      items: rows.map(r => {
+        const bioBanned = syntheticNoBio && r.Type === "Bioware";
+        const banned = bioBanned ? "Synthetics cannot install Bioware" : augAvail.bannedReason(r.Name);
+        return {
+          name: r.Name, cost: Math.round((+r.Cost || 0) * mult),
+          sub: `ZR ${r.ZR || 0} · BI ${r.BI || 0}${r.Effect ? " · " + r.Effect : ""}`,
+          banned: !!banned,
+          reason: banned || "",
+          note: banned ? "banned" : "",
+        };
+      }),
     }));
   const gearBuyGroups = Object.entries(
     DATA.tables.misc_gear.reduce((acc, r) => (((acc[r.Class || "Gear"] ??= []).push(r)), acc), {}))
@@ -1533,11 +1626,12 @@ function shGear(body) {
     .map(([cls, rows]) => ({
       label: cls,
       items: rows.map(r => ({ name: r.Item, cost: Math.round((+r.Cost || 0) * mult),
-        sub: r.Effect || "" })),
+        sub: [(+r.Dependence ? `Dependence ${r.Dependence}` : ""), r.Effect || ""]
+          .filter(Boolean).join(" · ") })),
     }));
   const buySection = el("div", { class: "card sh-card", id: "gear-buy" },
     el("h3", {}, "Buy equipment"),
-    el("p", { class: "hint" }, "Everything purchasable from zuzus, grouped by type. "
+    el("p", { class: "hint" }, "Everything purchasable from woolongs, grouped by type. "
       + (mult > 1 ? `Heritage surcharge ×${mult} applied. ` : "")
       + "Decks, programs, rigs, drones and vehicles are bought on the Decking and Rigging tabs."));
   const buyBlock = (title, browser) =>
@@ -1660,7 +1754,11 @@ async function buyAugment(name, mult) {
   if (!name) return;
   const r = DATA.tables.augments.find(x => x.Name === name);
   if (!r) return;
-  // Block augments that conflict with something already installed.
+  // Synthetics can't install Bioware; block augments that conflict with
+  // something already installed.
+  if (CHAR.heritage.type === "Synthetic" && r.Type === "Bioware") {
+    alert(`Can't install ${name}: Synthetics cannot install Bioware.`); return;
+  }
   const owned = [...CHAR.augments, ...CHAR.play.purchases.augments];
   const banReason = augmentAvailability(owned).bannedReason(name);
   if (banReason) { alert(`Can't install ${name}: ${banReason}.`); return; }
@@ -1697,7 +1795,7 @@ function shMagic(body) {
         el("h3", {}, "Spells"),
         el("span", { class: "chip magic" }, `ZP ${zp}`)));
     wrap.append(el("p", { class: "hint" },
-      "Spells cost their listed price in zuzus per Force to learn or advance. "
+      "Spells cost their listed price in woolongs per Force to learn or advance. "
       + `Casting at Force above your ZP (${zp}) deals drain as LETHAL damage; at or below, drain is Stun.`));
     for (const sp of allSpells) {
       const r = DATA.tables.spells.find(x => x.Name === sp.name) || {};
@@ -1914,15 +2012,23 @@ function shMagic(body) {
     body.append(card);
   }
 
-  if (type === "Mage" || type === "Archmage" || type === "Speaker") {
+  // Rituals — full reference table with the character's current level in each
+  // (raised via Kismet on the Kismet tab). Shown for every magic type, since
+  // rituals are bought as ordinary skill points at chargen regardless of type.
+  {
     const t = el("table");
-    t.append(el("tr", {}, el("th", {}, "Ritual"), el("th", {}, "Drain"),
-      el("th", {}, "Time"), el("th", {}, "Effect")));
-    for (const r of DATA.tables.rituals)
-      t.append(el("tr", {},
-        el("td", {}, el("b", {}, r.Name)), el("td", { class: "sub" }, r.Drain),
-        el("td", { class: "sub" }, r.Time), el("td", { class: "sub" }, r.Effect)));
-    body.append(el("div", { class: "card sh-card" }, el("h3", {}, "Rituals (reference)"), t));
+    t.append(el("tr", {}, el("th", {}, "Ritual"), el("th", { class: "num" }, "Level"),
+      el("th", {}, "Drain"), el("th", {}, "Time"), el("th", {}, "Effect")));
+    for (const r of DATA.tables.rituals) {
+      const lvl = (CALC.ritual_skills || {})[r.Name] || 0;
+      t.append(el("tr", { class: lvl > 0 ? "sh-ritual-trained" : null },
+        el("td", {}, el("b", {}, r.Name)),
+        el("td", { class: "num" }, lvl > 0 ? el("b", {}, String(lvl)) : el("span", { class: "sub" }, "—")),
+        el("td", { class: "sub" }, r.Drain),
+        el("td", { class: "sub" }, r.Time),
+        el("td", { class: "sub" }, r.Effect)));
+    }
+    body.append(el("div", { class: "card sh-card" }, el("h3", {}, "Rituals"), t));
   }
 }
 
@@ -2337,6 +2443,56 @@ function shRigging(body) {
   body.append(rigBuySection);
 }
 
+/* ------------------------------------------------ actions tab */
+/* Player reference: common actions and their skill/difficulty, straight from
+ * DATA.tables.hack_actions. Grouped by the table's Group column so future
+ * action categories land here automatically. */
+function actionRefCard(section) {
+  if (!section) return null;
+  return el("div", { class: "card sh-card" },
+    el("h3", {}, section.title),
+    section.note ? el("p", { class: "hint" }, section.note) : null,
+    el("ul", { class: "sh-bullets" }, ...section.items.map(item => el("li", {}, item))));
+}
+
+function shActions(body) {
+  const ref = DATA.action_reference || {};
+
+  const pairRow = (...keys) =>
+    el("div", { class: "sh-two" }, ...keys.map(k => actionRefCard(ref[k])));
+
+  body.append(
+    pairRow("free_actions", "reflex_actions"),
+    pairRow("simple_actions", "complex_actions"),
+    actionRefCard(ref.conflict_sequence),
+    pairRow("resolving_ranged", "resolving_melee"));
+
+  const groups = {};
+  for (const row of DATA.tables.hack_actions || [])
+    (groups[row.Group || "Actions"] ??= []).push(row);
+  if (!Object.keys(groups).length) {
+    body.append(el("div", { class: "card sh-card" },
+      el("h3", {}, "Actions"),
+      el("p", { class: "hint" }, "No action reference data available.")));
+    return;
+  }
+  for (const [group, rows] of Object.entries(groups)) {
+    const t = el("table");
+    t.append(el("tr", {}, el("th", {}, "Action"), el("th", {}, "Skill"),
+      el("th", {}, "Difficulty"), el("th", {}, "Notes")));
+    for (const r of rows) {
+      t.append(el("tr", {},
+        el("td", {}, el("b", {}, r.Action)),
+        el("td", {}, r.Skill),
+        el("td", { class: "sub" }, r.Diff),
+        el("td", { class: "sub" }, r.Notes || "")));
+    }
+    body.append(el("div", { class: "card sh-card" }, el("h3", {}, group), t,
+      el("p", { class: "hint", style: "margin-top:8px" },
+        "Difficulties listed as a/b/c/d scale by site tier. (n) is a minimum Alert raise.")));
+  }
+}
+
 /* ------------------------------------------------ notes tab */
 function shNotes(body) {
   const autos = dossierNotes();
@@ -2551,7 +2707,7 @@ function buildMarkdown() {
 
   L.push("## Wealth & Advancement");
   L.push("");
-  L.push(`**Zuzus:** ${fmt(play.cash)} · **Kismet:** ${play.kismet} available / ${play.kismet_earned} lifetime · **Boons:** ${econ.regularsAvail} regular, ${econ.majorsAvail} major available`);
+  L.push(`**Woolongs:** ${fmt(play.cash)} · **Kismet:** ${play.kismet} available / ${play.kismet_earned} lifetime · **Boons:** ${econ.regularsAvail} regular, ${econ.majorsAvail} major available`);
   const spends = play.kismet_log.filter(entry => entry.delta < 0 || entry.delta === 0);
   if (spends.length) {
     L.push("");

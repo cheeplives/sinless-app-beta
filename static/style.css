@@ -152,6 +152,8 @@ input[type=checkbox]{accent-color:var(--manon)}
 .skill-group-row td{font-family:var(--disp);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;
   color:var(--dim);padding-top:10px;border-bottom:1px solid var(--line)}
 tr.skill-grouped td:first-child{border-left:2px solid var(--manon-dim);padding-left:12px}
+tr.sh-ritual-trained{background:rgba(157,123,255,.06)}
+tr.sh-ritual-trained td:first-child{border-left:2px solid var(--manon-dim);padding-left:12px}
 .skill-name-line{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 .skill-spec-toggle{display:inline-flex;align-items:center;gap:3px;margin-left:auto;
   font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--dim);cursor:pointer;user-select:none}
@@ -221,6 +223,7 @@ label.opt input{margin-top:3px}
 .sh-meter{border:1px solid var(--line);border-radius:8px;padding:7px 12px 5px;text-align:center;min-width:74px}
 .sh-meter .k{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
 .sh-meter .v{font-family:var(--mono);font-size:18px;font-weight:600;color:#fff;white-space:nowrap}
+.sh-meter .v .max{font-size:11px;color:var(--dim);font-weight:400}
 .sh-meter.zoetic{border-color:var(--manon-dim)}
 .sh-meter.zoetic .v{color:var(--manon)}
 .sh-meter.cash{border-color:var(--amber);cursor:pointer}
@@ -239,6 +242,9 @@ label.opt input{margin-top:3px}
 .sh-two{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start}
 .sh-ov-grid{display:grid;grid-template-columns:1.5fr 1.1fr .8fr;gap:14px;align-items:start;margin-bottom:14px}
 .sh-h4{font-family:var(--disp);font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);margin:14px 0 6px}
+.sh-bullets{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:7px}
+.sh-bullets li{position:relative;padding-left:16px;font-size:13px;line-height:1.4;color:var(--text)}
+.sh-bullets li::before{content:"•";position:absolute;left:0;color:var(--manon-dim)}
 
 .sh-kismet{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
 .sh-kismet-btns{margin-left:auto;display:flex;gap:6px}

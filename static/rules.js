@@ -120,8 +120,7 @@ const ETIQUETTE_POINTS_PER_CHARISMA = 2;
 const KNOWLEDGE_ETIQUETTE_RANK_CAP = 6;
 const HEPHESTUS_ENGINEERING_BONUS = 2;
 const CYCLOPEAN_RANGED_PENALTY = 2;
-const RANGED_ATTACK_SKILLS = ["Archery", "Firearms", "Gunnery", "Heavy Weapons",
-                              "Energy Weapons", "Throwing Weapons"];
+const RANGED_ATTACK_SKILLS = ["Archery", "Firearms", "Gunnery", "Throwing Weapons"];
 
 // --- magic -------------------------------------------------------------------
 const STARTING_FORCE_BY_MAGIC_TYPE = { Mage: 25, Archmage: 35 };
@@ -500,6 +499,7 @@ function validateBoonBaneCounts(heritageType, categories, warnings, errors) {
 const AUGMENT_REQUIREMENTS = {
   "Skillwires": [["Chipjack"]],
   "Skillsoft": [["Chipjack"], ["Skillwires"]],
+  "Knowledge Skillsoft": [["Chipjack"], ["Skillwires"]],
   "Pain Nullifier": [["Nerve Rig"]],
   "Subvocal Mic": [["Commlink"]],
   "Recorder": [["Datajack", "Optical Datajack", "Memory", "Chipjack"]],
@@ -534,6 +534,14 @@ function tallyAugments(character, data, warnings, errors) {
 
   const hasVcr = (character.rigs || []).some(
     rig => findRow(data.rigs, "Rig Type", rig.name));
+  if (character.heritage.type === "Synthetic") {
+    for (const [row] of owned) {
+      if (row.Type === "Bioware") {
+        errors.push(`${row.Name}: Synthetics cannot have Bioware installed.`);
+      }
+    }
+  }
+
   for (const [row] of owned) {
     const banned = String(row.Ban || "").split(",").map(n => n.trim()).filter(Boolean);
     for (const bannedName of banned) {
@@ -562,7 +570,13 @@ function tallyAugments(character, data, warnings, errors) {
 
   const skillwireRating = maxOf(
     [...ownedNames].filter(n => n.startsWith("Skillwires")).map(augmentLevel), 0);
+  // Only a slotted Skillsoft grants its bonus; how many can be slotted at
+  // once is capped by the number of Chipjacks installed.
+  const chipjackCount = owned
+    .filter(([row]) => row.Name === "Chipjack")
+    .reduce((sum, [, count]) => sum + count, 0);
   const skillsoftLevels = {};
+  let slottedSkillsoftCount = 0;
   for (const [row, , entry] of owned) {
     if (!row.Name.startsWith("Skillsoft")) continue;
     const level = augmentLevel(row.Name);
@@ -575,7 +589,13 @@ function tallyAugments(character, data, warnings, errors) {
       errors.push(`${row.Name} (${target}) needs Skillwires rating ${level} — `
                   + `yours is ${skillwireRating}.`);
     }
+    if (entry.slotted === false) continue;
+    slottedSkillsoftCount++;
     skillsoftLevels[target] = Math.max(skillsoftLevels[target] || 0, level);
+  }
+  if (slottedSkillsoftCount > chipjackCount) {
+    errors.push(`${slottedSkillsoftCount} Skillsoft(s) slotted but only `
+                + `${chipjackCount} Chipjack(s) installed.`);
   }
 
   const eyewareModCount = sumBy(owned, ([row, count]) =>

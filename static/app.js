@@ -30,7 +30,7 @@ let activeTab = "priorities";
 let calcTimer = null;
 
 const RECALC_DEBOUNCE_MS = 200;   // how long to wait after a keystroke/stepper click before recalculating
-const CURRENCY_SYMBOL = "\u3113"; // zuzus, this setting's currency
+const CURRENCY_SYMBOL = "\u3113"; // woolongs, this setting's currency
 
 const $ = (sel, el = document) => el.querySelector(sel);
 
@@ -297,7 +297,8 @@ function renderPanelNav(p) {
         disabled: blocked ? "1" : null, onclick: finalizeCharacter },
         blocked ? "Resolve errors to finalize" : "Finalize Character ✓"),
       el("p", { class: "hint", style: "margin-top:8px" },
-        "Locks character generation. Any unspent points — attribute, skill, knowledge, magic, and remaining cash — are lost. "
+        "Locks character generation. Any unspent points — attribute, skill, magic, and remaining cash — are lost. "
+        + "Unspent Knowledge points carry over and stay spendable on the character sheet. "
         + "A character with outstanding errors (red alerts) cannot be finalized.")));
     return;
   }
@@ -319,7 +320,8 @@ function unspentSummary() {
   add("Priority points", CALC.priorities.remaining);
   add("Attribute points", CALC.attr_points.remaining);
   add("Skill points", CALC.skill_points.remaining);
-  add("Knowledge points", CALC.knowledge.remaining);
+  // Knowledge points are deliberately excluded — they carry over and stay
+  // spendable on the character sheet instead of being forfeited.
   add("Etiquette points", CALC.etiquette_points.remaining);
   const m = CALC.magic;
   if (m.type === "Mage" || m.type === "Archmage") add("Starting Force", m.force_remaining);
@@ -1028,11 +1030,15 @@ function tabAugments(p) {
     ...GROUP_ORDER.filter(t => byType[t]),
     ...Object.keys(byType).filter(t => !GROUP_ORDER.includes(t)).sort((a, b) => a.localeCompare(b)),
   ];
+  // Synthetics have no living tissue to graft bioware onto, so the whole
+  // Bioware category is banned outright for that heritage.
+  const syntheticNoBio = CHAR.heritage.type === "Synthetic";
   const augGroups = orderedTypes.map(type => ({
     label: type,
     items: byType[type].map(r => {
       const needsLimb = type === "Cyberlimbs" && !cyberlimbExempt(r.Name) && !hasReplacementLimb;
-      const banned = avail.bannedReason(r.Name);
+      const bioBanned = syntheticNoBio && r.Type === "Bioware";
+      const banned = bioBanned ? "Synthetics cannot install Bioware" : avail.bannedReason(r.Name);
       return {
         name: r.Name, cost: +r.Cost,
         sub: [(+r.ZR ? `ZR ${r.ZR}` : ""), (+r.BI ? `BI ${r.BI}` : ""), r.Effect || ""]
@@ -1045,6 +1051,13 @@ function tabAugments(p) {
       };
     }),
   }));
+  // Slotted Skillsofts grant their bonus; how many can be slotted at once is
+  // capped by the number of Chipjacks installed.
+  const chipjackCount = CHAR.augments
+    .filter(a => a.name === "Chipjack")
+    .reduce((sum, a) => sum + (a.count || 1), 0);
+  const slottedSkillsoftCount = CHAR.augments
+    .filter(a => a.name.startsWith("Skillsoft") && a.slotted !== false).length;
   p.append(listEditor({
     items: CHAR.augments,
     picker: categoryBrowser({ id: "augments", groups: augGroups,
@@ -1083,6 +1096,23 @@ function tabAugments(p) {
               } }),
             el("span", {}, "α-cyber"))
         : null;
+      // Slotted checkbox: only a slotted Skillsoft applies its bonus, and no
+      // more can be slotted than the character has Chipjacks installed.
+      let slottedCtl = null;
+      if (it.name.startsWith("Skillsoft")) {
+        const isSlotted = it.slotted !== false;
+        const atCap = !isSlotted && slottedSkillsoftCount >= chipjackCount;
+        slottedCtl = el("label", {
+          class: "opt",
+          title: atCap
+            ? `Only ${chipjackCount} Chipjack(s) installed — unslot another Skillsoft first`
+            : "Apply this Skillsoft's bonus to its target skill",
+        },
+          el("input", { type: "checkbox", ...(isSlotted ? { checked: "1" } : {}),
+            disabled: atCap ? "1" : null,
+            onchange: e => { it.slotted = e.target.checked; refresh(); } }),
+          el("span", {}, "Slotted"));
+      }
       return el("tr", {},
         el("td", {}, el("b", {}, it.name),
           el("div", { class: "sub" }, `${r.Type || ""}${r.Ban ? ` \u00b7 bans: ${r.Ban}` : ""}`),
@@ -1090,7 +1120,7 @@ function tabAugments(p) {
         el("td", { class: "sub" }, r.Effect || ""),
         zrCell,
         costCell,
-        el("td", {}, alphaCtl),
+        el("td", {}, alphaCtl, slottedCtl),
         el("td", { class: "num" }, stackable
           ? stepper(() => it.count || 1,
               v => { it.count = v; costCell.textContent = fmt(costOf()); },
@@ -1240,7 +1270,7 @@ function categoryBrowser({ id, groups, onAdd, rerender, afterAdd }) {
  * Families that can legitimately be bought many times are never hidden.
  */
 function augmentAvailability(ownedEntries) {
-  const STACKABLE_RE = /^(Skillsoft|Memory|Unmodified|Compartment|Chipjack)/i;
+  const STACKABLE_RE = /^(Skillsoft|Knowledge Skillsoft|Memory|Unmodified|Compartment|Chipjack)/i;
   const LIMB_TYPES = new Set(["Right Arm", "Left Arm", "Right Leg", "Left Leg"]);
   const rowOf = name => DATA.tables.augments.find(a => a.Name === name) || {};
   const isStackable = name =>
@@ -1296,6 +1326,7 @@ const WEAPON_TYPE_LABELS = {
   Melee: "Melee Weapons", Thrown: "Thrown Weapons", PistolLt: "Light Pistols",
   PistolMed: "Medium Pistols", PistolHvy: "Heavy Pistols", SMG: "SMGs",
   Rifle: "Rifles", Shotgun: "Shotguns", GrenadeLauncher: "Grenade Launchers",
+  Heavy: "Heavy Weapons", Energy: "Energy Weapons",
 };
 function tabWeapons(p) {
   p.append(el("h2", {}, "Weapons ", chip("cash")));
@@ -1323,8 +1354,8 @@ function tabWeapons(p) {
       const calcRow = (CALC.weapons || [])[i] || {};
       const isMelee = r.Type === "Melee";
       const isThrown = r.Type === "Thrown";
-      // Melee, Thrown, and Grenade Launchers can't take mods.
-      const canMod = !["Melee", "Thrown", "GrenadeLauncher"].includes(r.Type);
+      // Melee, Thrown, Grenade Launchers, Heavy and Energy weapons can't take mods.
+      const canMod = !["Melee", "Thrown", "GrenadeLauncher", "Heavy", "Energy"].includes(r.Type);
       const canSmart = !isMelee && !isThrown;
       return el("tr", {},
         el("td", {}, el("b", {}, it.name),
@@ -1686,7 +1717,9 @@ function tabGear(p) {
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([cls, rows]) => ({
       label: cls,
-      items: rows.map(r => ({ name: r.Item, cost: +r.Cost, sub: r.Effect || "" })),
+      items: rows.map(r => ({ name: r.Item, cost: +r.Cost,
+        sub: [(+r.Dependence ? `Dependence ${r.Dependence}` : ""), r.Effect || ""]
+          .filter(Boolean).join(" · ") })),
     }));
   p.append(listEditor({
     items: CHAR.gear,
@@ -1697,7 +1730,10 @@ function tabGear(p) {
       const r = DATA.tables.misc_gear.find(x => x.Item === it.name) || {};
       const costCell = el("td", { class: "num" }, fmt((+r.Cost || 0) * (it.qty || 1)));
       return el("tr", {},
-        el("td", {}, el("b", {}, it.name), el("div", { class: "sub" }, r.Effect || ""),
+        el("td", {}, el("b", {}, it.name),
+          el("div", { class: "sub" },
+            [(+r.Dependence ? `Dependence ${r.Dependence}` : ""), r.Effect || ""]
+              .filter(Boolean).join(" · ")),
           gearLinkSelect(it)),
         costCell,
         el("td", { class: "num" }, stepper(() => it.qty || 1,
