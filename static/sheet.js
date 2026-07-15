@@ -318,21 +318,35 @@ function sheetHeader() {
     + (CHAR.heritage.uplift_type ? ` (${CHAR.heritage.uplift_type})` : "");
   const activeLs = (play.lifestyles || []).find(l => l.active);
   const heritageAbilities = heritageAbilityLines();
+  // Current-lifestyle dropdown: switches the active flag among the
+  // lifestyles the character owns (same effect as the radio buttons on the
+  // Gear tab's lifestyle card).
+  const lsSelect = (play.lifestyles || []).length
+    ? el("select", { class: "sh-tag-select",
+        title: activeLs ? (LIFESTYLE_EFFECTS[activeLs.name] || "") : "Choose current lifestyle",
+        onchange: e => {
+          play.lifestyles.forEach(l => { l.active = l.name === e.target.value; });
+          playChanged();
+        } },
+        ...(activeLs ? [] : [el("option", { value: "", selected: 1 }, "Lifestyle…")]),
+        ...play.lifestyles.map(l => el("option",
+          { value: l.name, ...(l.active ? { selected: 1 } : {}) },
+          `${l.name} lifestyle · ${l.months || 0} mo`)))
+    : null;
   const ident = el("div", { class: "sh-ident" },
-    el("div", { class: "sh-avatar" }, (CHAR.name || "?").slice(0, 1).toUpperCase()),
-    el("div", {},
-      el("div", { class: "sh-name" }, CHAR.name || "Unnamed"),
-      CHAR.player ? el("div", { class: "sh-player" }, CHAR.player) : null,
-      el("div", {},
-        el("span", { class: "sh-tag" }, heritageLabel),
-        el("span", { class: "sh-tag magic" }, CALC.magic.type),
-        activeLs ? el("span", { class: "sh-tag", title: LIFESTYLE_EFFECTS[activeLs.name] || "" },
-          `${activeLs.name} lifestyle · ${activeLs.months || 0} mo`) : null),
-      activeLs && LIFESTYLE_EFFECTS[activeLs.name]
-        ? el("div", { class: "sh-ls-effect" }, LIFESTYLE_EFFECTS[activeLs.name]) : null,
-      heritageAbilities.length
-        ? el("div", { class: "sh-heritage-abilities" },
-            el("b", {}, "Abilities: "), heritageAbilities.join(" · ")) : null));
+    el("div", { class: "sh-ident-top" },
+      sheetMenu(),
+      el("div", { class: "sh-name" }, CHAR.name || "Unnamed")),
+    CHAR.player ? el("div", { class: "sh-player" }, CHAR.player) : null,
+    el("div", { class: "sh-tags" },
+      el("span", { class: "sh-tag" }, heritageLabel),
+      el("span", { class: "sh-tag magic" }, CALC.magic.type),
+      lsSelect),
+    activeLs && LIFESTYLE_EFFECTS[activeLs.name]
+      ? el("div", { class: "sh-ls-effect" }, LIFESTYLE_EFFECTS[activeLs.name]) : null,
+    heritageAbilities.length
+      ? el("div", { class: "sh-heritage-abilities" },
+          el("b", {}, "Abilities: "), heritageAbilities.join(" · ")) : null);
 
   // interactive pool tiles live up here — pools matter more than attributes
   const pools = el("div", { class: "sh-head-pools" },
@@ -370,8 +384,9 @@ function sheetHeader() {
       oninput: e => { CHAR.description = e.target.value; schedulePlaySave(); } },
       CHAR.description || ""));
 
-  // Top band: hamburger menu, then identity, description in the middle, meters on the right.
-  const top = el("div", { class: "sh-top" }, sheetMenu(), ident, descField, right);
+  // Top band: identity (hamburger + name, details underneath) on the left,
+  // description in the middle, meters on the right.
+  const top = el("div", { class: "sh-top" }, ident, descField, right);
   // Pool band: Save/Load/New on the left, then the four pool tiles as a single
   // 1×4 row travelling across to sit under the meters.
   const poolBar = el("div", { class: "sh-poolbar" }, sheetActions(), pools);
