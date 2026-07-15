@@ -499,7 +499,9 @@ function validateBoonBaneCounts(heritageType, categories, warnings, errors) {
 const AUGMENT_REQUIREMENTS = {
   "Skillwires": [["Chipjack"]],
   "Skillsoft": [["Chipjack"], ["Skillwires"]],
-  "Knowledge Skillsoft": [["Chipjack"], ["Skillwires"]],
+  // Knowledge Skillsofts need only a single Chipjack (no Skillwires), no
+  // matter how many are installed — each adds a Knowledge skill point.
+  "Knowledge Skillsoft": [["Chipjack"]],
   "Pain Nullifier": [["Nerve Rig"]],
   "Subvocal Mic": [["Commlink"]],
   "Recorder": [["Datajack", "Optical Datajack", "Memory", "Chipjack"]],
@@ -669,6 +671,10 @@ function tallyAugments(character, data, warnings, errors) {
     row.Name.startsWith("Movement Enhancement")
       ? augmentLevel(row.Name) * MOVEMENT_ENHANCEMENT_METERS_PER_RATING * count : 0));
 
+  // Each installed Knowledge Skillsoft grants one extra Knowledge skill point.
+  const knowledgePointsBonus = toInt(sumBy(owned, ([row, count]) =>
+    row.Name === "Knowledge Skillsoft" ? count : 0));
+
   return {
     rows: owned,
     zoetic_rating: round2(Math.max(0.0, rawZr - zrAbsorbed)),
@@ -678,6 +684,7 @@ function tallyAugments(character, data, warnings, errors) {
     attribute_adjustment: attributeAdjustment,
     attribute_max_adjustment: attributeMaxAdjustment,
     skillsoft_levels: skillsoftLevels,
+    knowledge_points_bonus: knowledgePointsBonus,
     skill_bonus: skillBonus,
     move_bonus: moveBonus,
     dodge_bonus: ownedNames.has("Covert Synthskin") ? COVERT_SYNTHSKIN_DODGE_BONUS : 0,
@@ -898,8 +905,10 @@ function scoreSkills(character, heritage, amp, augments, warnings, errors) {
     }
 
     const softLevel = skillsoftLevels[name] || 0;
+    // Group fallback dice count toward final, so an untrained skill with a
+    // trained group sibling rolls its group dice with no special notation.
     results[name] = { points, bonus,
-                      final: Math.max(points + bonus, softLevel),
+                      final: Math.max(points + bonus, softLevel, groupValue || 0),
                       soft: softLevel,
                       pool, group, group_value: groupValue };
   }
@@ -950,8 +959,10 @@ function droneSkillDice(character, data) {
   return bonus;
 }
 
-function scoreKnowledgeSkills(character, finalIntelligence, finalCharisma, warnings, errors) {
-  const knowledgeBudget = KNOWLEDGE_POINTS_PER_INTELLIGENCE * finalIntelligence;
+function scoreKnowledgeSkills(character, finalIntelligence, finalCharisma,
+                             knowledgePointsBonus, warnings, errors) {
+  const knowledgeBudget = KNOWLEDGE_POINTS_PER_INTELLIGENCE * finalIntelligence
+                          + toInt(asNumber(knowledgePointsBonus));
   const knowledgeSpent = sumBy(character.knowledge_skills,
     entry => toInt(asNumber(entry.points)));
   if (knowledgeSpent > knowledgeBudget) {
@@ -1158,10 +1169,15 @@ function priceArmor(character, data, gearCostMultiplier, warnings) {
     if (!row) continue;
     let cost = asNumber(row.Cost);
     if (row.Style === "Y") {
-      cost *= styleMultiplier[entry.style] !== undefined ? styleMultiplier[entry.style] : 1;
-      cost *= materialMultiplier[entry.material] !== undefined ? materialMultiplier[entry.material] : 1;
+      // Each multiplier applies to the BASE cost: its surcharge is
+      // base × (mult − 1), and surcharges add — they never compound on the
+      // running total. (Matches the play-mode extras pricing in sheet.js.)
+      const base = cost;
+      const surcharge = mult => base * ((mult !== undefined ? mult : 1) - 1);
+      cost += surcharge(styleMultiplier[entry.style])
+            + surcharge(materialMultiplier[entry.material]);
       for (const extraName of entry.extras || []) {
-        cost *= extraMultiplier[extraName] !== undefined ? extraMultiplier[extraName] : 1;
+        cost += surcharge(extraMultiplier[extraName]);
       }
     }
     cost = round2(cost * gearCostMultiplier);
@@ -1650,7 +1666,7 @@ function calculate(character) {
 
   const knowledgeScoring = scoreKnowledgeSkills(
     character, finalAttributes.Intelligence, finalAttributes.Charisma,
-    warnings, errors);
+    augments.knowledge_points_bonus, warnings, errors);
   const knowledge = knowledgeScoring.knowledge;
   const etiquettePoints = knowledgeScoring.etiquettes;
 

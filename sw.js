@@ -13,7 +13,7 @@
  */
 "use strict";
 
-const CACHE_VERSION = "sinless-v14";
+const CACHE_VERSION = "sinless-v16";
 
 const PRECACHE = [
   "./",
@@ -24,6 +24,7 @@ const PRECACHE = [
   "static/data.js",
   "static/rules.js",
   "static/storage.js",
+  "static/homebrew.js",
   "static/app.js",
   "static/sheet.js",
   "icons/icon-192.png",

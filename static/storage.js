@@ -55,7 +55,35 @@ function deleteCharacter(name) {
   localStorage.removeItem(KEY_PREFIX + sanitizeName(name));
 }
 
-return { sanitizeName, listCharacters, loadCharacter, saveCharacter, deleteCharacter };
+/* ---- homebrew custom content --------------------------------------------
+ * One entry holds every user-created row, keyed by data.js table name, in the
+ * exact column schema of that table (string values, marker Custom:"Y").
+ * homebrew.js merges these into DATA_BUNDLE.tables at boot and after edits. */
+const CUSTOM_KEY = "sinless:custom:content";
+const CUSTOM_TABLES = [
+  "rituals", "spells", "misc_gear", "augments", "weapons", "armor",
+  "vehicles", "drones", "weapon_mods",
+  "vehicle_ballistic_weapons", "vehicle_energy_weapons",
+  "drone_ballistic_weapons", "drone_energy_weapons",
+  "drone_mods", "vehicle_mods",
+];
+
+function loadCustomContent() {
+  let parsed = null;
+  try { parsed = JSON.parse(localStorage.getItem(CUSTOM_KEY) || "null"); }
+  catch { /* corrupt entry: start fresh rather than break boot */ }
+  const content = {};
+  for (const t of CUSTOM_TABLES)
+    content[t] = (parsed && Array.isArray(parsed[t])) ? parsed[t] : [];
+  return content;
+}
+
+function saveCustomContent(content) {
+  localStorage.setItem(CUSTOM_KEY, JSON.stringify(content));
+}
+
+return { sanitizeName, listCharacters, loadCharacter, saveCharacter, deleteCharacter,
+         loadCustomContent, saveCustomContent, CUSTOM_TABLES };
 
 })();
 

@@ -88,8 +88,8 @@ function weaponRoll(type) {
   const skill = WEAPON_SKILL_BY_TYPE[type] || "Firearms";
   const s = CALC.skills[skill] || {};
   const pool = s.pool || "Finesse";
-  const rating = s.final > 0 ? s.final
-    : s.group_value != null ? `grp ${s.group_value}` : "untrained";
+  // final already folds in group-fallback dice, so no "grp" notation needed
+  const rating = s.final > 0 ? s.final : "untrained";
   return `Roll ${pool} ${CALC.pools[pool]}d · ${skill} ${rating}`;
 }
 
@@ -524,6 +524,7 @@ function sheetFooter() {
   });
   return el("div", { class: "sheet-foot" },
     el("button", { class: "btn ghost", onclick: backToChargen }, "← Back to Chargen"),
+    el("button", { class: "btn ghost", onclick: enterHomebrew }, "Homebrew"),
     el("button", { class: "btn warn", onclick: revertToChargenEnd }, "Revert to Post-Chargen"),
     el("button", { class: "btn", onclick: exportMarkdown }, "Export Markdown (Scabard)"),
     el("button", { class: "btn ghost", onclick: () => {
@@ -644,9 +645,19 @@ function shOverview(body) {
       c.dodge_bonus ? `+ ${c.dodge_bonus} passive dodge bonus` : "Bonus dice gained in play (Full Defense, cover, …)"),
     miniCounter("Dodge dice", () => play.dodge_dice || 0, v => { play.dodge_dice = v; }, 0, 99));
 
+  // --- martial arts combat effects: every unlocked level of the chosen style
+  const ma = CALC.martial_art || { style: "", levels: [] };
+  const maCard = (ma.style && ma.levels.length)
+    ? el("div", { class: "card sh-card" },
+        el("h3", {}, `Martial Arts — ${ma.style}`),
+        ...ma.levels.map(lvl => el("div", { class: "stat-line" },
+          el("span", { class: "sub", style: "white-space:nowrap" }, `L${lvl.Level}`),
+          el("span", { style: "text-align:right" }, lvl.Effect || ""))))
+    : null;
+
   body.append(el("div", { class: "sh-ov-grid" },
     el("div", {}, poolCard),
-    el("div", {}, cond),
+    el("div", {}, cond, maCard),
     el("div", {}, initCard, dodgeCard, combatCard)));
 
   // Heritage / uplift special abilities (e.g. a Bat's Echolocation) — surfaced
@@ -799,23 +810,14 @@ function poolSkillList(pool) {
     const specOn = !!(spec && spec.on) && s.final > 0;
     const rating = specOn ? `${s.final - 1} / ${s.final + 1}`
       : s.final > 0 ? String(s.final)
-      : s.dice_bonus ? "0"
-      : s.group_value != null ? `grp ${s.group_value}` : "—";
+      : s.dice_bonus ? "0" : "—";
     box.append(el("div", { class: "sh-poolskill" + (s.final > 0 || s.dice_bonus ? "" : " dim") },
       el("span", {}, name, s.group ? el("span", { class: "sub" }, ` ·${s.group}`) : null,
         specOn && spec.text ? el("span", { class: "sub skill-spec-note" }, ` — ${spec.text}`) : null),
-      skillDots(s.final, pool),
       el("b", {}, rating,
         s.dice_bonus ? el("span", { class: "skill-dice" }, `+${s.dice_bonus}d`) : null)));
   }
   return box;
-}
-
-function skillDots(n, pool) {
-  const dots = el("span", { class: `dots ${pool.toLowerCase()}` });
-  for (let i = 1; i <= 7; i++)
-    dots.append(el("span", { class: "dot" + (i <= n ? " on" : "") }));
-  return dots;
 }
 
 /* ------------------------------------------------ skills tab (display only) */
@@ -829,17 +831,30 @@ function shSkills(body) {
       .filter(([n, m]) => m.pool === pool && (CALC.skills[n].final > 0 || CALC.skills[n].dice_bonus))
       .sort((a, b) => CALC.skills[b[0]].final - CALC.skills[a[0]].final);
     if (!trained.length) col.append(el("p", { class: "hint" }, "No trained skills."));
-    for (const [name] of trained) {
-      const s = CALC.skills[name];
-      const spec = (CHAR.skill_specializations || {})[name];
-      const specOn = !!(spec && spec.on) && s.final > 0;
-      const rating = specOn ? `${s.final - 1} / ${s.final + 1}` : String(s.final);
-      col.append(el("div", { class: "sh-poolskill" },
-        el("span", {}, name,
-          specOn && spec.text ? el("span", { class: "sub skill-spec-note" }, ` — ${spec.text}`) : null),
-        skillDots(s.final, pool),
-        el("b", {}, rating,
-          s.dice_bonus ? el("span", { class: "skill-dice" }, `+${s.dice_bonus}d`) : null)));
+    else {
+      const t = el("table", { class: "sh-skilltable" });
+      t.append(el("tr", {}, el("th", {}, "Skill"), el("th", { class: "num" }, "Pts"),
+        el("th", { class: "num" }, "Bonus"), el("th", { class: "num" }, "Group"),
+        el("th", { class: "num" }, "Final")));
+      for (const [name] of trained) {
+        const s = CALC.skills[name];
+        const spec = (CHAR.skill_specializations || {})[name];
+        const specOn = !!(spec && spec.on) && s.final > 0;
+        const rating = specOn ? `${s.final - 1} / ${s.final + 1}` : String(s.final);
+        // group_value already folds the bonus in; the Group column shows just
+        // the group-derived dice so Pts + Bonus + Group reads as Final.
+        const groupDice = s.points === 0 && s.group_value != null ? s.group_value - s.bonus : 0;
+        t.append(el("tr", {},
+          el("td", {}, name,
+            specOn && spec.text ? el("span", { class: "sub skill-spec-note" }, ` — ${spec.text}`) : null),
+          el("td", { class: "num sub" }, s.points ? String(s.points) : ""),
+          el("td", { class: "num sub" }, s.bonus ? (s.bonus > 0 ? `+${s.bonus}` : String(s.bonus)) : ""),
+          el("td", { class: "num sub" }, groupDice ? String(groupDice) : ""),
+          el("td", { class: "num" }, el("b", {}, rating),
+            s.soft ? el("span", { class: "sub" }, ` (soft)`) : null,
+            s.dice_bonus ? el("span", { class: "skill-dice" }, `+${s.dice_bonus}d`) : null)));
+      }
+      col.append(t);
     }
     grid.append(col);
   }
@@ -866,7 +881,8 @@ function shSkills(body) {
   const kBudget = CALC.knowledge || { budget: 0, spent: 0, remaining: 0 };
   know.append(el("h4", { class: "sh-h4" }, "Knowledges"),
     el("p", { class: "hint", style: "margin:0 0 6px" },
-      `${kBudget.remaining} / ${kBudget.budget} points left — 2 × Intelligence, free-form, spendable any time.`));
+      `${kBudget.remaining} / ${kBudget.budget} points left — 2 × Intelligence `
+      + "(+1 per Knowledge Skillsoft), free-form, spendable any time."));
   const kt = el("table", { style: "max-width:560px" });
   CHAR.knowledge_skills.forEach((k, i) => {
     const atCap = (k.points || 0) >= KNOWLEDGE_RANK_CAP;
@@ -1527,11 +1543,34 @@ function shGear(body) {
             disabled: atCap ? "1" : null,
             onchange: async e => { a.slotted = e.target.checked; await playChangedRecalc(); } }));
       }
+      // Knowledge Skillsofts bought in play get a cash-aware +/- stepper —
+      // each unit adds a Knowledge skill point. Chargen-installed ones (or
+      // other augments) show a static count; the chargen record is immutable
+      // in play, so extra copies are bought in play instead.
+      const unitCost = Math.round((+r.Cost || 0) * mult);
+      const countCell = (inPlay && a.name === "Knowledge Skillsoft")
+        ? el("td", { class: "num" }, el("span", { class: "stepper" },
+            el("button", { title: "Remove one (refunded)", onclick: async () => {
+              if ((a.count || 1) <= 1) return;
+              a.count -= 1;
+              logCash("Removed a Knowledge Skillsoft", unitCost);
+              await playChangedRecalc();
+            } }, "–"),
+            el("b", {}, String(a.count || 1)),
+            el("button", { title: "Install another", onclick: async () => {
+              if (CHAR.play.cash < unitCost
+                  && !confirm(`Another Knowledge Skillsoft costs ${fmt(unitCost)} but you have ${fmt(CHAR.play.cash)}. Overdraw?`))
+                return;
+              a.count = (a.count || 1) + 1;
+              logCash("Installed Knowledge Skillsoft", -unitCost);
+              await playChangedRecalc();
+            } }, "+")))
+        : el("td", { class: "num" }, String(a.count || 1));
       t.append(el("tr", {},
         el("td", {}, el("b", {}, a.name),
           inPlay ? el("span", { class: "sh-tag" }, "bought in play") : null,
           target),
-        el("td", { class: "num" }, String(a.count || 1)),
+        countCell,
         el("td", {}, alphaCell),
         el("td", {}, slottedCell),
         el("td", { class: "sub" }, r.Effect || ""),
@@ -1775,9 +1814,19 @@ async function buyAugment(name, mult) {
   if (CHAR.play.cash < cost
       && !confirm(`${name} costs ${fmt(cost)} but you only have ${fmt(CHAR.play.cash)}. Overdraw?`))
     return;
-  CHAR.play.purchases.augments.push({ name, count: 1 });
+  // Stackable augments (Knowledge Skillsoft, Chipjack, Memory) grow one entry's
+  // count so repeated buys read as "× N" rather than a wall of duplicate rows.
+  const existing = isStackableAugment(name)
+    && CHAR.play.purchases.augments.find(a => a.name === name && !a.alpha);
+  if (existing) existing.count = (existing.count || 1) + 1;
+  else CHAR.play.purchases.augments.push({ name, count: 1 });
   logCash(`Installed ${name}`, -cost);
   await playChangedRecalc();
+}
+
+// Augments whose quantity is meaningful and merged into a single entry.
+function isStackableAugment(name) {
+  return name === "Chipjack" || name === "Memory-1 EB" || name === "Knowledge Skillsoft";
 }
 
 /* ------------------------------------------------ magic tab */

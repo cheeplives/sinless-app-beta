@@ -5,7 +5,8 @@
  * helper below. State lives in three module-level variables:
  *
  *   DATA  - game data tables + rule constants (the DATA_BUNDLE from
- *           data.js). Loaded once at boot and never mutated.
+ *           data.js). Loaded once at boot; mutated only by the homebrew
+ *           merge (homebrew.js), which splices user rows into the tables.
  *   CHAR  - the character being edited. Every input handler in this file
  *           mutates CHAR directly, then calls scheduleRecalc() or refresh().
  *   CALC  - the derived character sheet from the last RULES.calculate(CHAR).
@@ -72,6 +73,7 @@ const POOL_FORMULAS = {
  * `await recalc()` call sites read uniformly. */
 async function boot() {
   DATA = DATA_BUNDLE;
+  mergeCustomContent();   // homebrew.js: splice user-created rows into the tables
   CHAR = RULES.defaultCharacter();
   bindRail();
   renderTabs();
@@ -119,6 +121,7 @@ function bindRail() {
     a.click();
     URL.revokeObjectURL(url);   // release the blob; the click has already fired
   });
+  $("#btn-homebrew").addEventListener("click", enterHomebrew);
   $("#btn-import").addEventListener("click", () => $("#import-file").click());
   $("#import-file").addEventListener("change", async e => {
     const file = e.target.files[0];
@@ -709,8 +712,7 @@ function tabStats(p) {
       const bonusCell = el("td", { class: "num sub" }, s.bonus ? "+" + s.bonus : "");
       const finCell = el("td", { class: "num" },
         el("b", {}, ratingText),
-        s.soft ? el("span", { class: "sub" }, ` (soft ${s.soft})`) : null,
-        s.group_value != null ? el("span", { class: "sub" }, ` (grp ${s.group_value})`) : null);
+        s.soft ? el("span", { class: "sub" }, ` (soft ${s.soft})`) : null);
       const specToggle = el("label", { class: "skill-spec-toggle" },
         el("input", { type: "checkbox", ...(specOn ? { checked: 1 } : {}),
           onchange: e => {
@@ -814,7 +816,8 @@ function tabKnowledge(p) {
 
   p.append(el("h2", {}, "Knowledge Skills ", chip("know")));
   p.append(el("p", { class: "hint" },
-    "2 × Intelligence points, free-form (e.g. Poetry, Corporate Law, Sprawl Gangs)."));
+    "2 × Intelligence points (+1 per Knowledge Skillsoft augment), free-form "
+    + "(e.g. Poetry, Corporate Law, Sprawl Gangs)."));
   const kt = el("table", { style: "max-width:560px" });
   CHAR.knowledge_skills.forEach((k, i) => {
     kt.append(el("tr", {},
@@ -1066,8 +1069,10 @@ function tabAugments(p) {
     render: (it, i, del) => {
       const r = DATA.tables.augments.find(x => x.Name === it.name) || {};
       // Only stackable augments keep a quantity stepper; everything else is
-      // implicitly one of a kind.
-      const stackable = it.name === "Chipjack" || it.name === "Memory-1 EB";
+      // implicitly one of a kind. Knowledge Skillsofts stack — each one adds a
+      // Knowledge skill point.
+      const stackable = it.name === "Chipjack" || it.name === "Memory-1 EB"
+        || it.name === "Knowledge Skillsoft";
       if (!stackable && (it.count || 1) !== 1) it.count = 1;
       // Skillsofts target a player-chosen skill (like Amp Expertise) and set
       // it to the soft's level.
