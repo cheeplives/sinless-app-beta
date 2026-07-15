@@ -1442,6 +1442,8 @@ function priceMiscGearAndLifestyle(character, data, gearCostMultiplier, hasHyper
   return { gear_cost: gearCost, gear_weight: gearWeight, lifestyle_cost: lifestyleCost };
 }
 
+// Zoetic Rating from gear reflects what's actively carried/worn/linked, not
+// everything owned — matches the "carried ZR" wording in the ZP warning below.
 function gearZoeticRating(character, data) {
   let total = 0.0;
 
@@ -1452,11 +1454,16 @@ function gearZoeticRating(character, data) {
     }
   };
 
-  add("weapons", "Weapon", character.weapons.map(w => w.name));
-  add("armor", "Armor", character.armor.map(a => a.name));
+  add("weapons", "Weapon", character.weapons
+    .filter(w => w.equipped !== false).map(w => w.name));
+  add("armor", "Armor", character.armor
+    .filter(a => a.active !== false).map(a => a.name));
   add("decks", "Name", character.decks.map(d => d.name));
   add("programs", "Name", character.programs);
-  add("rigs", "Rig Type", character.rigs.map(r => r.name));
+  const activeRigName = (character.play && character.play.rigging
+                         && character.play.rigging.active_rig) || "";
+  add("rigs", "Rig Type", character.rigs
+    .filter(r => r.name === activeRigName).map(r => r.name));
   add("drones", "Drone", character.drones.map(d => d.name));
   add("vehicles", "Vehicle", character.vehicles.map(v => v.name));
   return round2(total);
