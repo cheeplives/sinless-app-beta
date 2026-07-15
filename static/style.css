@@ -384,7 +384,17 @@ label.opt input{margin-top:3px}
 .sh-windfall{margin:6px 0 0;padding-left:22px;font-size:12.5px;color:var(--dim)}
 .sh-windfall li{padding:2px 0}
 .sh-windfall li.wf-hit{color:var(--ok);font-weight:600}
-.sheet-foot{display:flex;gap:8px;margin-top:24px;padding-top:14px;border-top:1px solid var(--line)}
+.sh-menu{position:relative;flex-shrink:0}
+.sh-menu-btn{width:38px;height:38px;border:1px solid var(--line);border-radius:8px;background:var(--panel-2);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;cursor:pointer;padding:0}
+.sh-menu-btn .bar{width:18px;height:2px;background:var(--dim);border-radius:1px}
+.sh-menu-btn:hover .bar,.sh-menu-btn[aria-expanded="true"] .bar{background:var(--text)}
+.sh-menu-btn[aria-expanded="true"]{border-color:var(--manon-dim)}
+.sh-menu-backdrop{position:fixed;inset:0;z-index:45}
+.sh-menu-panel{position:absolute;top:44px;left:0;z-index:46;display:flex;flex-direction:column;gap:6px;
+  background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px;min-width:220px;
+  box-shadow:0 12px 28px rgba(0,0,0,.5)}
+.sh-menu-panel .btn{width:100%;text-align:left}
 .chip.ok{color:var(--ok);border-color:var(--ok)}
 /* header heritage abilities line */
 .sh-heritage-abilities{font-size:11px;color:var(--dim);max-width:640px;margin-top:4px}
