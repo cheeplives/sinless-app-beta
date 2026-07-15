@@ -58,7 +58,6 @@ const SKILLS = {
   "Reconnaissance": ["Focus", null],
   "Shadow": ["Focus", null],
   "Engineering": ["Focus", null],
-  "Computer: Electronic Warfare": ["Focus", "hacking"],
   "Computer: Hacking": ["Focus", "hacking"],
   "Locksmithing": ["Focus", "hacking"],
   "Drive": ["Focus", "vehicle"],
@@ -1076,7 +1075,7 @@ function budgetMagic(character, data, magicType, warnings, errors) {
 }
 
 // ============================================================== step 8: gear pricing
-function priceWeapons(character, data, gearCostMultiplier, warnings) {
+function priceWeapons(character, data, gearCostMultiplier, warnings, strength) {
   const priced = [];
   let totalCost = 0.0, totalWeight = 0.0;
   // Some mods (e.g. Laser Sight, Flashlight) are listed under more than one
@@ -1128,6 +1127,7 @@ function priceWeapons(character, data, gearCostMultiplier, warnings) {
                        "Ammo", "Pen", "Conceal", "Weight", "Hardening", "Notes"]) {
       item[col] = row[col] !== undefined ? row[col] : "";
     }
+    if (row.Type === "Melee") item.Damage = meleeDamage(row, strength);
     item.smart = Boolean(entry.smart);
     item.qty = qty;
     item.mods = fittedMods;
@@ -1137,6 +1137,19 @@ function priceWeapons(character, data, gearCostMultiplier, warnings) {
     priced.push(item);
   }
   return { items: priced, cost: totalCost, weight: totalWeight };
+}
+
+/**
+ * Melee weapon damage: table Damage is a base value; a share of the wielder's
+ * Strength (rounded down) is added — half by default, or the weapon's
+ * "STR Mult" (e.g. Power Fist uses 1 for full Strength) — then any
+ * "Damage Bonus" notation (e.g. Plasma weapons' "+2d6") is appended as-is.
+ */
+function meleeDamage(row, strength) {
+  const mult = row["STR Mult"] !== undefined && row["STR Mult"] !== ""
+    ? asNumber(row["STR Mult"]) : 0.5;
+  return String(toInt(asNumber(row.Damage)) + Math.floor(strength * mult))
+    + (row["Damage Bonus"] || "");
 }
 
 /**
@@ -1693,7 +1706,7 @@ function calculate(character) {
   }
 
   const gearCostMultiplier = heritage.gear_cost_multiplier;
-  const weapons = priceWeapons(character, data, gearCostMultiplier, warnings);
+  const weapons = priceWeapons(character, data, gearCostMultiplier, warnings, finalAttributes.Strength);
   const armor = priceArmor(character, data, gearCostMultiplier, warnings);
   if (heritage.traits.some(row => row.Name === "Tough")
       && armor.items.some(item => item.Slot === "Under" && item.active)) {
@@ -1842,7 +1855,7 @@ return {
   MAGIC_TYPE_BY_PRIORITY, MAGIC_TYPES_ALLOWED_BY_PRIORITY,
   SPELL_FORCE_MAX, SKILL_RANK_CAP, HACKING_RATING_COST, HACKING_RATING_MAX,
   GHOST_RATING_DICE,
-  rigStats, applyExtendedMagazine,
+  rigStats, applyExtendedMagazine, meleeDamage,
 };
 
 })();

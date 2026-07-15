@@ -720,7 +720,7 @@ function shOverview(body) {
         wt.append(el("tr", {},
           el("td", {}, el("b", {}, w.name + (w.smart ? " (smart)" : ""))),
           el("td", { class: "sub" },
-            `${r.Type || ""} · Acc ${r.Accuracy || 0} · DMG ${r.Damage || "—"} · Pen ${r.Pen || 0}`
+            `${r.Type || ""} · Acc ${r.Accuracy || 0} · DMG ${calcRow.Damage ?? r.Damage ?? "—"} · Pen ${r.Pen || 0}`
             + ((calcRow.Ammo ?? r.Ammo) ? ` · Ammo ${calcRow.Ammo ?? r.Ammo}` : "")),
           el("td", { class: "sub" }, (w.mods || []).length ? w.mods.join(", ") : "—")));
       });
@@ -1424,7 +1424,8 @@ function shGear(body) {
       label: WEAPON_TYPE_LABELS[type] || type,
       items: rows.map(r => ({ name: r.Weapon, cost: Math.round((+r.Cost || 0) * mult),
         sub: (r.Type === "Melee" ? `Reach ${r.Reach || 0}` : `Acc ${r.Accuracy || 0}`)
-          + ` · DMG ${r.Damage || "—"} · Pen ${r.Pen || 0} · wt ${r.Weight || 0}` })),
+          + ` · DMG ${r.Type === "Melee" ? RULES.meleeDamage(r, CALC.attributes.Strength.final) : (r.Damage || "—")}`
+          + ` · Pen ${r.Pen || 0} · wt ${r.Weight || 0}` })),
     }));
   if (CHAR.weapons.length) {
     const t = el("table");
@@ -1438,7 +1439,7 @@ function shGear(body) {
         el("td", {}, el("b", {}, w.name + (w.smart ? " (smart)" : "")),
           el("div", { class: "sub", style: "color:var(--manon)" }, weaponRoll(r.Type))),
         el("td", { class: "sub" },
-          `${r.Type || ""} · Acc ${r.Accuracy || 0} · DMG ${r.Damage || "—"} · ${r["Firing modes"] || "melee"} · Pen ${r.Pen || 0} · Weight ${r.Weight || 0}` +
+          `${r.Type || ""} · Acc ${r.Accuracy || 0} · DMG ${calcRow.Damage ?? r.Damage ?? "—"} · ${r["Firing modes"] || "melee"} · Pen ${r.Pen || 0} · Weight ${r.Weight || 0}` +
           ((calcRow.Ammo ?? r.Ammo) ? ` · Ammo ${calcRow.Ammo ?? r.Ammo}` : "")),
         el("td", {}, el("input", { type: "checkbox", ...(w.equipped !== false ? { checked: 1 } : {}),
           onchange: async e => { w.equipped = e.target.checked; await playChangedRecalc(); } })),
@@ -2751,7 +2752,8 @@ function buildMarkdown() {
     L.push("");
     CHAR.weapons.forEach(w => {
       const r = DATA.tables.weapons.find(x => x.Weapon === w.name) || {};
-      L.push(`- **${w.name}**${w.smart ? " (smart)" : ""} — DMG ${r.Damage || "—"}, Acc ${r.Accuracy || 0}, Pen ${r.Pen || 0}`
+      const calcRow = (CALC.weapons || []).find(x => x.Weapon === w.name) || {};
+      L.push(`- **${w.name}**${w.smart ? " (smart)" : ""} — DMG ${calcRow.Damage ?? r.Damage ?? "—"}, Acc ${r.Accuracy || 0}, Pen ${r.Pen || 0}`
         + ((w.mods || []).length ? ` (${w.mods.join(", ")})` : ""));
     });
     L.push("");
