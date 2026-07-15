@@ -338,6 +338,7 @@ label.opt input{margin-top:3px}
 .sh-skilltable{width:100%}
 .sh-skilltable th{font-size:10px}
 .sh-skilltable td,.sh-skilltable th{padding:4px 6px}
+.sh-skilltable tr.dim td{color:var(--dim)}
 
 .sh-track{margin-top:10px}
 .sh-track-head{display:flex;justify-content:space-between;font-family:var(--disp);font-size:12px;

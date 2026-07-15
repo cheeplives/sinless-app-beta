@@ -837,27 +837,50 @@ function notesCard(rows) {
 }
 
 /* skills belonging to one pool — shown when its pool card is clicked */
+// Shared skill-breakdown table, used by both the Skills tab and the pool-chip
+// expansion on the Overview so the two stay in lockstep. Columns read left to
+// right as Base (Pts) + Bonus + Group = Final dice.
+function skillTableHeader() {
+  return el("tr", {}, el("th", {}, "Skill"), el("th", { class: "num" }, "Pts"),
+    el("th", { class: "num" }, "Bonus"), el("th", { class: "num" }, "Group"),
+    el("th", { class: "num" }, "Final"));
+}
+
+function skillTableRow(name, dim = false) {
+  const s = CALC.skills[name];
+  const spec = (CHAR.skill_specializations || {})[name];
+  const specOn = !!(spec && spec.on) && s.final > 0;
+  const rating = specOn ? `${s.final - 1} / ${s.final + 1}`
+    : s.final > 0 ? String(s.final)
+    : s.dice_bonus ? "0" : "—";
+  // group_value already folds the bonus in; the Group column shows just the
+  // group-derived dice so Pts + Bonus + Group reads as Final.
+  const groupDice = s.points === 0 && s.group_value != null ? s.group_value - s.bonus : 0;
+  return el("tr", dim ? { class: "dim" } : {},
+    el("td", {}, name,
+      specOn && spec.text ? el("span", { class: "sub skill-spec-note" }, ` — ${spec.text}`) : null),
+    el("td", { class: "num sub" }, s.points ? String(s.points) : ""),
+    el("td", { class: "num sub" }, s.bonus ? (s.bonus > 0 ? `+${s.bonus}` : String(s.bonus)) : ""),
+    el("td", { class: "num sub" }, groupDice ? String(groupDice) : ""),
+    el("td", { class: "num" }, el("b", {}, rating),
+      s.soft ? el("span", { class: "sub" }, ` (soft)`) : null,
+      s.dice_bonus ? el("span", { class: "skill-dice" }, `+${s.dice_bonus}d`) : null));
+}
+
 function poolSkillList(pool) {
-  const rows = [];
-  for (const [name, meta] of Object.entries(DATA.skills)) {
-    if (meta.pool !== pool) continue;
-    rows.push({ name, s: CALC.skills[name] });
-  }
-  rows.sort((a, b) => (b.s.final - a.s.final) || a.name.localeCompare(b.name));
+  const names = Object.entries(DATA.skills)
+    .filter(([, meta]) => meta.pool === pool)
+    .map(([name]) => name)
+    .sort((a, b) => (CALC.skills[b].final - CALC.skills[a].final) || a.localeCompare(b));
   const box = el("div", { class: `sh-poolskills ${pool.toLowerCase()}` },
     el("h4", {}, `${pool} skills`));
-  for (const { name, s } of rows) {
-    const spec = (CHAR.skill_specializations || {})[name];
-    const specOn = !!(spec && spec.on) && s.final > 0;
-    const rating = specOn ? `${s.final - 1} / ${s.final + 1}`
-      : s.final > 0 ? String(s.final)
-      : s.dice_bonus ? "0" : "—";
-    box.append(el("div", { class: "sh-poolskill" + (s.final > 0 || s.dice_bonus ? "" : " dim") },
-      el("span", {}, name, s.group ? el("span", { class: "sub" }, ` ·${s.group}`) : null,
-        specOn && spec.text ? el("span", { class: "sub skill-spec-note" }, ` — ${spec.text}`) : null),
-      el("b", {}, rating,
-        s.dice_bonus ? el("span", { class: "skill-dice" }, `+${s.dice_bonus}d`) : null)));
+  const t = el("table", { class: "sh-skilltable" });
+  t.append(skillTableHeader());
+  for (const name of names) {
+    const s = CALC.skills[name];
+    t.append(skillTableRow(name, !(s.final > 0 || s.dice_bonus)));
   }
+  box.append(t);
   return box;
 }
 
@@ -874,27 +897,8 @@ function shSkills(body) {
     if (!trained.length) col.append(el("p", { class: "hint" }, "No trained skills."));
     else {
       const t = el("table", { class: "sh-skilltable" });
-      t.append(el("tr", {}, el("th", {}, "Skill"), el("th", { class: "num" }, "Pts"),
-        el("th", { class: "num" }, "Bonus"), el("th", { class: "num" }, "Group"),
-        el("th", { class: "num" }, "Final")));
-      for (const [name] of trained) {
-        const s = CALC.skills[name];
-        const spec = (CHAR.skill_specializations || {})[name];
-        const specOn = !!(spec && spec.on) && s.final > 0;
-        const rating = specOn ? `${s.final - 1} / ${s.final + 1}` : String(s.final);
-        // group_value already folds the bonus in; the Group column shows just
-        // the group-derived dice so Pts + Bonus + Group reads as Final.
-        const groupDice = s.points === 0 && s.group_value != null ? s.group_value - s.bonus : 0;
-        t.append(el("tr", {},
-          el("td", {}, name,
-            specOn && spec.text ? el("span", { class: "sub skill-spec-note" }, ` — ${spec.text}`) : null),
-          el("td", { class: "num sub" }, s.points ? String(s.points) : ""),
-          el("td", { class: "num sub" }, s.bonus ? (s.bonus > 0 ? `+${s.bonus}` : String(s.bonus)) : ""),
-          el("td", { class: "num sub" }, groupDice ? String(groupDice) : ""),
-          el("td", { class: "num" }, el("b", {}, rating),
-            s.soft ? el("span", { class: "sub" }, ` (soft)`) : null,
-            s.dice_bonus ? el("span", { class: "skill-dice" }, `+${s.dice_bonus}d`) : null)));
-      }
+      t.append(skillTableHeader());
+      for (const [name] of trained) t.append(skillTableRow(name));
       col.append(t);
     }
     grid.append(col);
