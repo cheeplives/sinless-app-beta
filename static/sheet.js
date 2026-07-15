@@ -104,6 +104,7 @@ const LIFESTYLE_EFFECTS = {
 let sheetTab = "overview";
 let expandedPool = null;      // pool card the user clicked open on Overview
 let playSaveTimer = null;
+let sheetMenuOpen = false;    // hamburger menu (Back to Chargen / Homebrew / Export / …)
 
 /* ------------------------------------------------ play-state plumbing */
 function ensurePlay() {
@@ -302,7 +303,7 @@ function renderSheet() {
   ({ overview: shOverview, skills: shSkills, kismet: shKismet, gear: shGear,
      magic: shMagic, decking: shDecking, rigging: shRigging, actions: shActions,
      notes: shNotes })[sheetTab](body);
-  root.append(body, sheetFooter());
+  root.append(body);
 }
 
 function counterBtn(label, fn, cls) {
@@ -369,8 +370,8 @@ function sheetHeader() {
       oninput: e => { CHAR.description = e.target.value; schedulePlaySave(); } },
       CHAR.description || ""));
 
-  // Top band: identity on the left, description in the middle, meters on the right.
-  const top = el("div", { class: "sh-top" }, ident, descField, right);
+  // Top band: hamburger menu, then identity, description in the middle, meters on the right.
+  const top = el("div", { class: "sh-top" }, sheetMenu(), ident, descField, right);
   // Pool band: Save/Load/New on the left, then the four pool tiles as a single
   // 1×4 row travelling across to sit under the meters.
   const poolBar = el("div", { class: "sh-poolbar" }, sheetActions(), pools);
@@ -501,7 +502,12 @@ function adjustCash() {
   playChanged();
 }
 
-function sheetFooter() {
+/* Collapsible hamburger menu (upper-left of the sheet header) holding the
+ * less-frequent whole-character actions: leaving/reverting chargen state,
+ * Homebrew, and import/export. `act()` closes the menu and re-renders once
+ * the action settles, unless the action already navigated away from #sheet
+ * (backToChargen, enterHomebrew) in which case that view's own render wins. */
+function sheetMenu() {
   const importInput = el("input", {
     type: "file", accept: ".json,application/json", hidden: "1",
     onchange: async e => {
@@ -515,6 +521,7 @@ function sheetFooter() {
         return;
       }
       if (!confirm("Import this character? Unsaved changes to the current one are lost.")) return;
+      sheetMenuOpen = false;
       CHAR = RULES.mergeDefaults(parsed);
       STORAGE.saveCharacter(CHAR);
       if (typeof refreshLoadList === "function") refreshLoadList();
@@ -522,19 +529,38 @@ function sheetFooter() {
       if (CHAR.finalized) renderSheet(); else { exitSheet(); renderTabs(); renderPanel(); }
     },
   });
-  return el("div", { class: "sheet-foot" },
-    el("button", { class: "btn ghost", onclick: backToChargen }, "← Back to Chargen"),
-    el("button", { class: "btn ghost", onclick: enterHomebrew }, "Homebrew"),
-    el("button", { class: "btn warn", onclick: revertToChargenEnd }, "Revert to Post-Chargen"),
-    el("button", { class: "btn", onclick: exportMarkdown }, "Export Markdown (Scabard)"),
-    el("button", { class: "btn ghost", onclick: () => {
-      const blob = new Blob([JSON.stringify(CHAR, null, 2)], { type: "application/json" });
-      const a = el("a", { href: URL.createObjectURL(blob),
-        download: (CHAR.name || "character") + ".json" });
-      a.click();
-    } }, "Export JSON"),
-    el("button", { class: "btn ghost", onclick: () => importInput.click() }, "Import JSON"),
-    importInput);
+
+  const act = fn => async () => {
+    sheetMenuOpen = false;
+    await fn();
+    if (!$("#sheet").hidden) renderSheet();
+  };
+
+  const toggle = el("button", {
+    class: "sh-menu-btn", "aria-label": "Menu", "aria-haspopup": "true",
+    "aria-expanded": String(sheetMenuOpen),
+    onclick: () => { sheetMenuOpen = !sheetMenuOpen; renderSheet(); },
+  }, el("span", { class: "bar" }), el("span", { class: "bar" }), el("span", { class: "bar" }));
+
+  const wrap = el("div", { class: "sh-menu" }, toggle);
+  if (sheetMenuOpen) {
+    wrap.append(
+      el("div", { class: "sh-menu-backdrop", onclick: () => { sheetMenuOpen = false; renderSheet(); } }),
+      el("div", { class: "sh-menu-panel", role: "menu" },
+        el("button", { class: "btn ghost", onclick: act(backToChargen) }, "← Back to Chargen"),
+        el("button", { class: "btn ghost", onclick: act(enterHomebrew) }, "Homebrew"),
+        el("button", { class: "btn warn", onclick: act(revertToChargenEnd) }, "Revert to Post-Chargen"),
+        el("button", { class: "btn", onclick: act(exportMarkdown) }, "Export Markdown (Scabard)"),
+        el("button", { class: "btn ghost", onclick: act(() => {
+          const blob = new Blob([JSON.stringify(CHAR, null, 2)], { type: "application/json" });
+          const a = el("a", { href: URL.createObjectURL(blob),
+            download: (CHAR.name || "character") + ".json" });
+          a.click();
+        }) }, "Export JSON"),
+        el("button", { class: "btn ghost", onclick: () => importInput.click() }, "Import JSON"),
+        importInput));
+  }
+  return wrap;
 }
 async function backToChargen() {
   if (!confirm("Return to character generation?\n\nChargen budgets become editable again. "
