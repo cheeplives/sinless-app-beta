@@ -75,11 +75,33 @@ async function boot() {
   DATA = DATA_BUNDLE;
   mergeCustomContent();   // homebrew.js: splice user-created rows into the tables
   CHAR = RULES.defaultCharacter();
+  initTheme();
   bindRail();
   renderTabs();
   await recalc();
   renderPanel();
   refreshLoadList();
+}
+
+/* Theme is applied pre-paint by the inline script in index.html; this just
+ * wires up the toggle button and keeps its icon + the PWA theme-color meta
+ * in sync with whichever theme is active. */
+function initTheme() {
+  const btn = $("#theme-toggle");
+  const meta = $('meta[name="theme-color"]');
+  const THEME_COLOR = { dark: "#0d1017", light: "#f2f3f8" };
+  const applyIcon = theme => {
+    btn.textContent = theme === "light" ? "☀" : "🌙";
+    btn.setAttribute("aria-label", `Switch to ${theme === "light" ? "dark" : "light"} theme`);
+    if (meta) meta.setAttribute("content", THEME_COLOR[theme]);
+  };
+  applyIcon(document.documentElement.getAttribute("data-theme") || "dark");
+  btn.addEventListener("click", () => {
+    const next = document.documentElement.getAttribute("data-theme") === "light" ? "dark" : "light";
+    document.documentElement.setAttribute("data-theme", next);
+    try { localStorage.setItem("sinless:theme", next); } catch { /* best-effort persistence */ }
+    applyIcon(next);
+  });
 }
 
 function scheduleRecalc() {

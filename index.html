@@ -10,8 +10,19 @@
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <link rel="stylesheet" href="static/fonts.css">
 <link rel="stylesheet" href="static/style.css">
+<script>
+  // Applied before first paint so there's no flash of the wrong theme.
+  (function(){
+    try {
+      var t = localStorage.getItem("sinless:theme");
+      if (!t) t = matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+      document.documentElement.setAttribute("data-theme", t);
+    } catch (e) { /* localStorage unavailable — default dark styling still applies */ }
+  })();
+</script>
 </head>
 <body>
+<button id="theme-toggle" class="theme-toggle" title="Toggle light / dark theme" aria-label="Toggle light / dark theme">🌙</button>
 <div id="app">
   <aside id="rail">
     <header class="rail-brand">
