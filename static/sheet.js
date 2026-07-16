@@ -2107,9 +2107,17 @@ function shMagic(body) {
                         : Object.keys(DATA.skills).sort()).map(x => el("option", {}, x)));
         targetCtl.value = p.target || "";
       }
+      // Amps pay half the listed ZP — show both numbers so the listed cost
+      // isn't mistaken for what was actually deducted.
+      const listedZp = +r["ZP Cost"] || 0;
+      const paidZp = listedZp * (type === "Amp" ? 0.5 : 1);
       wrap.append(el("div", { class: "sh-spell amp" },
         el("div", {}, el("b", {}, p.name), " ",
-          el("span", { class: "chip" }, `${r["ZP Cost"] || "?"} ZP`),
+          el("span", { class: "chip",
+            title: paidZp !== listedZp ? "Amps pay half the listed ZP cost" : null },
+            r["ZP Cost"] == null ? "? ZP"
+              : paidZp !== listedZp ? `${listedZp} ZP → paid ${paidZp}`
+              : `${listedZp} ZP`),
           p.target && !targetCtl ? el("span", { class: "sub" }, ` → ${p.target}`) : null,
           (p.times || 1) > 1 ? el("span", { class: "sub" }, ` ×${p.times}`) : null,
           p.inPlay ? el("span", { class: "sh-tag" }, "bought in play") : null,
