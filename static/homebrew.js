@@ -57,6 +57,10 @@ const HOMEBREW_CONFIG = {
     { key: "Dependence", hint: "addiction factor" },
     { key: "Weight", hint: "number" },
     { key: "Rarity", hint: "number" },
+    { key: "Mount Types", datalist: () => ["Any",
+        ...hbDistinct("augments", "Type").filter(t => t !== "Bioware")],
+      hint: "augment types this can mount — comma-separated, or Any; blank = none" },
+    { key: "Mount ZP", hint: "ZP capacity for mounted augments (exempt from the character's ZP)" },
     { key: "Effect", ta: true },
   ]},
   augments: { label: "Augments", nameKey: "Name", fields: [
@@ -100,6 +104,10 @@ const HOMEBREW_CONFIG = {
     { key: "Upgr1_Eff", hint: "Upgrade 1 effect, e.g. “Barrel Detailing (+1 damage)”" },
     { key: "Upgr2_Cost", hint: "Upgrade 2 cost — same format as Upgrade 1" },
     { key: "Upgr2_Eff", hint: "Upgrade 2 effect" },
+    { key: "Mount Types", datalist: () => ["Any",
+        ...hbDistinct("augments", "Type").filter(t => t !== "Bioware")],
+      hint: "augment types this can mount — comma-separated, or Any; blank = none" },
+    { key: "Mount ZP", hint: "ZP capacity for mounted augments (exempt from the character's ZP)" },
     { key: "Notes", ta: true },
   ]},
   armor: { label: "Armor", nameKey: "Armor", fields: [
@@ -114,6 +122,10 @@ const HOMEBREW_CONFIG = {
     { key: "Rarity", hint: "number" },
     { key: "Style", select: () => ["", "Y"],
       optionLabel: v => v === "Y" ? "Y (styleable)" : "(fixed)" },
+    { key: "Mount Types", datalist: () => ["Any",
+        ...hbDistinct("augments", "Type").filter(t => t !== "Bioware")],
+      hint: "augment types this can mount — comma-separated, or Any; blank = none" },
+    { key: "Mount ZP", hint: "ZP capacity for mounted augments (exempt from the character's ZP)" },
   ]},
   vehicles: { label: "Vehicles", nameKey: "Vehicle", fields: [
     { key: "Vehicle" },

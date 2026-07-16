@@ -284,6 +284,7 @@ function dossierNotes() {
     notes.push("Replicants are ILLEGAL and are hunted by government agents. Exposure means retirement squads — keep a low profile.");
   if (CALC.zoetics.amp_offline)
     notes.push(`AMP POWERS OFFLINE: ZP is ${CALC.zoetics.zp_remaining} — Amp ZP spent plus carried ZR exceeds your Zoetic Potential. Shed ZR or lose the powers.`);
+  for (const msg of CALC.zoetics.mount_errors || []) notes.push(msg);
   if (moveSpecial()) notes.push("Movement: " + moveSpecial());
   if ((CHAR.heritage.features || []).length)
     notes.push(`Heritage features: ${CHAR.heritage.features.join(", ")}.`);
@@ -1517,6 +1518,84 @@ function weaponUpgradeSlots(w, r, mult) {
 }
 
 /* ------------------------------------------------ gear tab */
+/* Mounted-augment editor for host gear (Power Armor, Arwin Goggles, homebrew
+   with a "Mount Types" column). Mounted augments are managed with the gear —
+   they never appear on the Augments tab, their ZR is exempt from ZP, and
+   their effects only apply while the host is worn / carried / equipped. */
+function shMountEditor(host, hostRow, hostActive) {
+  const cap = RULES.mountCapability(hostRow || {});
+  if (!cap) return null;
+  host.mounted ??= [];
+  const mult = CALC.budget.gear_cost_multiplier || 1;
+  const r2 = x => Math.round(x * 100) / 100;
+  const copies = Math.max(1, +(host.qty || 1));   // armor entries have no qty
+  const capacity = r2(cap.capacity * copies);
+  const augRow = name => DATA.tables.augments.find(a => a.Name === name);
+  const used = r2(host.mounted.reduce((sum, m) => {
+    const row = augRow(m.name);
+    return sum + (row ? RULES.augmentEffZr(row, m) : 0);
+  }, 0));
+
+  const wrap = el("div", { class: "sub" });
+  wrap.append(el("div", { style: used - capacity > 1e-9 ? "color:var(--bad)" : "" },
+    el("b", {}, "Mounts "), `${cap.label} · ${used} / ${capacity} ZP`
+    + (hostActive ? "" : " · inactive — mounted effects offline")));
+
+  host.mounted.forEach((m, idx) => {
+    const row = augRow(m.name) || {};
+    const hasZr = +row.ZR > 0;
+    // Same α-cyber cash math as the Augments tab: going alpha adds
+    // max(base cost, 1000) × the gear multiplier (mirrors rules.js effCost).
+    const alphaExtra = Math.round(Math.max(+row.Cost || 0, 1000) * mult);
+    wrap.append(el("div", { class: "opt" },
+      el("span", {}, `${m.name} — ZR ${RULES.augmentEffZr(row, m)}`),
+      hasZr ? el("label", { class: "opt",
+          title: `α-cyber grade: ZR −20% (min −0.1), cost ×2 (min +${CURRENCY_SYMBOL}1,000)` },
+        el("input", { type: "checkbox", ...(m.alpha ? { checked: 1 } : {}),
+          onchange: async e => {
+            m.alpha = e.target.checked;
+            logCash(m.alpha ? `Upgraded ${m.name} (${host.name}) to α-cyber grade`
+                            : `Reverted ${m.name} (${host.name}) from α-cyber grade`,
+              m.alpha ? -alphaExtra : alphaExtra);
+            await playChangedRecalc();
+          } }),
+        el("span", {}, "α-cyber")) : null,
+      el("button", { class: "row-del", title: "Remove (not refunded)",
+        onclick: async () => {
+          if (!confirm(`Remove ${m.name} from ${host.name}? Not refunded.`)) return;
+          host.mounted.splice(idx, 1);
+          await playChangedRecalc();
+        } }, "✕")));
+  });
+
+  const byType = {};
+  for (const a of DATA.tables.augments) {
+    if (cap.accepts(a.Type)) (byType[a.Type] ??= []).push(a);
+  }
+  const sel = el("select", {},
+    el("option", { value: "" }, "Mount augment…"),
+    ...Object.entries(byType).sort(([a], [b]) => a.localeCompare(b))
+      .map(([type, rows]) => el("optgroup", { label: type },
+        ...rows.map(a => el("option", { value: a.Name,
+            ...((+a.ZR || 0) - (capacity - used) > 1e-9 ? { disabled: 1 } : {}) },
+          `${a.Name} — ZR ${a.ZR || 0} · ${fmt(Math.round((+a.Cost || 0) * mult))}`)))));
+  sel.onchange = async () => {
+    const name = sel.value;
+    if (!name) return;
+    sel.value = "";
+    const row = augRow(name) || {};
+    const cost = Math.round((+row.Cost || 0) * mult);
+    if (CHAR.play.cash < cost
+        && !confirm(`${name} costs ${fmt(cost)} but you have ${fmt(CHAR.play.cash)}. Overdraw?`))
+      return;
+    host.mounted.push({ name });
+    logCash(`Mounted ${name} on ${host.name}`, -cost);
+    await playChangedRecalc();
+  };
+  wrap.append(sel);
+  return wrap;
+}
+
 function shGear(body) {
   const play = CHAR.play;
   const mult = CALC.budget.gear_cost_multiplier || 1;
@@ -1614,7 +1693,8 @@ function shGear(body) {
       const calcRow = (CALC.weapons || []).find(x => x.Weapon === w.name) || {};
       t.append(el("tr", {},
         el("td", {}, el("b", {}, w.name + (w.smart ? " (smart)" : "")),
-          el("div", { class: "sub", style: "color:var(--manon)" }, weaponRoll(r.Type))),
+          el("div", { class: "sub", style: "color:var(--manon)" }, weaponRoll(r.Type)),
+          shMountEditor(w, r, w.equipped !== false)),
         el("td", { class: "sub" },
           `${r.Type || ""} · Acc ${r.Accuracy || 0} · DMG ${calcRow.Damage ?? r.Damage ?? "—"} · ${r["Firing modes"] || "melee"} · Pen ${r.Pen || 0} · Weight ${r.Weight || 0}` +
           ((calcRow.Ammo ?? r.Ammo) ? ` · Ammo ${calcRow.Ammo ?? r.Ammo}` : "")),
@@ -1685,7 +1765,8 @@ function shGear(body) {
       t.append(el("tr", {},
         el("td", {}, el("b", {}, a.name),
           el("div", { class: "sub" },
-            ([a.style, a.material].filter(Boolean).join(" · ") || r.Slot || "") + ` · wt ${r.wt || 0}`)),
+            ([a.style, a.material].filter(Boolean).join(" · ") || r.Slot || "") + ` · wt ${r.wt || 0}`),
+          shMountEditor(a, r, a.active !== false)),
         el("td", { class: "num" }, `${r.Ballistic || 0} / ${r.Impact || 0}`),
         el("td", { class: "sub" }, extrasCell),
         el("td", {}, el("input", { type: "checkbox", ...(a.active !== false ? { checked: 1 } : {}),
@@ -1725,13 +1806,14 @@ function shGear(body) {
     const r = DATA.tables.misc_gear.find(x => x.Item === g.name) || {};
     gt.append(el("tr", {},
       el("td", {}, el("b", {}, g.name),
-        inPlay ? el("span", { class: "sh-tag" }, "bought in play") : null),
+        inPlay ? el("span", { class: "sh-tag" }, "bought in play") : null,
+        shMountEditor(g, r, g.carried !== false)),
       el("td", { class: "num" }, String(g.qty || 1)),
       el("td", { class: "sub" },
         [(+r.Dependence ? `Dependence ${r.Dependence}` : ""), r.Effect || ""]
           .filter(Boolean).join(" · ")),
       el("td", {}, el("input", { type: "checkbox", ...(g.carried !== false ? { checked: 1 } : {}),
-        onchange: e => { g.carried = e.target.checked; playChanged(); } })),
+        onchange: async e => { g.carried = e.target.checked; await playChangedRecalc(); } })),
       el("td", {}, el("button", { class: "row-del", title: "Remove item",
         onclick: async () => {
           if (!confirm(`Remove ${g.name}?`)) return;
@@ -1841,11 +1923,17 @@ function shAugments(body) {
   body.append(el("div", { class: "card sh-card" }, el("h3", {}, "Augments"),
     el("div", { class: "sh-advrow" },
       el("span", {}, "Augment ZR"), el("b", {}, String(z.augment_zr))),
+    ...(z.mounted_zr ? [el("div", { class: "sh-advrow",
+        title: "ZR of augments mounted on gear (Gear tab) — never counts against your ZP" },
+      el("span", {}, "Mounted on gear (ZP-exempt)"), el("b", {}, String(z.mounted_zr)))] : []),
+    ...(z.mount_errors || []).map(msg =>
+      el("div", { class: "sh-advrow", style: "color:var(--bad)" }, msg)),
     el("div", { class: "sh-advrow" },
       el("span", {}, `Body Index (max ${CALC.attributes.Body.final})`),
       el("b", { style: z.body_index_ok ? "" : "color:var(--bad)" }, String(z.body_index))),
     el("p", { class: "hint" },
-      "α-cyber Augments are bleeding edge, reducing the ZR by 20% but doubling the cost.")));
+      "α-cyber Augments are bleeding edge, reducing the ZR by 20% but doubling the cost. "
+      + "Augments mounted on gear are managed on the Gear tab with their host item.")));
 
   // One card per augment type, in anatomical-ish order.
   const byType = {};

@@ -267,6 +267,9 @@ function renderRail() {
   rz.append(
     el("div", { class: "track" }, el("span", {}, "ZP"), el("b", {}, String(z.zp))),
     el("div", { class: "track" }, el("span", {}, "Cyber/Gear ZR"), el("b", {}, String(z.cyber_zr))),
+    ...(z.mounted_zr ? [el("div", { class: "track",
+        title: "ZR of augments mounted on gear — never counts against your ZP" },
+      el("span", {}, "Mounted ZR (exempt)"), el("b", {}, String(z.mounted_zr)))] : []),
     el("div", { class: "track" }, el("span", {}, "Amp ZR"), el("b", {}, String(z.amp_zr))),
     el("div", { class: "track" }, el("span", {}, "Body Index"),
       el("b", { style: z.body_index_ok ? "" : "color:var(--bad)" }, String(z.body_index))));
@@ -1063,7 +1066,8 @@ function tabAugments(p) {
   p.append(el("h2", {}, "Augments ", chip("cash")));
   p.append(el("p", { class: "hint" },
     "Cyberware accrues ZR (Zoetic Rating); bioware accrues Body Index, which must stay at or below your Body. Banned combinations are flagged in the sidebar. "
-    + "α-cyber Augments are bleeding edge, reducing the ZR by 20% (minimum 0.1) but doubling the cost (minimum +ㄓ1,000)."));
+    + "α-cyber Augments are bleeding edge, reducing the ZR by 20% (minimum 0.1) but doubling the cost (minimum +ㄓ1,000). "
+    + "Augments installed in your body are managed here; some gear (Power Armor, Arwin Goggles, …) can mount augments on the Weapons & Armor / Gear tabs instead — those never count against your ZP."));
   const avail = augmentAvailability(CHAR.augments);
   // Cyberlimb augments (except the melee implants below) need a replacement limb.
   const LIMB_TYPES = new Set(["Right Arm", "Left Arm", "Right Leg", "Left Leg"]);
@@ -1378,6 +1382,61 @@ function augmentAvailability(ownedEntries) {
   return { hidden, bannedReason, ownedNames };
 }
 
+/* Mounted-augment editor for gear that can host augments (Power Armor, Arwin
+   Goggles, homebrew with a "Mount Types" column). Rendered inside the host
+   item's row on the Weapons/Armor/Gear tabs — mounted augments are managed
+   with the gear, never on the Augments tab, and their ZR doesn't count
+   against the character's ZP. Effects apply only while the host is active. */
+function mountEditor(host, hostRow, hostActive) {
+  const cap = RULES.mountCapability(hostRow || {});
+  if (!cap) return null;
+  host.mounted ??= [];
+  const r2 = x => Math.round(x * 100) / 100;
+  const copies = Math.max(1, +(host.qty || 1));   // armor entries have no qty
+  const capacity = r2(cap.capacity * copies);
+  const augRow = name => DATA.tables.augments.find(a => a.Name === name);
+  const used = r2(host.mounted.reduce((sum, m) => {
+    const row = augRow(m.name);
+    return sum + (row ? RULES.augmentEffZr(row, m) : 0);
+  }, 0));
+
+  const wrap = el("div", { class: "sub" });
+  wrap.append(el("div", {},
+    el("b", {}, "Mounts "), `${cap.label} · ${used} / ${capacity} ZP`
+    + (hostActive ? "" : " · inactive — mounted effects offline")));
+
+  host.mounted.forEach((m, idx) => {
+    const row = augRow(m.name) || {};
+    const hasZr = +row.ZR > 0;
+    wrap.append(el("div", { class: "opt" },
+      el("span", {}, `${m.name} — ZR ${RULES.augmentEffZr(row, m)} · ${fmt(RULES.augmentEffCost(row, m))}`),
+      hasZr ? el("label", { class: "opt", title: "Bleeding-edge grade: ZR −20% (min 0.1), cost doubled (min +1000)" },
+        el("input", { type: "checkbox", ...(m.alpha ? { checked: 1 } : {}),
+          onchange: e => { m.alpha = e.target.checked; refresh(); } }),
+        el("span", {}, "α-cyber")) : null,
+      el("button", { class: "row-del", onclick: () => { host.mounted.splice(idx, 1); refresh(); } }, "✕")));
+  });
+
+  const byType = {};
+  for (const a of DATA.tables.augments) {
+    if (cap.accepts(a.Type)) (byType[a.Type] ??= []).push(a);
+  }
+  const sel = el("select", {},
+    el("option", { value: "" }, "Mount augment…"),
+    ...Object.entries(byType).sort(([a], [b]) => a.localeCompare(b))
+      .map(([type, rows]) => el("optgroup", { label: type },
+        ...rows.map(a => el("option", { value: a.Name,
+            ...((+a.ZR || 0) - (capacity - used) > 1e-9 ? { disabled: 1 } : {}) },
+          `${a.Name} — ZR ${a.ZR || 0} · ${fmt(a.Cost)}`)))));
+  sel.onchange = () => {
+    if (!sel.value) return;
+    host.mounted.push({ name: sel.value });
+    refresh();
+  };
+  wrap.append(sel);
+  return wrap;
+}
+
 /* ------------------------------------------------ 7. weapons & armor */
 const WEAPON_TYPE_LABELS = {
   Melee: "Melee Weapons", Thrown: "Thrown Weapons", PistolLt: "Light Pistols",
@@ -1427,7 +1486,8 @@ function tabWeapons(p) {
             onRemove: index => it.mods.splice(index, 1),
             effectOf: name =>
               (DATA.tables.weapon_mods.find(m => m.Modification === name) || {}).Effect || "",
-          }) : null),
+          }) : null,
+          mountEditor(it, r, it.equipped !== false)),
         el("td", {},
           el("label", { class: "opt" },
             el("input", { type: "checkbox", ...(it.equipped !== false ? { checked: 1 } : {}),
@@ -1490,7 +1550,8 @@ function tabWeapons(p) {
           }));      }
       return el("tr", {},
         el("td", {}, el("b", {}, it.name),
-          el("div", { class: "sub" }, `${r.Slot} \u00b7 ${r.Ballistic}B / ${r.Impact}I \u00b7 wt ${r.wt}`)),
+          el("div", { class: "sub" }, `${r.Slot} \u00b7 ${r.Ballistic}B / ${r.Impact}I \u00b7 wt ${r.wt}`),
+          mountEditor(it, r, it.active !== false)),
         el("td", {}, styleCtl),
         el("td", {}, el("label", { class: "opt" },
           el("input", { type: "checkbox", ...(it.active !== false ? { checked: 1 } : {}),
@@ -1791,14 +1852,15 @@ function tabGear(p) {
           el("div", { class: "sub" },
             [(+r.Dependence ? `Dependence ${r.Dependence}` : ""), r.Effect || ""]
               .filter(Boolean).join(" · ")),
-          gearLinkSelect(it)),
+          gearLinkSelect(it),
+          mountEditor(it, r, it.carried !== false)),
         costCell,
         el("td", { class: "num" }, stepper(() => it.qty || 1,
           v => { it.qty = v; costCell.textContent = fmt((+r.Cost || 0) * v); }, 1, 99)),
         el("td", {},
           el("label", { class: "opt" },
             el("input", { type: "checkbox", ...(it.carried !== false ? { checked: 1 } : {}),
-              onchange: e => { it.carried = e.target.checked; } }),
+              onchange: e => { it.carried = e.target.checked; refresh(); } }),
             el("span", {}, "Carried"))),
         el("td", {}, el("button", { class: "row-del", onclick: del }, "\u2715")));
     },
