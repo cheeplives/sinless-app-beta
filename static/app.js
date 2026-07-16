@@ -254,6 +254,8 @@ function renderRail() {
     rb.append(budgetRow("Infusion pts", m.infusion_pts.remaining, m.infusion_pts.budget));
     rb.append(budgetRow("Relationship pts", m.relationship_pts.remaining, m.relationship_pts.budget));
   }
+  rb.append(budgetRow("Body Index", CALC.attributes.Body.final - CALC.zoetics.body_index,
+                       CALC.attributes.Body.final));
   const cashRow = el("div", { class: "budget" },
     el("span", { class: "lbl" }, "Cash"),
     el("span", { class: `val ${CALC.budget.remaining < 0 ? "neg" : ""}` },
@@ -1131,13 +1133,14 @@ function tabAugments(p) {
       }
       // Alpha grade: only augments that carry ZR can go bleeding-edge.
       const hasZr = !!(+r.ZR);
-      const alphaZr = hasZr ? Math.ceil(+r.ZR * 0.8 * 10) / 10 : 0;
+      const alphaZr = hasZr
+        ? Math.max(0, Math.ceil((+r.ZR - Math.max(+r.ZR * 0.2, 0.1)) * 10) / 10) : 0;
       const costOf = () => (+r.Cost || 0) * (it.alpha ? 2 : 1) * (it.count || 1);
       const costCell = el("td", { class: "num" }, fmt(costOf()));
       const zrCell = el("td", { class: "num" },
         hasZr ? `ZR ${it.alpha ? alphaZr : +r.ZR}` : r.BI ? `BI ${r.BI}` : "");
       const alphaCtl = hasZr
-        ? el("label", { class: "opt", title: `\u03b1-cyber grade: ZR ${alphaZr} (\u221220%), cost \u00d72` },
+        ? el("label", { class: "opt", title: `\u03b1-cyber grade: ZR ${alphaZr} (\u221220%, min \u22120.1), cost \u00d72` },
             el("input", { type: "checkbox", ...(it.alpha ? { checked: "1" } : {}),
               onchange: e => {
                 it.alpha = e.target.checked;

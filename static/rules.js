@@ -625,11 +625,14 @@ function tallyAugments(character, data, warnings, errors) {
         ? asNumber(row[name]) * count : 0));
   }
 
-  // Alpha-grade augments (bleeding edge): ZR reduced 20% (round UP to the
-  // nearest tenth) but cost is doubled. Flagged per-entry with entry.alpha.
+  // Alpha-grade augments (bleeding edge): ZR reduced 20% (minimum reduction
+  // of 0.1, round UP to the nearest tenth) but cost is doubled. Flagged
+  // per-entry with entry.alpha.
   const effZr = (row, entry) => {
     const base = asNumber(row.ZR);
-    return (entry && entry.alpha && base) ? Math.ceil(base * 0.8 * 10) / 10 : base;
+    if (!(entry && entry.alpha && base)) return base;
+    const reduction = Math.max(base * 0.2, 0.1);
+    return Math.max(0, Math.ceil((base - reduction) * 10) / 10);
   };
   const effCost = (row, entry) => {
     const base = asNumber(row.Cost);
