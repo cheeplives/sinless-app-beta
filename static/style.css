@@ -112,7 +112,9 @@ input:focus,select:focus,button:focus{outline:2px solid var(--manon-dim);outline
   border-top:1px solid rgba(255,93,108,.25);border-right:1px solid rgba(255,93,108,.25);border-bottom:1px solid rgba(255,93,108,.25)}
 .alert.warn{border-color:var(--amber);background:var(--alert-warn-bg);
   border-top-color:rgba(232,163,61,.25);border-right-color:rgba(232,163,61,.25);border-bottom-color:rgba(232,163,61,.25)}
-@media (max-width:960px){#rail-alerts{position:static;width:auto;max-height:none;pointer-events:auto}}
+/* Small screens: the rail moves below the content (see the 900px block), so
+ * alerts must stay a floating overlay or errors would hide at page bottom. */
+@media (max-width:960px){#rail-alerts{left:10px;right:10px;width:auto;max-height:40vh}}
 
 /* ---------- main ---------- */
 #main{padding:0 26px 60px}
@@ -160,7 +162,7 @@ input[type=checkbox]{accent-color:var(--manon)}
 .add-row{display:flex;gap:8px;align-items:center;margin:8px 0 4px;flex-wrap:wrap}
 .add-row select{min-width:220px}
 .btn-add{background:var(--manon-dim);border:none;color:var(--on-accent);border-radius:4px;padding:6px 12px;
-  font-family:var(--disp);font-size:12px;cursor:pointer;letter-spacing:.06em}
+  font-family:var(--disp);font-size:12px;cursor:pointer;letter-spacing:.06em;white-space:nowrap}
 .btn-add:hover{background:var(--manon)}
 .btn-add[disabled]{opacity:.45;cursor:not-allowed}
 .btn-add[disabled]:hover{background:var(--manon-dim)}
@@ -262,8 +264,11 @@ label.opt input{margin-top:3px}
 .hb-row-actions .btn{margin-right:6px}
 .hb-ref summary{cursor:pointer;color:var(--dim);font-size:13px}
 .hb-ref[open] summary{margin-bottom:10px;color:var(--text)}
-.sheet-head{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px 18px 0;margin-bottom:16px;
-  position:sticky;top:8px;z-index:40;box-shadow:0 6px 18px rgba(0,0,0,.45)}
+/* The header scrolls away normally — the .sh-stickybar below it keeps the
+ * tab strip (and, once the header is out of view, a compact pools/ZP/cash
+ * strip) pinned instead, so the header no longer eats half a tablet screen. */
+.sheet-head{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px 18px 12px;
+  box-shadow:0 6px 18px rgba(0,0,0,.45)}
 .sh-top{display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap;justify-content:space-between}
 .sh-ident{display:flex;flex-direction:column;gap:4px;align-items:flex-start;min-width:200px;flex:1}
 .sh-ident-top{display:flex;gap:12px;align-items:center}
@@ -300,11 +305,33 @@ label.opt input{margin-top:3px}
 .sh-meter.cash{border-color:var(--amber);cursor:pointer}
 .sh-meter.cash .v{color:var(--amber)}
 .sh-meter.cash .plus{color:var(--dim);font-size:13px}
-.sh-tabs{display:flex;gap:2px;justify-content:flex-end;margin-top:10px;border-top:1px solid var(--line);flex-wrap:wrap}
+.sh-tabs{display:flex;gap:2px;justify-content:flex-end;flex-wrap:wrap}
 .sh-tabs button{background:none;border:none;border-bottom:2px solid transparent;color:var(--dim);
   font-family:var(--disp);font-size:13px;letter-spacing:.06em;padding:9px 14px;cursor:pointer}
 .sh-tabs button.active{color:var(--strong);border-bottom-color:var(--manon)}
 .sh-tabs button:hover{color:var(--text)}
+
+/* sticky bar under the header: tab strip always, compact summary when scrolled */
+.sh-stickybar{position:sticky;top:0;z-index:40;background:var(--ink);
+  border-bottom:1px solid var(--line);margin-bottom:14px}
+.sh-stickybar.scrolled{box-shadow:0 6px 18px rgba(0,0,0,.45)}
+.sh-compact{display:none;align-items:center;gap:8px;flex-wrap:wrap;
+  padding:7px 44px 6px 0;border-bottom:1px solid var(--line)}  /* right gap clears the theme toggle */
+.sh-stickybar.scrolled .sh-compact{display:flex}
+.sh-compact-name{font-family:var(--disp);font-weight:700;font-size:14px;margin-right:2px}
+.sh-cpool{display:inline-flex;align-items:center;gap:5px;font-family:var(--mono);font-size:12px;
+  border:1px solid var(--line);border-radius:14px;padding:2px 4px 2px 9px;background:var(--panel-2)}
+.sh-cpool .k{font-family:var(--disp);font-size:10px;letter-spacing:.1em;text-transform:uppercase}
+.sh-cpool b{font-weight:600}
+.sh-cpool.brawn{border-color:var(--pool-brawn)}    .sh-cpool.brawn .k{color:var(--pool-brawn)}
+.sh-cpool.finesse{border-color:var(--pool-finesse)}.sh-cpool.finesse .k{color:var(--pool-finesse)}
+.sh-cpool.focus{border-color:var(--pool-focus)}    .sh-cpool.focus .k{color:var(--pool-focus)}
+.sh-cpool.resolve{border-color:var(--pool-resolve)}.sh-cpool.resolve .k{color:var(--pool-resolve)}
+.sh-cpool.kismet{border-color:var(--pool-kismet)}  .sh-cpool.kismet .k{color:var(--pool-kismet)}
+.sh-cmeter{font-family:var(--mono);font-size:12px;border:1px solid var(--line);
+  border-radius:14px;padding:3px 10px;background:var(--panel-2)}
+.sh-cmeter.zoetic{color:var(--manon);border-color:var(--manon-dim)}
+.sh-cmeter.cash{color:var(--amber);border-color:var(--amber);cursor:pointer;margin-left:auto}
 
 .sheet-body{display:block}
 .sh-card{margin-bottom:14px}
@@ -338,7 +365,7 @@ label.opt input{margin-top:3px}
 .sh-pool-kismet{position:absolute;top:6px;right:8px;font-family:var(--mono);font-size:11px;
   color:var(--amber);opacity:.85}
 .sh-pool .k{font-family:var(--disp);font-size:12px;letter-spacing:.14em;text-transform:uppercase}
-.sh-pool .v{font-family:var(--mono);font-size:30px;font-weight:700;color:var(--strong);line-height:1.15}
+.sh-pool .v{font-family:var(--mono);font-size:30px;font-weight:700;color:var(--strong);line-height:1.15;white-space:nowrap}
 .sh-pool .sub{font-size:10px;color:var(--dim)}
 .sh-pool.brawn{border-color:var(--pool-brawn)}   .sh-pool.brawn .k{color:var(--pool-brawn)}
 .sh-pool.finesse{border-color:var(--pool-finesse)}.sh-pool.finesse .k{color:var(--pool-finesse)}
@@ -475,8 +502,9 @@ tr.sh-modslots-row td{padding-top:0;padding-bottom:10px;border-bottom:1px solid 
 .sh-modslot.mod-underbarrel{border-color:var(--slot-underbarrel)}
 .sh-modslot.mod-chassis{border-color:var(--slot-chassis)}
 .sh-modslot.mod-upgrade{border-color:var(--slot-upgrade)}
-/* gear-tab jump submenu */
-.gear-submenu{display:flex;flex-wrap:wrap;gap:6px;position:sticky;top:0;z-index:5;
+/* gear-tab jump submenu — sticks just below the sheet sticky bar, whose
+ * current height sheet.js publishes as --sh-sticky-h */
+.gear-submenu{display:flex;flex-wrap:wrap;gap:6px;position:sticky;top:var(--sh-sticky-h,0px);z-index:5;
   background:var(--ink);padding:8px 0;margin-bottom:6px;border-bottom:1px solid var(--line)}
 .gear-submenu button{background:var(--panel-2);border:1px solid var(--line);color:var(--dim);
   border-radius:14px;padding:3px 12px;font-size:12px;cursor:pointer}
@@ -491,11 +519,51 @@ tr.sh-modslots-row td{padding-top:0;padding-bottom:10px;border-bottom:1px solid 
   box-shadow:0 4px 14px rgba(0,0,0,.35)}
 .theme-toggle:hover{border-color:var(--manon-dim)}
 
+/* ---------- tablet / small-screen reflow ---------- */
+/* Overview drops from 3 columns before it gets cramped. */
+@media(max-width:1150px){
+  .sh-ov-grid{grid-template-columns:1fr 1fr}
+}
+@media(max-width:1100px){
+  /* pools wrap (3+2) instead of clipping the Kismet tile off-screen */
+  .sh-head-pools{flex-wrap:wrap}
+  .sh-head-pools .sh-pool{flex:1 1 150px}
+  /* left-align tabs so the last row isn't a lone right-floated orphan */
+  .sh-tabs{justify-content:flex-start}
+  .sh-tabs button{padding:8px 10px}
+}
+@media(max-width:1024px){
+  #sheet{padding:14px 14px 60px}
+  /* header top band stacks: identity, then description, then meters 4-across */
+  .sh-top{flex-direction:column}
+  .sh-ident{width:100%}
+  .sh-desc{max-width:none;width:100%;flex-basis:auto}
+  .sh-meters{margin-left:0;width:100%;grid-template-columns:repeat(4,minmax(0,1fr))}
+  .sh-heritage-abilities,.sh-ls-effect{max-width:none}
+}
 @media(max-width:900px){
   #app{grid-template-columns:1fr}
-  #rail{position:static;height:auto}
+  /* content first: the editor matters more than the summary rail on tablets */
+  #main{order:-1}
+  #rail{position:static;height:auto;border-right:none;border-top:1px solid var(--line)}
   .grid-2,.grid-3{grid-template-columns:1fr}
   .sh-ov-grid,.sh-two,.sh-pools,.sh-skillgrid{grid-template-columns:1fr 1fr}
+}
+@media(max-width:640px){
+  .sh-ov-grid{grid-template-columns:1fr}
+}
+/* Touch devices: lift the smallest labels and give controls real tap areas.
+ * Desktop pointers are unaffected. */
+@media(pointer:coarse){
+  .mini-btn{font-size:17px;min-width:28px;min-height:28px}
+  .stepper button{width:30px;height:30px}
+  .sh-box{width:34px;height:32px}
+  .row-del{font-size:18px;padding:2px 6px}
+  .sh-modslot-label,.sh-pool-boost .sub,.sh-pool-note{font-size:10.5px}
+  .sh-modslot-eff,.sh-pool-kismet{font-size:11px}
+  th{font-size:11px}
+  .sh-skilltable th{font-size:10.5px}
+  .sh-tag,.sh-tag-select{font-size:12px}
 }
 @media (prefers-reduced-motion: reduce){
   *{transition:none!important}

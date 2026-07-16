@@ -105,6 +105,8 @@ let sheetTab = "overview";
 let expandedPool = null;      // pool card the user clicked open on Overview
 let playSaveTimer = null;
 let sheetMenuOpen = false;    // hamburger menu (Back to Chargen / Homebrew / Export / …)
+let sheetHeadObserver = null; // IntersectionObserver toggling the compact sticky strip
+let sheetStickyScrolled = false;  // survives re-renders so the strip doesn't flicker
 
 /* ------------------------------------------------ play-state plumbing */
 function ensurePlay() {
@@ -220,12 +222,15 @@ function enterSheet() {
   seedLifestyles();
   sheetTab = "overview";
   expandedPool = null;
+  sheetStickyScrolled = false;   // entering always lands at the top
   $("#app").hidden = true;
   $("#sheet").hidden = false;
   renderSheet();
   window.scrollTo(0, 0);
 }
 function exitSheet() {
+  if (sheetHeadObserver) { sheetHeadObserver.disconnect(); sheetHeadObserver = null; }
+  sheetStickyScrolled = false;
   $("#sheet").hidden = true;
   $("#app").hidden = false;
 }
@@ -299,16 +304,43 @@ function sheetTabList() {
 function renderSheet() {
   const root = $("#sheet");
   root.innerHTML = "";
-  root.append(sheetHeader());
+  const head = sheetHeader();
+  const bar = sheetStickyBar();
+  root.append(head, bar);
   const body = el("div", { class: "sheet-body" });
   ({ overview: shOverview, skills: shSkills, kismet: shKismet, gear: shGear,
      augments: shAugments, magic: shMagic, decking: shDecking,
      rigging: shRigging, actions: shActions, notes: shNotes })[sheetTab](body);
   root.append(body);
+  // The full header scrolls away normally; once it leaves the viewport the
+  // sticky bar grows a compact summary strip (pools / ZP / cash). The DOM is
+  // rebuilt every render, so the observer is re-attached each time. The bar's
+  // live height is published as --sh-sticky-h so nested sticky elements (the
+  // gear-tab jump submenu) can park directly beneath it.
+  const publishBarHeight = () => document.documentElement.style
+    .setProperty("--sh-sticky-h", bar.offsetHeight + "px");
+  publishBarHeight();
+  if (sheetHeadObserver) sheetHeadObserver.disconnect();
+  sheetHeadObserver = new IntersectionObserver(([entry]) => {
+    sheetStickyScrolled = !entry.isIntersecting;
+    bar.classList.toggle("scrolled", sheetStickyScrolled);
+    publishBarHeight();
+  }, { rootMargin: "-48px 0px 0px 0px" });   // header "gone" once it's under the bar
+  sheetHeadObserver.observe(head);
 }
 
 function counterBtn(label, fn, cls) {
   return el("button", { class: "btn " + (cls || ""), onclick: fn }, label);
+}
+
+/* Effective ZP = max ZP minus Amp ZP spent minus carried ZR, any fraction
+ * knocking off a whole point (5.6 spent on 6 ZP shows 0 / 6), floored at 0.
+ * Maximum ZP is unchanged by spending — only ZP advances raise it. Shared by
+ * the header meter and the compact sticky strip. */
+function zpMeterValues() {
+  const z = CALC.zoetics;
+  const spent = (z.amp_zp_spent || 0) + (z.zr_total || 0);
+  return { current: Math.max(0, z.zp - Math.ceil(spent)), max: z.zp };
 }
 
 function sheetHeader() {
@@ -354,11 +386,7 @@ function sheetHeader() {
     ...POOL_ORDER.map(headerPoolTile), kismetPoolTile());
 
   const z = CALC.zoetics;
-  // Effective ZP = max ZP minus Amp ZP spent minus carried ZR, any fraction
-  // knocking off a whole point (5.6 spent on 6 ZP shows 0 / 6), floored at 0.
-  // Maximum ZP is unchanged by spending — only ZP advances raise it.
-  const zpSpentTotal = (z.amp_zp_spent || 0) + (z.zr_total || 0);
-  const zpCurrent = Math.max(0, z.zp - Math.ceil(zpSpentTotal));
+  const { current: zpCurrent } = zpMeterValues();
   const right = el("div", { class: "sh-meters" },
     el("div", { class: "sh-meter zoetic",
       title: `Zoetic Potential ${z.zp}`
@@ -395,15 +423,66 @@ function sheetHeader() {
   // 1×4 row travelling across to sit under the meters.
   const poolBar = el("div", { class: "sh-poolbar" }, sheetActions(), pools);
 
+  head.append(top, poolBar);
+  return head;
+}
+
+/* Sticky bar under the header: the tab strip (always visible) plus a compact
+ * summary strip (name, pool pills, ZP, cash) that appears only once the full
+ * header has scrolled out of view — so play-mode essentials stay reachable
+ * without the header permanently eating half a tablet screen. */
+function sheetStickyBar() {
   const nav = el("nav", { class: "sh-tabs" });
   for (const [id, label] of sheetTabList()) {
     nav.append(el("button", {
       class: id === sheetTab ? "active" : "",
-      onclick: () => { sheetTab = id; renderSheet(); window.scrollTo(0, 0); },
+      onclick: () => {
+        sheetTab = id;
+        sheetStickyScrolled = false;   // tab switch scrolls back to the top
+        renderSheet();
+        window.scrollTo(0, 0);
+      },
     }, label));
   }
-  head.append(top, poolBar, nav);
-  return head;
+  const zp = zpMeterValues();
+  const compact = el("div", { class: "sh-compact" },
+    el("span", { class: "sh-compact-name" }, CHAR.name || "Unnamed"),
+    ...POOL_ORDER.map(compactPoolPill),
+    compactKismetPill(),
+    el("span", { class: "sh-cmeter zoetic", title: "Effective / maximum Zoetic Potential" },
+      `ZP ${zp.current}/${zp.max}`),
+    el("span", { class: "sh-cmeter cash", role: "button", tabindex: "0",
+      title: "Adjust woolongs", onclick: adjustCash,
+      onkeydown: e => { if (e.key === "Enter") adjustCash(); } },
+      fmt(CHAR.play.cash)));
+  return el("div", { class: "sh-stickybar" + (sheetStickyScrolled ? " scrolled" : "") },
+    compact, nav);
+}
+
+/* One pool as a slim pill for the compact strip — same play-state math and
+ * mutation path as headerPoolTile(), minus temp boosts and notes. */
+function compactPoolPill(pool) {
+  const s = poolState(pool);
+  const btn = (label, fn, title) => el("button", { class: "mini-btn", title,
+    onclick: e => { e.stopPropagation(); fn(); } }, label);
+  return el("span", { class: `sh-cpool ${pool.toLowerCase()}`,
+    title: `${pool}: ${s.remaining} of ${s.max} dice left` },
+    el("span", { class: "k" }, pool.slice(0, 3)),
+    el("b", {}, `${s.remaining}/${s.max}`),
+    btn("−", () => s.setUsed(s.used + 1), `Spend a ${pool} die`),
+    btn("+", () => s.setUsed(s.used - 1), `Return a spent ${pool} die`));
+}
+
+function compactKismetPill() {
+  const s = kismetPoolState();
+  const btn = (label, fn, title) => el("button", { class: "mini-btn", title,
+    onclick: e => { e.stopPropagation(); fn(); } }, label);
+  return el("span", { class: "sh-cpool kismet",
+    title: `Kismet dice: ${s.remaining} of ${s.max} left` },
+    el("span", { class: "k" }, "Kis"),
+    el("b", {}, `${s.remaining}/${s.max}`),
+    btn("−", () => s.setUsed(s.used + 1), "Spend a Kismet die"),
+    btn("+", () => s.setUsed(s.used - 1), "Return a spent Kismet die"));
 }
 
 /* New / Load / Save on the sheet, mirroring the chargen rail. CHAR, recalc,
@@ -439,7 +518,10 @@ function sheetActions() {
  * any bonus-dice notes (soak dice, Specialization, Adrenal Pump, …) from
  * CALC.pool_notes. Clicking the tile itself shows the pool's skills on the
  * Overview tab. */
-function headerPoolTile(pool) {
+/* Shared pool math for the header tiles and the compact sticky-bar pills:
+ * max includes temporary boost dice, used is clamped into [0, max], and
+ * setUsed persists + re-renders via playChanged(). */
+function poolState(pool) {
   const play = CHAR.play;
   play.pool_boost = play.pool_boost || {};
   play.pool_kismet = play.pool_kismet || {};
@@ -448,9 +530,26 @@ function headerPoolTile(pool) {
   const boost = Math.max(0, play.pool_boost[pool] || 0);   // temporary bonus dice
   const max = base + boost;
   const used = Math.max(0, Math.min(play.pool_used[pool] || 0, max));
-  const remaining = max - used;
-  const setUsed = v => { play.pool_used[pool] = Math.max(0, Math.min(max, v)); playChanged(); };
-  const setBoost = v => { play.pool_boost[pool] = Math.max(0, v); playChanged(); };
+  return {
+    kismetDice, boost, max, used, remaining: max - used,
+    setUsed: v => { play.pool_used[pool] = Math.max(0, Math.min(max, v)); playChanged(); },
+    setBoost: v => { play.pool_boost[pool] = Math.max(0, v); playChanged(); },
+  };
+}
+
+function kismetPoolState() {
+  const play = CHAR.play;
+  play.pool_used = play.pool_used || {};
+  const max = 1 + Math.floor((play.kismet_earned || 0) / 10);
+  const used = Math.max(0, Math.min(play.pool_used.Kismet || 0, max));
+  return {
+    max, used, remaining: max - used,
+    setUsed: v => { play.pool_used.Kismet = Math.max(0, Math.min(max, v)); playChanged(); },
+  };
+}
+
+function headerPoolTile(pool) {
+  const { kismetDice, boost, max, used, remaining, setUsed, setBoost } = poolState(pool);
   const btn = (label, fn, title) => el("button", { class: "mini-btn", title,
     onclick: e => { e.stopPropagation(); fn(); } }, label);
   const notes = (CALC.pool_notes || {})[pool] || [];
@@ -489,12 +588,7 @@ function headerPoolTile(pool) {
  * (lifetime, from play.kismet_earned; never shrinks). Tracked as its own
  * used-dice counter, same pattern as the four attribute pools above. */
 function kismetPoolTile() {
-  const play = CHAR.play;
-  play.pool_used = play.pool_used || {};
-  const max = 1 + Math.floor((play.kismet_earned || 0) / 10);
-  const used = Math.max(0, Math.min(play.pool_used.Kismet || 0, max));
-  const remaining = max - used;
-  const setUsed = v => { play.pool_used.Kismet = Math.max(0, Math.min(max, v)); playChanged(); };
+  const { max, used, remaining, setUsed } = kismetPoolState();
   const btn = (label, fn, title) => el("button", { class: "mini-btn", title,
     onclick: e => { e.stopPropagation(); fn(); } }, label);
   return el("div", {
