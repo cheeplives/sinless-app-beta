@@ -523,6 +523,70 @@ function augmentLevel(name) {
   return /^\d+$/.test(tail) ? parseInt(tail, 10) : 0;
 }
 
+// Alpha-grade augments (bleeding edge): ZR reduced 20% (minimum reduction
+// of 0.1, round UP to the nearest tenth) but cost is doubled (with a minimum
+// increase of 1000). Flagged per-entry with entry.alpha. Shared by the
+// body-augment tally, the gear-mount tally, and the UIs.
+function augmentEffZr(row, entry) {
+  const base = asNumber(row.ZR);
+  if (!(entry && entry.alpha && base)) return base;
+  const reduction = Math.max(base * 0.2, 0.1);
+  return Math.max(0, Math.ceil((base - reduction) * 10) / 10);
+}
+function augmentEffCost(row, entry) {
+  const base = asNumber(row.Cost);
+  // Doubles the cost, but the increase is at least 1000 so cheap augments
+  // still pay a real premium for bleeding-edge grade.
+  return (entry && entry.alpha) ? base + Math.max(base, 1000) : base;
+}
+
+// Effect sums shared by body-installed augments (tallyAugments) and augments
+// mounted on gear (tallyMountedAugments). `owned` is [row, count, entry]
+// tuples; entries that shouldn't grant effects (e.g. mounted on unworn gear)
+// are simply left out of the list by the caller.
+function augmentEffectSums(owned) {
+  const names = new Set(owned.map(([row]) => row.Name));
+  const attributeAdjustment = {}, attributeMaxAdjustment = {};
+  for (const name of ATTRIBUTES) { attributeAdjustment[name] = 0; attributeMaxAdjustment[name] = 0; }
+  for (const name of ["Strength", "Body", "Reaction", "Intelligence"]) {
+    attributeAdjustment[name] = toInt(sumBy(owned,
+      ([row, count]) => asNumber(row[name]) * count));
+    attributeMaxAdjustment[name] = toInt(sumBy(owned,
+      ([row, count]) => AUGMENTS_THAT_RAISE_MAX.some(p => row.Name.startsWith(p))
+        ? asNumber(row[name]) * count : 0));
+  }
+  const wiredReflexesRank = maxOf(
+    [...names].filter(n => n.startsWith("Wired Reflexes")).map(augmentLevel), 0);
+  const skillBonus = {};
+  if (names.has("Sound Filter")) {
+    skillBonus["Observation"] = SOUND_FILTER_OBSERVATION_BONUS;
+  }
+  return {
+    attribute_adjustment: attributeAdjustment,
+    attribute_max_adjustment: attributeMaxAdjustment,
+    skill_bonus: skillBonus,
+    move_bonus: toInt(sumBy(owned, ([row, count]) =>
+      row.Name.startsWith("Movement Enhancement")
+        ? augmentLevel(row.Name) * MOVEMENT_ENHANCEMENT_METERS_PER_RATING * count : 0)),
+    dodge_bonus: names.has("Covert Synthskin") ? COVERT_SYNTHSKIN_DODGE_BONUS : 0,
+    impact_armor: toInt(sumBy(owned, ([row, count]) => asNumber(row["Impact Armor"]) * count)),
+    ballistic_armor: toInt(sumBy(owned, ([row, count]) => asNumber(row["Ballistic Armor"]) * count)),
+    // Un-strippable impact armor (ImpArmMin col: Bone Lacing, Bone Density, …).
+    impact_armor_min: toInt(sumBy(owned, ([row, count]) => asNumber(row.ImpArmMin) * count)),
+    // Highest single ballistic source (ballistic armor doesn't stack for the cap).
+    ballistic_armor_max: maxOf(owned.map(([row]) => toInt(asNumber(row["Ballistic Armor"]))), 0),
+    melee_exploit_bonus: WIRED_REFLEXES_MELEE_EXPLOITS_BY_RANK[wiredReflexesRank] || 0,
+    internal_armor_slot_items: owned
+      .filter(([row]) => row["Armor Slot"] === "Y")
+      .map(([row]) => row.Name),
+    mobility_move_notes: owned
+      .filter(([row]) => row.Type === "Mobi" && row.Effect)
+      .map(([row]) => row.Effect),
+    has_move_exploit: owned.some(([row]) =>
+      row.Name.includes("Trackmobi") || row.Name.includes("Repulsors")),
+  };
+}
+
 function tallyAugments(character, data, warnings, errors) {
   const owned = [];  // [row, count, character entry]
   for (const entry of character.augments) {
@@ -615,31 +679,7 @@ function tallyAugments(character, data, warnings, errors) {
                   + `${muscleReplacementRank}) — you risk injury when exerting yourself.`);
   }
 
-  const attributeAdjustment = {}, attributeMaxAdjustment = {};
-  for (const name of ATTRIBUTES) { attributeAdjustment[name] = 0; attributeMaxAdjustment[name] = 0; }
-  for (const name of ["Strength", "Body", "Reaction", "Intelligence"]) {
-    attributeAdjustment[name] = toInt(sumBy(owned,
-      ([row, count]) => asNumber(row[name]) * count));
-    attributeMaxAdjustment[name] = toInt(sumBy(owned,
-      ([row, count]) => AUGMENTS_THAT_RAISE_MAX.some(p => row.Name.startsWith(p))
-        ? asNumber(row[name]) * count : 0));
-  }
-
-  // Alpha-grade augments (bleeding edge): ZR reduced 20% (minimum reduction
-  // of 0.1, round UP to the nearest tenth) but cost is doubled (with a minimum
-  // increase of 1000). Flagged per-entry with entry.alpha.
-  const effZr = (row, entry) => {
-    const base = asNumber(row.ZR);
-    if (!(entry && entry.alpha && base)) return base;
-    const reduction = Math.max(base * 0.2, 0.1);
-    return Math.max(0, Math.ceil((base - reduction) * 10) / 10);
-  };
-  const effCost = (row, entry) => {
-    const base = asNumber(row.Cost);
-    // Doubles the cost, but the increase is at least 1000 so cheap augments
-    // still pay a real premium for bleeding-edge grade.
-    return (entry && entry.alpha) ? base + Math.max(base, 1000) : base;
-  };
+  const effZr = augmentEffZr, effCost = augmentEffCost;
 
   const typeZr = (typeName, exclude = []) => sumBy(owned, ([row, count, entry]) =>
     (row.Type === typeName && !exclude.includes(row.Name))
@@ -659,54 +699,121 @@ function tallyAugments(character, data, warnings, errors) {
     zrAbsorbed += Math.min(CYBER_LIMB_ZR_ABSORB * limbCount, typeZr("Cyberlimbs"));
   }
 
-  const mobilityAugments = owned
-    .filter(([row]) => row.Type === "Mobi" && row.Effect)
-    .map(([row]) => row.Effect);
-
-  const wiredReflexesRank = maxOf(
-    [...ownedNames].filter(n => n.startsWith("Wired Reflexes")).map(augmentLevel), 0);
-
-  const skillBonus = {};
-  if (ownedNames.has("Sound Filter")) {
-    skillBonus["Observation"] = SOUND_FILTER_OBSERVATION_BONUS;
-  }
-
-  const moveBonus = toInt(sumBy(owned, ([row, count]) =>
-    row.Name.startsWith("Movement Enhancement")
-      ? augmentLevel(row.Name) * MOVEMENT_ENHANCEMENT_METERS_PER_RATING * count : 0));
-
   // Each installed Knowledge Skillsoft grants one extra Knowledge skill point.
   const knowledgePointsBonus = toInt(sumBy(owned, ([row, count]) =>
     row.Name === "Knowledge Skillsoft" ? count : 0));
 
   return {
+    ...augmentEffectSums(owned),
     rows: owned,
     zoetic_rating: round2(Math.max(0.0, rawZr - zrAbsorbed)),
     zoetic_rating_raw: round2(rawZr),
     body_index: sumBy(owned, ([row, count]) => asNumber(row.BI) * count),
     cost: sumBy(owned, ([row, count, entry]) => effCost(row, entry) * count),
-    attribute_adjustment: attributeAdjustment,
-    attribute_max_adjustment: attributeMaxAdjustment,
     skillsoft_levels: skillsoftLevels,
     knowledge_points_bonus: knowledgePointsBonus,
-    skill_bonus: skillBonus,
-    move_bonus: moveBonus,
-    dodge_bonus: ownedNames.has("Covert Synthskin") ? COVERT_SYNTHSKIN_DODGE_BONUS : 0,
-    impact_armor: toInt(sumBy(owned, ([row, count]) => asNumber(row["Impact Armor"]) * count)),
-    ballistic_armor: toInt(sumBy(owned, ([row, count]) => asNumber(row["Ballistic Armor"]) * count)),
-    // Un-strippable impact armor (ImpArmMin col: Bone Lacing, Bone Density, …).
-    impact_armor_min: toInt(sumBy(owned, ([row, count]) => asNumber(row.ImpArmMin) * count)),
-    // Highest single ballistic source (ballistic armor doesn't stack for the cap).
-    ballistic_armor_max: maxOf(owned.map(([row]) => toInt(asNumber(row["Ballistic Armor"]))), 0),
-    melee_exploit_bonus: WIRED_REFLEXES_MELEE_EXPLOITS_BY_RANK[wiredReflexesRank] || 0,
-    internal_armor_slot_items: owned
-      .filter(([row]) => row["Armor Slot"] === "Y")
-      .map(([row]) => row.Name),
     has_hyperthyroid: ownedNames.has("Hyperthyroid"),
-    mobility_move_notes: mobilityAugments,
-    has_move_exploit: owned.some(([row]) =>
-      row.Name.includes("Trackmobi") || row.Name.includes("Repulsors")),
   };
+}
+
+// ============================================================== step 3b: gear mounts
+// Gear rows carrying a "Mount Types" column can host non-Bioware augments
+// (Power Armor, Arwin Goggles, homebrew). Mounted augments live on the host
+// entry's `mounted` array ({name, alpha}) — they are bought and managed with
+// the gear, never appear in character.augments, and their ZR must fit the
+// host's "Mount ZP" capacity. That ZR never touches the character's ZP, and
+// their effects apply only while the host is worn / carried / equipped.
+function mountCapability(row) {
+  const raw = String(row["Mount Types"] || "").trim();
+  if (!raw) return null;
+  const types = raw.split(",").map(t => t.trim()).filter(Boolean);
+  const any = types.some(t => t.toLowerCase() === "any");
+  return {
+    types, any,
+    capacity: asNumber(row["Mount ZP"]),
+    accepts: type => type !== "Bioware" && (any || types.includes(type)),
+    label: any ? "any non-Bioware augment" : types.join(", "),
+  };
+}
+
+function tallyMountedAugments(character, data, warnings, errors) {
+  // [entries, table, name column, host-active test, copies owned]
+  const hostKinds = [
+    [character.armor || [], data.armor, "Armor",
+     e => e.active !== false, () => 1],
+    [character.weapons || [], data.weapons, "Weapon",
+     e => e.equipped !== false, e => Math.max(1, toInt(asNumber(e.qty, 1)))],
+    [character.gear || [], data.misc_gear, "Item",
+     e => e.carried !== false, e => Math.max(1, toInt(asNumber(e.qty, 1)))],
+  ];
+
+  const active = [];   // [row, 1, mounted entry] — feeds the shared effect sums
+  const mountErrors = [];
+  let cost = 0.0, totalZr = 0.0;
+  for (const [entries, table, nameColumn, isActive, copies] of hostKinds) {
+    for (const host of entries) {
+      const mountedList = host.mounted || [];
+      if (!mountedList.length) continue;
+      const hostRow = findRow(table, nameColumn, host.name);
+      const cap = hostRow && mountCapability(hostRow);
+      if (!cap) {
+        warnings.push(`${host.name} cannot mount augments — remove the augments mounted on it.`);
+        continue;
+      }
+      let used = 0.0;
+      for (const mount of mountedList) {
+        const row = findRow(data.augments, "Name", mount.name);
+        if (!row) continue;
+        cost += augmentEffCost(row, mount);
+        used += augmentEffZr(row, mount);
+        if (!cap.accepts(row.Type)) {
+          warnings.push(`${host.name} cannot mount ${row.Name} `
+                        + `(${row.Type || "?"}) — it accepts ${cap.label}.`);
+        } else if (isActive(host)) {
+          active.push([row, 1, mount]);
+        }
+      }
+      const capacity = round2(cap.capacity * copies(host));
+      if (used - capacity > 1e-9) {
+        mountErrors.push(`Overloaded Mount: ${host.name} holds ZR ${round2(used)} `
+                         + `of mounted augments — its capacity is ${capacity} ZP.`);
+      }
+      totalZr += used;
+    }
+  }
+  errors.push(...mountErrors);
+  return { ...augmentEffectSums(active), rows: active, cost,
+           mounted_zr: round2(totalZr), mount_errors: mountErrors };
+}
+
+// Fold gear-mounted augments' cost and active effects into the body-augment
+// tally so every downstream consumer (attributes, combat, initiative notes,
+// wound-penalty scan) sees them without special-casing. The ZR fields are
+// deliberately untouched: mounted ZR never counts against the character.
+function mergeMountedAugments(augments, mounted) {
+  augments.cost += mounted.cost;
+  for (const name of ATTRIBUTES) {
+    augments.attribute_adjustment[name] += mounted.attribute_adjustment[name];
+    augments.attribute_max_adjustment[name] += mounted.attribute_max_adjustment[name];
+  }
+  for (const [skill, bonus] of Object.entries(mounted.skill_bonus)) {
+    augments.skill_bonus[skill] = Math.max(augments.skill_bonus[skill] || 0, bonus);
+  }
+  augments.move_bonus += mounted.move_bonus;
+  augments.dodge_bonus = Math.max(augments.dodge_bonus, mounted.dodge_bonus);
+  augments.impact_armor += mounted.impact_armor;
+  augments.ballistic_armor += mounted.ballistic_armor;
+  augments.impact_armor_min += mounted.impact_armor_min;
+  augments.ballistic_armor_max = Math.max(augments.ballistic_armor_max,
+                                          mounted.ballistic_armor_max);
+  augments.melee_exploit_bonus = Math.max(augments.melee_exploit_bonus,
+                                          mounted.melee_exploit_bonus);
+  augments.internal_armor_slot_items.push(...mounted.internal_armor_slot_items);
+  augments.mobility_move_notes.push(...mounted.mobility_move_notes);
+  augments.has_move_exploit = augments.has_move_exploit || mounted.has_move_exploit;
+  augments.rows.push(...mounted.rows);
+  augments.mounted_zr = mounted.mounted_zr;
+  augments.mount_errors = mounted.mount_errors;
 }
 
 // ============================================================== step 4: amp powers
@@ -1654,6 +1761,8 @@ function calculate(character) {
       (character.play || {}).zp_advances));
   }
   const augments = tallyAugments(character, data, warnings, errors);
+  mergeMountedAugments(augments,
+                       tallyMountedAugments(character, data, warnings, errors));
   const amp = tallyAmpPowers(character, data, magicType, warnings, errors);
 
   let replicantAttrBonus = 0, replicantSkillBonus = 0;
@@ -1838,6 +1947,11 @@ function calculate(character) {
                amp_offline: ampOffline,
                cyber_zr: round2(augments.zoetic_rating),
                amp_zr: round2(amp.spent),
+               // Gear-mounted augments: ZR exempt from ZP by design; the
+               // errors are mirrored here because `errors` is blanked once
+               // the character is finalized and play mode must still show them.
+               mounted_zr: round2(augments.mounted_zr || 0),
+               mount_errors: augments.mount_errors || [],
                body_index: round2(augments.body_index),
                body_index_ok: bodyIndexOk },
     condition: { physical: combat.physical, stun: combat.stun },
@@ -1868,6 +1982,7 @@ return {
   SPELL_FORCE_MAX, SKILL_RANK_CAP, HACKING_RATING_COST, HACKING_RATING_MAX,
   GHOST_RATING_DICE,
   rigStats, applyExtendedMagazine, meleeDamage,
+  mountCapability, augmentEffZr, augmentEffCost,
 };
 
 })();
