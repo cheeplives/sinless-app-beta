@@ -354,13 +354,16 @@ function sheetHeader() {
     ...POOL_ORDER.map(headerPoolTile), kismetPoolTile());
 
   const z = CALC.zoetics;
-  // Current ZP = max ZP minus carried ZR, any fractional ZR knocking off a
-  // whole point (0.1 ZR on 6 ZP shows 5 / 6), floored at 0.
-  const zpCurrent = Math.max(0, z.zp - Math.ceil(z.zr_total || 0));
+  // Effective ZP = max ZP minus Amp ZP spent minus carried ZR, any fraction
+  // knocking off a whole point (5.6 spent on 6 ZP shows 0 / 6), floored at 0.
+  // Maximum ZP is unchanged by spending — only ZP advances raise it.
+  const zpSpentTotal = (z.amp_zp_spent || 0) + (z.zr_total || 0);
+  const zpCurrent = Math.max(0, z.zp - Math.ceil(zpSpentTotal));
   const right = el("div", { class: "sh-meters" },
     el("div", { class: "sh-meter zoetic",
-      title: `Zoetic Potential ${z.zp} − carried ZR ${z.zr_total} (fractions round up)`
-        + (z.amp_zp_spent > 0 ? ` · Amp ZP spent ${z.amp_zp_spent}` : "") },
+      title: `Zoetic Potential ${z.zp}`
+        + (z.amp_zp_spent > 0 ? ` − Amp ZP spent ${z.amp_zp_spent}` : "")
+        + ` − carried ZR ${z.zr_total} (fractions round up)` },
       el("div", { class: "k" }, "ZP"),
       el("div", { class: "v", style: z.zp_remaining < 0 ? "color:var(--bad)" : "" },
         String(zpCurrent), el("span", { class: "max" }, ` / ${z.zp}`))),
