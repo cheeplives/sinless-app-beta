@@ -1861,10 +1861,11 @@ function shAugments(body) {
     const r = DATA.tables.augments.find(x => x.Name === a.name) || {};
     const isSkillsoft = a.name.startsWith("Skillsoft");
     const hasZr = !!(+r.ZR);
-    const alphaZr = hasZr ? Math.ceil(+r.ZR * 0.8 * 10) / 10 : 0;
+    const alphaZr = hasZr
+      ? Math.max(0, Math.ceil((+r.ZR - Math.max(+r.ZR * 0.2, 0.1)) * 10) / 10) : 0;
     const base = Math.round((+r.Cost || 0) * mult);
     const alphaCell = hasZr
-      ? el("label", { class: "opt", title: `α-cyber grade: ZR ${alphaZr} (−20%), cost ×2` },
+      ? el("label", { class: "opt", title: `α-cyber grade: ZR ${alphaZr} (−20%, min −0.1), cost ×2` },
           el("input", { type: "checkbox", ...(a.alpha ? { checked: 1 } : {}),
             onchange: async e => {
               a.alpha = e.target.checked;
