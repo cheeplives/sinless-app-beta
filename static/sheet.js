@@ -671,6 +671,9 @@ function sheetMenu() {
           a.click();
         }) }, "Export JSON"),
         el("button", { class: "btn ghost", onclick: () => importInput.click() }, "Import JSON"),
+        el("button", { class: "btn warn", disabled: CHAR.name ? null : "1",
+          title: CHAR.name ? "Permanently delete this character's save" : "Character has no name — nothing saved to delete",
+          onclick: act(() => deleteSavedCharacter(CHAR.name)) }, "Delete Character"),
         importInput));
   }
   return wrap;

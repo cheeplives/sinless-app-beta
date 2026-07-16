@@ -175,12 +175,36 @@ function bindRail() {
     if (CHAR.finalized) enterSheet(); else { exitSheet(); renderPanel(); }
     e.target.value = "";
   });
+  $("#delete-select").addEventListener("change", async e => {
+    const name = e.target.value;
+    e.target.value = "";
+    if (!name) return;
+    await deleteSavedCharacter(name);
+  });
+}
+
+/* Permanently remove a saved character. If it's the one currently open,
+ * also reset to a fresh character — otherwise the next autosave would
+ * quietly resurrect the deleted slot. */
+async function deleteSavedCharacter(name) {
+  if (!name) return;
+  if (!confirm(`Delete ${name}? The saved character is permanently removed.`)) return;
+  STORAGE.deleteCharacter(name);
+  refreshLoadList();
+  if (STORAGE.sanitizeName(CHAR.name) === STORAGE.sanitizeName(name)) {
+    CHAR = RULES.defaultCharacter();
+    $("#char-name").value = ""; $("#char-player").value = "";
+    exitSheet();
+    await recalc(); renderPanel();
+  }
 }
 function refreshLoadList() {
   const names = STORAGE.listCharacters();
-  const select = $("#load-select");
-  select.replaceChildren(
+  $("#load-select").replaceChildren(
     el("option", { value: "" }, "Load\u2026"),
+    ...names.map(name => el("option", {}, name)));
+  $("#delete-select").replaceChildren(
+    el("option", { value: "" }, "Delete\u2026"),
     ...names.map(name => el("option", {}, name)));
 }
 
