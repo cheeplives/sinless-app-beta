@@ -474,6 +474,16 @@ label.opt input{margin-top:3px}
   box-shadow:0 12px 28px rgba(0,0,0,.5)}
 .sh-menu-panel .btn{width:100%;text-align:left}
 .chip.ok{color:var(--ok);border-color:var(--ok)}
+/* Mount-augment picker: the grouped browser opens in a small modal so the
+   host item's row stays compact. */
+.mount-modal-backdrop{position:fixed;inset:0;z-index:80;background:rgba(0,0,0,.55);
+  display:flex;align-items:center;justify-content:center;padding:16px}
+.mount-modal{max-width:600px;width:100%;max-height:82vh;overflow:auto;margin:0;
+  box-shadow:0 12px 28px rgba(0,0,0,.5)}
+.chip .chip-btn{background:none;border:0;cursor:pointer;font:inherit;color:inherit;
+  padding:0 2px;opacity:.65}
+.chip .chip-btn:hover{opacity:1}
+.chip .chip-btn.alpha-on{color:var(--ok);font-weight:700;opacity:1}
 /* header heritage abilities line */
 .sh-heritage-abilities{font-size:11px;color:var(--dim);max-width:640px;margin-top:4px}
 .sh-heritage-abilities b{color:var(--text)}

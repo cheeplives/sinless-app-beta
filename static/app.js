@@ -1416,9 +1416,30 @@ function mountBrowserGroups(cap, freeZp, mounted, mult = 1) {
     }));
 }
 
-/* Open/closed state of each host's mount picker, keyed by browser id so it
-   survives re-renders (same idea as browserOpenState). */
-const mountPickerOpen = {};
+/* Pop-up picker for mounting an augment: the grouped browser opens in a
+   small modal so the host item's row stays compact. Closes on add, backdrop
+   click, ✕ or Escape. Shared with sheet.js. */
+function openMountPicker({ title, groups, onAdd, afterAdd }) {
+  const backdrop = el("div", { class: "mount-modal-backdrop",
+    onclick: e => { if (e.target === backdrop) close(); } });
+  const card = el("div", { class: "card mount-modal" });
+  const esc = e => { if (e.key === "Escape") close(); };
+  const close = () => { backdrop.remove(); document.removeEventListener("keydown", esc); };
+  const draw = () => {
+    card.innerHTML = "";
+    card.append(
+      el("div", { style: "display:flex;justify-content:space-between;align-items:center;gap:8px" },
+        el("h3", { style: "margin:0" }, title),
+        el("button", { class: "row-del", title: "Close", onclick: close }, "✕")),
+      categoryBrowser({ id: "mount-picker", groups, rerender: draw,
+        afterAdd: afterAdd || refresh,
+        onAdd: name => { close(); onAdd(name); } }));
+  };
+  draw();
+  backdrop.append(card);
+  document.body.append(backdrop);
+  document.addEventListener("keydown", esc);
+}
 
 function mountEditor(host, hostRow, hostActive) {
   const cap = RULES.mountCapability(hostRow || {});
@@ -1433,43 +1454,35 @@ function mountEditor(host, hostRow, hostActive) {
     return sum + (row ? RULES.augmentEffZr(row, m) : 0);
   }, 0));
   const over = used - capacity > 1e-9;
+  const free = r2(capacity - used);
 
   const wrap = el("div", { class: "sub" });
-  wrap.append(el("div", {},
-    el("b", {}, "Mounted augments "),
-    el("span", { style: over ? "color:var(--bad)" : "" }, `${used} / ${capacity} ZP`),
-    ` · accepts ${cap.label}` + (hostActive ? "" : " · inactive — effects offline")));
+  wrap.append(el("div", { style: "display:flex;align-items:center;gap:6px;flex-wrap:wrap" },
+    el("b", {}, "Mounts"),
+    el("span", { style: over ? "color:var(--bad)" : "",
+      title: `Mounted augments' ZR never counts against your ZP · accepts ${cap.label}` },
+      `${used} / ${capacity} ZP`),
+    hostActive ? null : el("span", {}, "· inactive — effects offline"),
+    el("button", { class: "btn-add", title: `Accepts ${cap.label} — ${free} ZP free`,
+      onclick: () => openMountPicker({
+        title: `Mount on ${host.name} — ${free} ZP free`,
+        groups: mountBrowserGroups(cap, free, host.mounted),
+        onAdd: name => host.mounted.push({ name }),
+      }) }, "+ Mount")));
 
-  host.mounted.forEach((m, idx) => {
-    const row = augRow(m.name) || {};
-    const hasZr = +row.ZR > 0;
-    wrap.append(el("div", { style: "display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:2px 0" },
-      el("span", {}, `${m.name} — ZR ${RULES.augmentEffZr(row, m)} · ${fmt(RULES.augmentEffCost(row, m))}`),
-      hasZr ? el("label", { style: "display:inline-flex;align-items:center;gap:4px;margin:0",
-          title: "Bleeding-edge grade: ZR −20% (min 0.1), cost doubled (min +1000)" },
-        el("input", { type: "checkbox", ...(m.alpha ? { checked: 1 } : {}),
-          onchange: e => { m.alpha = e.target.checked; refresh(); } }),
-        el("span", {}, "α-cyber")) : null,
-      el("button", { class: "row-del", title: "Unmount", onclick: () => { host.mounted.splice(idx, 1); refresh(); } }, "✕")));
-  });
-
-  // The grouped browser sits behind a collapsed header so item rows stay
-  // compact; open state persists across re-renders like other browsers.
-  const pickerId = `mount-${host.name}`;
-  const open = !!mountPickerOpen[pickerId];
-  wrap.append(el("div", {
-    class: "cat-head", role: "button", tabindex: "0",
-    onclick: () => { mountPickerOpen[pickerId] = !open; renderPanel(); },
-    onkeydown: e => { if (e.key === "Enter" || e.key === " ") e.currentTarget.click(); },
-  },
-    el("span", {}, "Mount an augment"),
-    el("span", { class: "cat-arrow" }, open ? "▾" : "▸")));
-  if (open) {
-    wrap.append(categoryBrowser({
-      id: pickerId,
-      groups: mountBrowserGroups(cap, r2(capacity - used), host.mounted),
-      onAdd: name => host.mounted.push({ name }),
-    }));
+  if (host.mounted.length) {
+    wrap.append(el("div", {}, ...host.mounted.map((m, idx) => {
+      const row = augRow(m.name) || {};
+      const hasZr = +row.ZR > 0;
+      return el("span", { class: "chip", style: "margin:2px 4px 0 0" },
+        `${m.name} · ${RULES.augmentEffZr(row, m)} `,
+        hasZr ? el("button", { class: "chip-btn" + (m.alpha ? " alpha-on" : ""),
+          title: (m.alpha ? "α-cyber grade — click to revert" : "Upgrade to α-cyber grade")
+            + " (ZR −20% min 0.1, cost ×2 min +1000)",
+          onclick: () => { m.alpha = !m.alpha; refresh(); } }, "α") : null,
+        el("button", { class: "chip-btn", title: "Unmount",
+          onclick: () => { host.mounted.splice(idx, 1); refresh(); } }, "✕"));
+    })));
   }
   return wrap;
 }

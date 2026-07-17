@@ -1536,67 +1536,60 @@ function shMountEditor(host, hostRow, hostActive) {
     return sum + (row ? RULES.augmentEffZr(row, m) : 0);
   }, 0));
 
-  const wrap = el("div", { class: "sub" });
-  wrap.append(el("div", {},
-    el("b", {}, "Mounted augments "),
-    el("span", { style: used - capacity > 1e-9 ? "color:var(--bad)" : "" },
-      `${used} / ${capacity} ZP`),
-    ` · accepts ${cap.label}` + (hostActive ? "" : " · inactive — effects offline")));
+  const over = used - capacity > 1e-9;
+  const free = r2(capacity - used);
 
-  host.mounted.forEach((m, idx) => {
-    const row = augRow(m.name) || {};
-    const hasZr = +row.ZR > 0;
-    // Same α-cyber cash math as the Augments tab: going alpha adds
-    // max(base cost, 1000) × the gear multiplier (mirrors rules.js effCost).
-    const alphaExtra = Math.round(Math.max(+row.Cost || 0, 1000) * mult);
-    wrap.append(el("div", { style: "display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:2px 0" },
-      el("span", {}, `${m.name} — ZR ${RULES.augmentEffZr(row, m)}`),
-      hasZr ? el("label", { style: "display:inline-flex;align-items:center;gap:4px;margin:0",
-          title: `α-cyber grade: ZR −20% (min −0.1), cost ×2 (min +${CURRENCY_SYMBOL}1,000)` },
-        el("input", { type: "checkbox", ...(m.alpha ? { checked: 1 } : {}),
-          onchange: async e => {
-            m.alpha = e.target.checked;
+  // Same compact layout + modal picker as chargen (helpers shared from
+  // app.js); adding here is a purchase, so it charges cash and hits the ledger.
+  const wrap = el("div", { class: "sub" });
+  wrap.append(el("div", { style: "display:flex;align-items:center;gap:6px;flex-wrap:wrap" },
+    el("b", {}, "Mounts"),
+    el("span", { style: over ? "color:var(--bad)" : "",
+      title: `Mounted augments' ZR never counts against your ZP · accepts ${cap.label}` },
+      `${used} / ${capacity} ZP`),
+    hostActive ? null : el("span", {}, "· inactive — effects offline"),
+    el("button", { class: "btn-add", title: `Accepts ${cap.label} — ${free} ZP free`,
+      onclick: () => openMountPicker({
+        title: `Mount on ${host.name} — ${free} ZP free`,
+        groups: mountBrowserGroups(cap, free, host.mounted, mult),
+        afterAdd: () => playChangedRecalc(),
+        onAdd: name => {
+          const row = augRow(name) || {};
+          const cost = Math.round((+row.Cost || 0) * mult);
+          if (CHAR.play.cash < cost
+              && !confirm(`${name} costs ${fmt(cost)} but you have ${fmt(CHAR.play.cash)}. Overdraw?`))
+            return;
+          host.mounted.push({ name });
+          logCash(`Mounted ${name} on ${host.name}`, -cost);
+        },
+      }) }, "+ Mount")));
+
+  if (host.mounted.length) {
+    wrap.append(el("div", {}, ...host.mounted.map((m, idx) => {
+      const row = augRow(m.name) || {};
+      const hasZr = +row.ZR > 0;
+      // Same α-cyber cash math as the Augments tab: going alpha adds
+      // max(base cost, 1000) × the gear multiplier (mirrors rules.js effCost).
+      const alphaExtra = Math.round(Math.max(+row.Cost || 0, 1000) * mult);
+      return el("span", { class: "chip", style: "margin:2px 4px 0 0" },
+        `${m.name} · ${RULES.augmentEffZr(row, m)} `,
+        hasZr ? el("button", { class: "chip-btn" + (m.alpha ? " alpha-on" : ""),
+          title: (m.alpha ? "α-cyber grade — click to revert" : "Upgrade to α-cyber grade")
+            + ` (ZR −20% min 0.1, cost ×2 min +${CURRENCY_SYMBOL}1,000)`,
+          onclick: async () => {
+            m.alpha = !m.alpha;
             logCash(m.alpha ? `Upgraded ${m.name} (${host.name}) to α-cyber grade`
                             : `Reverted ${m.name} (${host.name}) from α-cyber grade`,
               m.alpha ? -alphaExtra : alphaExtra);
             await playChangedRecalc();
-          } }),
-        el("span", {}, "α-cyber")) : null,
-      el("button", { class: "row-del", title: "Remove (not refunded)",
-        onclick: async () => {
-          if (!confirm(`Remove ${m.name} from ${host.name}? Not refunded.`)) return;
-          host.mounted.splice(idx, 1);
-          await playChangedRecalc();
-        } }, "✕")));
-  });
-
-  // Same collapsed grouped browser as chargen (helpers shared from app.js);
-  // adding here is a purchase, so it charges cash and hits the ledger.
-  const pickerId = `sh-mount-${host.name}`;
-  const open = !!mountPickerOpen[pickerId];
-  wrap.append(el("div", {
-    class: "cat-head", role: "button", tabindex: "0",
-    onclick: () => { mountPickerOpen[pickerId] = !open; renderSheet(); },
-    onkeydown: e => { if (e.key === "Enter" || e.key === " ") e.currentTarget.click(); },
-  },
-    el("span", {}, "Mount an augment"),
-    el("span", { class: "cat-arrow" }, open ? "▾" : "▸")));
-  if (open) {
-    wrap.append(categoryBrowser({
-      id: pickerId,
-      groups: mountBrowserGroups(cap, r2(capacity - used), host.mounted, mult),
-      rerender: renderSheet,
-      afterAdd: () => playChangedRecalc(),
-      onAdd: name => {
-        const row = augRow(name) || {};
-        const cost = Math.round((+row.Cost || 0) * mult);
-        if (CHAR.play.cash < cost
-            && !confirm(`${name} costs ${fmt(cost)} but you have ${fmt(CHAR.play.cash)}. Overdraw?`))
-          return;
-        host.mounted.push({ name });
-        logCash(`Mounted ${name} on ${host.name}`, -cost);
-      },
-    }));
+          } }, "α") : null,
+        el("button", { class: "chip-btn", title: "Unmount (not refunded)",
+          onclick: async () => {
+            if (!confirm(`Remove ${m.name} from ${host.name}? Not refunded.`)) return;
+            host.mounted.splice(idx, 1);
+            await playChangedRecalc();
+          } }, "✕"));
+    })));
   }
   return wrap;
 }
