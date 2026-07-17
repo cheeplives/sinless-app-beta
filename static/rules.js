@@ -723,6 +723,11 @@ function tallyAugments(character, data, warnings, errors) {
 // the gear, never appear in character.augments, and their ZR must fit the
 // host's "Mount ZP" capacity. That ZR never touches the character's ZP, and
 // their effects apply only while the host is worn / carried / equipped.
+// Augments no host can ever mount, whatever its Mount Types say. Skillsofts
+// are Headware, so an "Any" host would otherwise offer them — but a Skillsoft
+// only runs from a Chipjack wired into your head, never from a gear device.
+const MOUNT_EXCLUDED_RE = /^(Skillsoft|Knowledge Skillsoft)/;
+
 function mountCapability(row) {
   const raw = String(row["Mount Types"] || "").trim();
   if (!raw) return null;
@@ -731,9 +736,24 @@ function mountCapability(row) {
   return {
     types, any,
     capacity: asNumber(row["Mount ZP"]),
-    accepts: type => type !== "Bioware" && (any || types.includes(type)),
+    // Takes an augment row: the Skillsoft exclusion is by name, not by type.
+    accepts: aug => aug.Type !== "Bioware" && !MOUNT_EXCLUDED_RE.test(aug.Name || "")
+                    && (any || types.includes(aug.Type)),
     label: any ? "any non-Bioware augment" : types.join(", "),
   };
+}
+
+// Why a host refuses an augment — shown as a warning (engine) or as the
+// disabled Add button's tooltip (UI).
+function mountRefusal(hostName, row, cap) {
+  if (row.Type === "Bioware") {
+    return `${hostName} cannot mount ${row.Name}: Bioware can't be mounted in gear.`;
+  }
+  if (MOUNT_EXCLUDED_RE.test(row.Name || "")) {
+    return `${hostName} cannot mount ${row.Name}: Skillsofts must be slotted in a Chipjack.`;
+  }
+  return `${hostName} cannot mount ${row.Name} (${row.Type || "?"}) — `
+         + `it accepts ${cap.label}.`;
 }
 
 function tallyMountedAugments(character, data, warnings, errors) {
@@ -766,9 +786,8 @@ function tallyMountedAugments(character, data, warnings, errors) {
         if (!row) continue;
         cost += augmentEffCost(row, mount);
         used += augmentEffZr(row, mount);
-        if (!cap.accepts(row.Type)) {
-          warnings.push(`${host.name} cannot mount ${row.Name} `
-                        + `(${row.Type || "?"}) — it accepts ${cap.label}.`);
+        if (!cap.accepts(row)) {
+          warnings.push(mountRefusal(host.name, row, cap));
         } else if (isActive(host)) {
           active.push([row, 1, mount]);
         }
@@ -1982,7 +2001,7 @@ return {
   SPELL_FORCE_MAX, SKILL_RANK_CAP, HACKING_RATING_COST, HACKING_RATING_MAX,
   GHOST_RATING_DICE,
   rigStats, applyExtendedMagazine, meleeDamage,
-  mountCapability, augmentEffZr, augmentEffCost,
+  mountCapability, mountRefusal, augmentEffZr, augmentEffCost,
 };
 
 })();

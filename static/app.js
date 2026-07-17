@@ -1395,7 +1395,7 @@ function mountBrowserGroups(cap, freeZp, mounted, mult = 1) {
   const mountedNames = new Set((mounted || []).map(m => m.name));
   const byType = {};
   for (const a of DATA.tables.augments) {
-    if (cap.accepts(a.Type)) (byType[a.Type] ??= []).push(a);
+    if (cap.accepts(a)) (byType[a.Type] ??= []).push(a);
   }
   return Object.entries(byType).sort(([a], [b]) => a.localeCompare(b))
     .map(([type, rows]) => ({
