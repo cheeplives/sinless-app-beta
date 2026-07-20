@@ -98,12 +98,16 @@ tools/
 
 ## Editing game data
 
-`static/data.js` is a single large JSON literal. It was originally generated
+`static/data.js` is one large JSON literal, formatted **one table row per
+line** (each row itself stays compact) so git can diff and merge data changes
+instead of conflicting on a single giant line. It was originally generated
 from a spreadsheet by a Python step, but that pipeline is out of date — the
 tables here are now maintained by hand. To change a stat, feature, or price,
-edit the relevant table entry directly in `static/data.js`. Keep the header
-comment ASCII-only, and confirm the file still parses (it's plain JSON after the
-`const DATA_BUNDLE =` prefix).
+edit the relevant row's line directly in `static/data.js`; add new rows as new
+lines in the same table array. Keep the header comment ASCII-only, preserve
+the row-per-line layout, and confirm the file still parses (it's plain JSON
+after the `const DATA_BUNDLE =` prefix). The homebrew promoter re-emits this
+exact format, so promotions keep the layout stable.
 
 ### Promoting homebrew into the base data
 

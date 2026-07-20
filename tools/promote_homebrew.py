@@ -155,14 +155,44 @@ def promote(bundle, pack, skip):
     return summary
 
 
+def format_bundle(bundle):
+    """Serialize the bundle with one table row per line (rows themselves stay
+    compact). Line-oriented rows let git diff and merge data changes instead of
+    conflicting on one giant line. Non-ASCII is preserved (e.g. the currency
+    glyph)."""
+    compact = lambda v: json.dumps(v, ensure_ascii=False, separators=(",", ":"))
+    lines = ["{"]
+    top = list(bundle.items())
+    for ti, (key, val) in enumerate(top):
+        tc = "" if ti == len(top) - 1 else ","
+        if key == "tables" and isinstance(val, dict):
+            lines.append(compact(key) + ":{")
+            tables = list(val.items())
+            for i, (tname, rows) in enumerate(tables):
+                c = "" if i == len(tables) - 1 else ","
+                if isinstance(rows, list):
+                    lines.append(compact(tname) + ":[")
+                    for j, row in enumerate(rows):
+                        lines.append(compact(row) + ("" if j == len(rows) - 1 else ","))
+                    lines.append("]" + c)
+                else:
+                    lines.append(compact(tname) + ":" + compact(rows) + c)
+            lines.append("}" + tc)
+        else:
+            lines.append(compact(key) + ":" + compact(val) + tc)
+    lines.append("}")
+    return "\n".join(lines)
+
+
 def serialize_data_js(head, bundle, tail):
-    """Re-emit data.js in the existing compact single-line style. Non-ASCII is
-    preserved (e.g. the currency glyph). Re-parse as a safety check."""
-    payload = json.dumps(bundle, ensure_ascii=False, separators=(",", ":"))
+    """Re-emit data.js row-per-line via format_bundle. Re-parse as a safety
+    check before handing anything back to write."""
+    payload = format_bundle(bundle)
     result = head + payload + tail
     # Safety: the wrapper's own text is untouched, but confirm the payload still
     # round-trips before we hand back something to write.
-    json.loads(payload)
+    if json.loads(payload) != bundle:
+        sys.exit("error: serializer round-trip mismatch; data.js not written.")
     return result
 
 
