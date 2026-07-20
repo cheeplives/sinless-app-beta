@@ -1497,7 +1497,7 @@ const WEAPON_TYPE_LABELS = {
 function tabWeapons(p) {
   p.append(el("h2", {}, "Weapons ", chip("cash")));
   p.append(el("p", { class: "hint" },
-    "Smart-capable weapons cost double their base price. Each weapon takes one Underbarrel, one Overbarrel, and Chassis mods. "
+    "Smart-capable weapons cost double their base price; integrated-smart weapons are always Smart at no extra cost. Each weapon takes one Underbarrel, one Overbarrel, and Chassis mods. "
     + "Melee, Thrown, and Grenade Launcher weapons can't take mods. Thrown weapons can be bought in quantity."));
   const weaponGroups = Object.entries(
     DATA.tables.weapons.reduce((acc, r) => (((acc[r.Type] ??= []).push(r)), acc), {}))
@@ -1513,7 +1513,11 @@ function tabWeapons(p) {
   p.append(listEditor({
     items: CHAR.weapons,
     picker: categoryBrowser({ id: "weapons", groups: weaponGroups,
-      onAdd: n => CHAR.weapons.push({ name: n, smart: false, mods: [], equipped: true, qty: 1 }) }),
+      onAdd: n => {
+        const r = DATA.tables.weapons.find(x => x.Weapon === n) || {};
+        CHAR.weapons.push({ name: n, smart: Boolean(r["Integrated Smart"]),
+          mods: [], equipped: true, qty: 1 });
+      } }),
     onRemove: i => CHAR.weapons.splice(i, 1),
     render: (it, i, del) => {
       const r = DATA.tables.weapons.find(x => x.Weapon === it.name) || {};
@@ -1523,6 +1527,11 @@ function tabWeapons(p) {
       // Melee, Thrown, Grenade Launchers, Heavy and Energy weapons can't take mods.
       const canMod = !["Melee", "Thrown", "GrenadeLauncher", "Heavy", "Energy"].includes(r.Type);
       const canSmart = !isMelee && !isThrown;
+      // Integrated-smart weapons are always Smart (no cost bump): keep the
+      // saved flag in sync (covers characters made before the data flag) and
+      // lock the checkbox on.
+      const integratedSmart = Boolean(r["Integrated Smart"]);
+      if (integratedSmart && !it.smart) it.smart = true;
       return el("tr", {},
         el("td", {}, el("b", {}, it.name),
           el("div", { class: "sub" },
@@ -1548,8 +1557,9 @@ function tabWeapons(p) {
             stepper(() => it.qty || 1, v => { it.qty = v; }, 1, 99)) : null,
           canSmart ? el("label", { class: "opt" },
             el("input", { type: "checkbox", ...(it.smart ? { checked: 1 } : {}),
+              ...(integratedSmart ? { disabled: 1 } : {}),
               onchange: e => { it.smart = e.target.checked; refresh(); } }),
-            el("span", {}, "Smart")) : null),
+            el("span", {}, integratedSmart ? "Smart (integrated)" : "Smart")) : null),
         el("td", { class: "num" }, el("b", {}, fmt(calcRow.cost ?? r.Cost))),
         el("td", {}, el("button", { class: "row-del", onclick: del }, "\u2715")));
     },
