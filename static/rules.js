@@ -1610,8 +1610,12 @@ function gearZoeticRating(character, data) {
 
   add("weapons", "Weapon", character.weapons
     .filter(w => w.equipped !== false).map(w => w.name));
-  add("armor", "Armor", character.armor
-    .filter(a => a.active !== false).map(a => a.name));
+  // Armor: base row ZR, +1 for any piece with at least one Extra fitted
+  // (house rule: mods add circuitry to otherwise-inert armor).
+  for (const entry of character.armor.filter(a => a.active !== false)) {
+    const row = findRow(data.armor, "Armor", entry.name);
+    if (row) total += asNumber(row.ZR) + ((entry.extras || []).length ? 1 : 0);
+  }
   add("decks", "Name", character.decks.map(d => d.name));
   add("programs", "Name", character.programs);
   const activeRigName = (character.play && character.play.rigging
