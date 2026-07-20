@@ -1242,7 +1242,11 @@ function priceWeapons(character, data, gearCostMultiplier, warnings, strength) {
     // Thrown weapons stack (buy several of the same); everything else is one.
     const qty = row.Type === "Thrown" ? Math.max(1, toInt(asNumber(entry.qty, 1))) : 1;
     const baseCost = asNumber(row.Cost);
-    let cost = baseCost * (entry.smart ? SMART_WEAPON_COST_MULTIPLIER : 1);
+    // Integrated-smart weapons (data column "Integrated Smart") are always
+    // smart at no extra cost; only opt-in smart pays the multiplier.
+    const integratedSmart = Boolean(row["Integrated Smart"]);
+    let cost = baseCost
+      * (entry.smart && !integratedSmart ? SMART_WEAPON_COST_MULTIPLIER : 1);
 
     const fittedMods = [];
     for (const modName of entry.mods || []) {
@@ -1278,7 +1282,7 @@ function priceWeapons(character, data, gearCostMultiplier, warnings, strength) {
       item[col] = row[col] !== undefined ? row[col] : "";
     }
     if (row.Type === "Melee") item.Damage = meleeDamage(row, strength);
-    item.smart = Boolean(entry.smart);
+    item.smart = Boolean(entry.smart) || integratedSmart;
     item.qty = qty;
     item.mods = fittedMods;
     item.Ammo = applyExtendedMagazine(item.Ammo, fittedMods);
