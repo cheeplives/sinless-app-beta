@@ -1840,9 +1840,10 @@ function tabDrones(p) {
 }
 
 /* ------------------------------------------------ 10. gear & costs */
-/* Focus/Fetish gear links to a spell or spirit; Spirit Bags link to a spirit.
- * The character's own known spells and spirit relationships sort to the top
- * of the list; everything else stays selectable below. */
+/* Focus/Fetish gear links to a spell, ritual, or spirit; Spirit Bags link to
+ * a spirit. The character's own known spells, trained rituals, and spirit
+ * relationships sort to the top of the list; everything else stays
+ * selectable below. */
 function gearLinkSelect(it) {
   const isFocusOrFetish = /^(Focus|Fetish) /.test(it.name);
   const isSpiritBag = /^Spirit Bag /.test(it.name);
@@ -1850,6 +1851,9 @@ function gearLinkSelect(it) {
   const knownSpells = new Set(
     [...CHAR.magic.spells, ...((CHAR.play && CHAR.play.purchases) ? CHAR.play.purchases.spells : [])]
       .map(s => s.name));
+  const knownRituals = new Set(
+    Object.entries(CHAR.ritual_skills || {})
+      .filter(([, points]) => +points > 0).map(([name]) => name));
   const knownSpirits = new Set(CHAR.speaker.relationships);
   const split = (rows, nameKey, known) => {
     const yours = rows.filter(r => known.has(r[nameKey]));
@@ -1863,16 +1867,19 @@ function gearLinkSelect(it) {
   const groups = [];
   if (isFocusOrFetish) {
     const spells = split(DATA.tables.spells, "Name", knownSpells);
+    const rituals = split(DATA.tables.rituals, "Name", knownRituals);
     groups.push(group("Your Spells", spells.yours, "Name"),
+                group("Your Rituals", rituals.yours, "Name"),
                 group("Your Spirits", spirits.yours, "Spirit"),
                 group("Other Spells", spells.others, "Name"),
+                group("Other Rituals", rituals.others, "Name"),
                 group("Other Spirits", spirits.others, "Spirit"));
   } else {
     groups.push(group("Your Spirits", spirits.yours, "Spirit"),
                 group("Other Spirits", spirits.others, "Spirit"));
   }
   const sel = el("select", { onchange: e => { it.link = e.target.value; scheduleRecalc(); } },
-    el("option", { value: "" }, isSpiritBag ? "Link to spirit\u2026" : "Link to spell or spirit\u2026"),
+    el("option", { value: "" }, isSpiritBag ? "Link to spirit\u2026" : "Link to spell, ritual, or spirit\u2026"),
     ...groups.filter(Boolean));
   sel.value = it.link || "";
   return sel;
