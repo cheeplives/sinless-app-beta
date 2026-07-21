@@ -807,7 +807,8 @@ function shOverview(body) {
   // --- condition (wound penalty folded in — it's derived straight from these tracks)
   const rawWound = -(Math.floor(play.physical_damage / 3) + Math.floor(play.stun_damage / 3));
   const woundNegated = !!CALC.combat.wound_penalty_negated;   // Pain Nullifier, Shibumi, …
-  const wound = woundNegated ? 0 : rawWound;
+  const woundDoubled = !!CALC.combat.wound_penalty_doubled;   // Reaction Enhancer bioware
+  const wound = woundNegated ? 0 : rawWound * (woundDoubled ? 2 : 1);
   const cond = el("div", { class: "card sh-card" },
     el("div", { class: "sh-card-head" }, el("h3", {}, "Condition"),
       el("span", {},
@@ -822,7 +823,8 @@ function shOverview(body) {
     conditionTrack("Stun", CALC.condition.stun,
       () => play.stun_damage, v => { play.stun_damage = v; }),
     el("p", { class: "hint", style: "margin:8px 0 0" },
-      "Every 3 boxes marked on either track: −1 die on tasks, cumulative. Biotech can remove these penalties during combat."),
+      `Every 3 boxes marked on either track: ${woundDoubled ? "−2 dice" : "−1 die"} on tasks, `
+      + "cumulative. Biotech can remove these penalties during combat."),
     el("div", { class: "stat-line", style: "margin-top:8px" },
       "Wound Penalty",
       el("b", { style: wound < 0 ? "color:var(--bad)" : "color:var(--ok)" },
@@ -830,6 +832,11 @@ function shOverview(body) {
     woundNegated
       ? el("div", { class: "sub", style: "color:var(--ok)" },
           rawWound < 0 ? `Negated — would be ${rawWound}` : "Wound penalties negated")
+      : null,
+    woundDoubled
+      ? el("div", { class: "sub", style: "color:var(--bad)" },
+          "Doubled by " + (CALC.combat.wound_penalty_doubled_by || "an augment")
+          + (rawWound < 0 ? ` — would be ${rawWound}` : ""))
       : null);
 
   // --- initiative + combat numbers

@@ -1955,6 +1955,21 @@ function calculate(character) {
     || martialArt.levels.some(lvl => removesWoundPenalty(lvl.Effect || ""))
     || heritage.traits.some(row => removesWoundPenalty(row.Effects || ""));
 
+  // Others double them — the Reaction Enhancer bioware ("+N Reaction but
+  // doubles pain-based penalties") trades pain tolerance for reflexes. Scanned
+  // the same data-driven way, so homebrew worded alike behaves alike. Negation
+  // wins over doubling: twice nothing is still nothing.
+  const doublesWoundPenalty = text =>
+    /doubl/i.test(text) && /(wound|pain)[- ]?(based )?penalt/i.test(text);
+  const doublingSource =
+    augments.rows.find(([row]) =>
+      doublesWoundPenalty(row.Effect || row.Description || ""))?.[0]?.Name
+    || martialArt.levels.find(lvl => doublesWoundPenalty(lvl.Effect || ""))?.Style
+    || heritage.traits.find(row => doublesWoundPenalty(row.Effects || ""))?.Name
+    || "";
+  combatOut.wound_penalty_doubled = !combatOut.wound_penalty_negated && !!doublingSource;
+  combatOut.wound_penalty_doubled_by = combatOut.wound_penalty_doubled ? doublingSource : "";
+
   return {
     priorities: {
       values: priorities.values, remaining: priorities.remaining,
