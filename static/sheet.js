@@ -339,14 +339,49 @@ function counterBtn(label, fn, cls) {
 /* Floating d6 success roller: pick a pool size, roll, every 4-6 is a Success.
  * Any die can be selected and re-rolled, but each die only once per roll.
  * State lives here (not in the DOM) so it survives the full rebuilds of
- * renderSheet(); interactions re-render only the overlay itself. */
+ * renderSheet(); interactions re-render only the overlay itself.
+ *
+ * Two modes. "free" is a bare pool roll. "initiative" preloads the Focus-pool
+ * dice and carries Reaction as a flat bonus added to the successes, writing
+ * the total straight into the sheet's Initiative field on every roll and
+ * re-roll (see rollerApply). */
 const ROLLER_MAX_DICE = 30;
 const rollerD6 = () => 1 + Math.floor(Math.random() * 6);
-const rollerState = { open: false, count: 6, dice: [] };  // dice: {value, selected, rerolled}
+// dice: {value, selected, rerolled}
+const rollerState = { open: false, count: 6, dice: [], bonus: 0, mode: "free" };
 
 function rollerRefresh() {
   const cur = $("#die-roller");
   if (cur) cur.replaceWith(rollerOverlay());
+}
+
+/* Initiative as shown on the sheet: Focus-pool dice + Reaction ("12d+8"). */
+function sheetInitiative() {
+  return CALC.initiative
+    || { dice: CALC.pools.Focus, bonus: CALC.attributes.Reaction.final, notes: [] };
+}
+
+/* Open the roller preloaded for an Initiative roll. */
+function openInitiativeRoller() {
+  const init = sheetInitiative();
+  Object.assign(rollerState, {
+    open: true, mode: "initiative", dice: [],
+    count: Math.max(1, Math.min(ROLLER_MAX_DICE, init.dice || 1)),
+    bonus: init.bonus || 0,
+  });
+  rollerRefresh();
+}
+
+/* In initiative mode, push successes + bonus into the play sheet's Initiative
+ * field. The input is patched in place rather than via renderSheet() so the
+ * open roller isn't torn down mid-interaction; the value is still persisted. */
+function rollerApply() {
+  if (rollerState.mode !== "initiative") return;
+  const successes = rollerState.dice.filter(d => d.value >= 4).length;
+  CHAR.play.initiative = successes + rollerState.bonus;
+  schedulePlaySave();
+  const input = $(".sh-init-input");
+  if (input) input.value = String(CHAR.play.initiative);
 }
 
 function rollerOverlay() {
@@ -356,7 +391,15 @@ function rollerOverlay() {
     class: "sh-roller-fab" + (st.open ? " open" : ""),
     title: st.open ? "Close die roller" : "Die roller",
     "aria-label": st.open ? "Close die roller" : "Open die roller",
-    onclick: () => { st.open = !st.open; rollerRefresh(); },
+    // The FAB always opens a plain pool roll; the Initiative card's own button
+    // is what puts the roller into initiative mode.
+    onclick: () => {
+      if (!st.open && st.mode !== "free") {
+        Object.assign(st, { mode: "free", bonus: 0, dice: [] });
+      }
+      st.open = !st.open;
+      rollerRefresh();
+    },
   }, "⚄"));
   if (!st.open) return wrap;
 
@@ -368,17 +411,20 @@ function rollerOverlay() {
     onclick: () => { st.count = clampCount(st.count + delta); rollerRefresh(); },
   }, label);
 
+  const isInit = st.mode === "initiative";
   const panel = el("div", { class: "sh-roller" },
-    el("div", { class: "sh-roller-head" }, "Die Roller",
+    el("div", { class: "sh-roller-head" }, isInit ? "Initiative Roll" : "Die Roller",
       el("button", { class: "sh-roller-close", title: "Close",
         onclick: () => { st.open = false; rollerRefresh(); } }, "✕")),
     el("div", { class: "sh-roller-controls" },
       stepBtn(-1, "–"),
-      el("span", { class: "sh-roller-count" }, `${st.count}d6`),
+      el("span", { class: "sh-roller-count" },
+        `${st.count}d6` + (st.bonus ? `+${st.bonus}` : "")),
       stepBtn(1, "+"),
       el("button", { class: "btn sh-roller-roll", onclick: () => {
         st.dice = Array.from({ length: st.count },
           () => ({ value: rollerD6(), selected: false, rerolled: false }));
+        rollerApply();
         rollerRefresh();
       } }, "Roll")));
 
@@ -392,21 +438,29 @@ function rollerOverlay() {
         onclick: () => { if (!d.rerolled) { d.selected = !d.selected; rollerRefresh(); } },
       }, String(d.value)))));
     panel.append(el("div", { class: "sh-roller-succ" },
-      el("b", {}, String(successes)), ` Success${successes === 1 ? "" : "es"}`));
+      el("b", {}, String(successes)), ` Success${successes === 1 ? "" : "es"}`,
+      // Initiative adds Reaction to the successes; show the arithmetic.
+      st.bonus ? el("span", { class: "sh-roller-sum" }, ` + ${st.bonus} = `) : null,
+      st.bonus ? el("b", { class: "sh-roller-total" }, String(successes + st.bonus)) : null,
+      st.bonus && isInit ? el("span", { class: "sh-roller-sum" }, " Initiative") : null));
     panel.append(el("button", {
       class: "btn sh-roller-reroll", ...(selected ? {} : { disabled: 1 }),
       onclick: () => {
         for (const d of st.dice) {
           if (d.selected) { d.value = rollerD6(); d.rerolled = true; d.selected = false; }
         }
+        rollerApply();
         rollerRefresh();
       },
     }, selected ? `Re-roll ${selected} selected` : "Re-roll selected"));
     panel.append(el("div", { class: "sh-roller-hint" },
-      "4–6 = Success. Tap dice to mark for re-roll — each die re-rolls once."));
+      "4–6 = Success. Tap dice to mark for re-roll — each die re-rolls once."
+      + (isInit ? " The total is saved to your Initiative." : "")));
   } else {
     panel.append(el("div", { class: "sh-roller-hint" },
-      `Roll ${st.count}d6 — every 4–6 is a Success.`));
+      isInit
+        ? `Roll ${st.count}d6 — every 4–6 is a Success, plus ${st.bonus} Reaction.`
+        : `Roll ${st.count}d6 — every 4–6 is a Success.`));
   }
   wrap.append(panel);
   return wrap;
@@ -833,9 +887,10 @@ function shOverview(body) {
       : null);
 
   // --- initiative + combat numbers
-  // Initiative: roll Focus-pool dice, add Reaction — e.g. "12d+8".
-  const init = CALC.initiative
-    || { dice: CALC.pools.Focus, bonus: CALC.attributes.Reaction.final, notes: [] };
+  // Initiative: roll Focus-pool dice, add Reaction — e.g. "12d+8". The Roll
+  // button hands that pool to the die roller, which writes the result back
+  // into the input below; the input stays directly editable either way.
+  const init = sheetInitiative();
   const initInput = el("input", { type: "number", class: "sh-init-input",
     min: "0", value: String(play.initiative || 0),
     oninput: e => { play.initiative = parseInt(e.target.value, 10) || 0; playChanged(false); } });
@@ -846,6 +901,8 @@ function shOverview(body) {
     ...(init.notes || []).map(n =>
       el("div", { class: "sub", style: "color:var(--amber);margin-top:4px" }, "★ " + n)),
     el("div", { class: "sh-counter-btns", style: "margin-top:8px" },
+      el("button", { class: "btn sh-init-roll", title: "Roll initiative in the die roller",
+        onclick: openInitiativeRoller }, "⚄ Roll"),
       el("span", { class: "sub", style: "align-self:center" }, "Rolled:"), initInput));
 
   const c = CALC.combat;
