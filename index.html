@@ -10,16 +10,7 @@
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <link rel="stylesheet" href="static/fonts.css">
 <link rel="stylesheet" href="static/style.css">
-<script>
-  // Applied before first paint so there's no flash of the wrong theme.
-  (function(){
-    try {
-      var t = localStorage.getItem("sinless:theme");
-      if (!t) t = matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
-      document.documentElement.setAttribute("data-theme", t);
-    } catch (e) { /* localStorage unavailable — default dark styling still applies */ }
-  })();
-</script>
+<script src="static/theme-init.js"></script>
 </head>
 <body>
 <nav id="workspace-tabs" aria-label="Open characters"></nav>
@@ -77,17 +68,18 @@
 </div>
 <div id="sheet" hidden></div>
 <div id="homebrew" hidden></div>
+<div id="login" hidden></div>
+<div id="pending" hidden></div>
+<div id="admin" hidden></div>
 <script src="static/data.js"></script>
 <script src="static/rules.js"></script>
 <script src="static/storage.js"></script>
+<script src="static/sync.js"></script>
 <script src="static/homebrew.js"></script>
 <script src="static/app.js"></script>
 <script src="static/sheet.js"></script>
 <script src="static/workspace.js"></script>
-<script>
-  if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("sw.js").catch(() => { /* offline install is best-effort */ });
-  }
-</script>
+<script src="static/auth-ui.js"></script>
+<script src="static/register-sw.js"></script>
 </body>
 </html>

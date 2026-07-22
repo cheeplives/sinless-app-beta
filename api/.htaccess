@@ -1,0 +1,8 @@
+# api/.htaccess — belt-and-suspenders: never serve the secrets file, even if the
+# root rule is missed or PHP execution is disabled for some reason.
+<FilesMatch "^config(\.example)?\.php$">
+  Require all denied
+</FilesMatch>
+# config.php should ideally live ABOVE the web root entirely; this only guards
+# the in-tree location.
+Options -Indexes

@@ -23,7 +23,12 @@
  */
 "use strict";
 
-const WORKSPACE_KEY = "sinless:workspace";
+/* Namespaced per signed-in user (device-local, but separated by account so two
+ * people on one browser don't share an open-tabs list). */
+function workspaceKey() {
+  const prefix = (typeof SYNC !== "undefined" && SYNC.userPrefix) ? SYNC.userPrefix() : "sinless:";
+  return prefix + "workspace";
+}
 const WORKSPACE_PERSIST_DEBOUNCE_MS = 500;
 
 /* tabs: [{ char, view }]. `view` remembers each tab's UI cursor so switching
@@ -166,6 +171,12 @@ function renderWorkspaceBar() {
 function showActiveTab() {
   const tab = activeTabObj();
   if (!tab) return;
+  // Auth screens (login/pending/admin) hide the tab strip; restore it whenever
+  // we return to the app/sheet.
+  const wsBar = $("#workspace-tabs"); if (wsBar) wsBar.hidden = false;
+  const login = $("#login"); if (login) login.hidden = true;
+  const pending = $("#pending"); if (pending) pending.hidden = true;
+  const admin = $("#admin"); if (admin) admin.hidden = true;
   const nameInput = $("#char-name"), playerInput = $("#char-player");
   if (nameInput) nameInput.value = CHAR.name || "";
   if (playerInput) playerInput.value = CHAR.player || "";
@@ -339,14 +350,14 @@ function writeDescriptor() {
     if (i === WORKSPACE.active) active = open.length;
     open.push(STORAGE.sanitizeName(tab.char.name));
   });
-  try { localStorage.setItem(WORKSPACE_KEY, JSON.stringify({ open, active })); }
+  try { localStorage.setItem(workspaceKey(), JSON.stringify({ open, active })); }
   catch { /* storage full / unavailable — workspace just won't restore */ }
 }
 
 /* ---- boot ---------------------------------------------------------------- */
 function initWorkspace() {
   let desc = null;
-  try { desc = JSON.parse(localStorage.getItem(WORKSPACE_KEY) || "null"); }
+  try { desc = JSON.parse(localStorage.getItem(workspaceKey()) || "null"); }
   catch { /* corrupt descriptor: fall through to a fresh workspace */ }
   const names = (desc && Array.isArray(desc.open)) ? desc.open : [];
   for (const name of names) {

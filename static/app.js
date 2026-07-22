@@ -73,8 +73,14 @@ const POOL_FORMULAS = {
  * `await recalc()` call sites read uniformly. */
 async function boot() {
   DATA = DATA_BUNDLE;
-  mergeCustomContent();   // homebrew.js: splice user-created rows into the tables
   initTheme();
+  // Auth gate (sync.js). In local-only mode (no backend, e.g. GitHub Pages) this
+  // returns "local" and the app runs exactly as before.
+  const mode = await SYNC.probe();
+  if (mode === "signedout") { renderLoginGate(); return; }
+  if (mode === "pending")   { renderPendingScreen(); return; }
+  if (mode === "signedin")  await SYNC.hydrate();   // pull server → local cache first
+  mergeCustomContent();   // homebrew.js: splice user-created rows (incl. synced) into the tables
   bindRail();
   initWorkspace();        // workspace.js: restore/seed open characters, set CHAR
   await recalc();
@@ -170,6 +176,7 @@ function bindRail() {
     if (!name) return;
     await deleteSavedCharacter(name);
   });
+  if (typeof mountAccountControls === "function") mountAccountControls();   // Sign out / Admin when signed in
 }
 
 /* Permanently remove a saved character. If it's the one currently open,

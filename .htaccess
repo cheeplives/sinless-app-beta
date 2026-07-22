@@ -1,0 +1,39 @@
+# .htaccess — Apache config for the hosted (PHP) deployment.
+# Ignored by GitHub Pages and by `php -S` / static servers, so it only takes
+# effect on the real Apache host. Needs mod_rewrite + mod_headers (standard on
+# most shared hosting).
+
+# --- Force HTTPS -----------------------------------------------------------
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteCond %{HTTPS} !=on
+  RewriteCond %{HTTP:X-Forwarded-Proto} !https
+  RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [R=301,L]
+</IfModule>
+
+# --- Security headers (site-wide) ------------------------------------------
+<IfModule mod_headers.c>
+  Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains"
+  Header always set X-Content-Type-Options "nosniff"
+  Header always set X-Frame-Options "DENY"
+  Header always set Referrer-Policy "strict-origin-when-cross-origin"
+  # CSP: everything from same origin. No 'unsafe-inline' for scripts (inline
+  # <script> blocks are externalised to static/*.js). Inline STYLE attributes
+  # produced by el() require 'unsafe-inline' in style-src. Provider avatars are
+  # not embedded, so img-src stays tight.
+  Header always set Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+</IfModule>
+
+# --- Don't serve secrets / SQL / dotfiles / tooling ------------------------
+<FilesMatch "^config\.php$">
+  Require all denied
+</FilesMatch>
+<FilesMatch "\.(sql|md)$">
+  Require all denied
+</FilesMatch>
+# Block dotfiles (e.g. .htaccess, .git) from being served.
+<FilesMatch "^\.">
+  Require all denied
+</FilesMatch>
+
+Options -Indexes

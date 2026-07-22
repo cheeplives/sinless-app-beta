@@ -13,7 +13,7 @@
  */
 "use strict";
 
-const CACHE_VERSION = "sinless-v25";
+const CACHE_VERSION = "sinless-v26";
 
 const PRECACHE = [
   "./",
@@ -24,10 +24,14 @@ const PRECACHE = [
   "static/data.js",
   "static/rules.js",
   "static/storage.js",
+  "static/sync.js",
   "static/homebrew.js",
   "static/app.js",
   "static/sheet.js",
   "static/workspace.js",
+  "static/auth-ui.js",
+  "static/theme-init.js",
+  "static/register-sw.js",
   "icons/icon-192.png",
   "icons/icon-512.png",
   // latin woff2 subsets referenced by fonts.css
@@ -70,7 +74,11 @@ function updateCache(request, response) {
 self.addEventListener("fetch", event => {
   const request = event.request;
   if (request.method !== "GET") return;
-  const sameOrigin = new URL(request.url).origin === self.location.origin;
+  const url = new URL(request.url);
+  // Never cache or intercept API calls — auth/character data must always be
+  // live and per-user; let them hit the network directly.
+  if (url.pathname.includes("/api/")) return;
+  const sameOrigin = url.origin === self.location.origin;
 
   // Cache-first for immutable heavy assets (fonts, icons, images).
   if (CACHE_FIRST_RE.test(request.url)) {

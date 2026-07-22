@@ -806,6 +806,11 @@ function sheetMenu() {
         el("button", { class: "btn warn", disabled: CHAR.name ? null : "1",
           title: CHAR.name ? "Permanently delete this character's save" : "Character has no name — nothing saved to delete",
           onclick: act(() => deleteSavedCharacter(CHAR.name)) }, "Delete Character"),
+        // Account controls appear only when signed in to a backend.
+        (typeof SYNC !== "undefined" && SYNC.enabled && SYNC.enabled() && SYNC.isAdmin())
+          ? el("button", { class: "btn ghost", onclick: act(openAdminPanel) }, "Admin") : null,
+        (typeof SYNC !== "undefined" && SYNC.enabled && SYNC.enabled())
+          ? el("button", { class: "btn ghost", onclick: act(doSignOut) }, "Sign out") : null,
         importInput));
   }
   return wrap;

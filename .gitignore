@@ -1,2 +1,7 @@
 __pycache__/
 *.pyc
+
+# Server secrets — never commit the real config (DB password, OAuth secrets).
+api/config.php
+# Local PHP session files, if a dev ever points save_path here.
+api/sessions/
