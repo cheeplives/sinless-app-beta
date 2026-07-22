@@ -24,16 +24,29 @@
   Header always set Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
 </IfModule>
 
-# --- Don't serve secrets / SQL / dotfiles / tooling ------------------------
+# --- Don't serve secrets / SQL / docs / tooling / dotfiles -----------------
 <FilesMatch "^config\.php$">
   Require all denied
 </FilesMatch>
-<FilesMatch "\.(sql|md)$">
+<FilesMatch "\.(sql|md|py)$">
   Require all denied
 </FilesMatch>
-# Block dotfiles (e.g. .htaccess, .git) from being served.
+# Block dotfile *names* (e.g. .htaccess, .gitignore).
 <FilesMatch "^\.">
   Require all denied
 </FilesMatch>
+# Block the .git *directory* itself. A request for /.git/HEAD asks for a
+# non-dot filename inside a dot-directory, which the FilesMatch above does NOT
+# catch — without this the whole repo/history would be downloadable when the
+# clone lives under the web root. `.well-known` is left reachable so ACME/
+# Let's Encrypt still works.
+<IfModule mod_alias.c>
+  RedirectMatch 404 (?:^|/)\.git
+</IfModule>
+# Fallback if mod_alias is unavailable (returns 403 instead of 404).
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteRule (?:^|/)\.git - [F,L]
+</IfModule>
 
 Options -Indexes
