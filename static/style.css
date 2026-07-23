@@ -707,6 +707,12 @@ tr.sh-modslots-row td{padding-top:0;padding-bottom:10px;border-bottom:1px solid 
 .rail-actions>.btn-signout,.rail-actions>.btn-admin,.rail-actions>.btn-shared{grid-column:1 / -1}
 
 /* ---------- character sharing ---------- */
+/* Public/Private badge beside the character name (click to toggle). */
+.sh-share-badge{padding:3px 10px;border-radius:12px;font-size:11px;font-weight:600;
+  border:1px solid var(--line);background:var(--panel-2);color:var(--dim);cursor:pointer;
+  white-space:nowrap;line-height:1.4;transition:color .12s,border-color .12s}
+.sh-share-badge:hover{border-color:var(--manon-dim);color:var(--text)}
+.sh-share-badge.public{color:var(--ok);border-color:var(--ok)}
 /* Read-only shared-view tab chip. */
 .ws-dot.readonly{background:var(--amber)}
 .ws-tab.ws-readonly{font-style:italic}

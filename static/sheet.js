@@ -496,6 +496,22 @@ function zpMeterValues() {
   return { current: Math.max(0, z.zp - Math.ceil(spent)), max: z.zp };
 }
 
+/* Public/Private badge shown next to the name when signed in and viewing your
+ * own saved character. Click to toggle sharing. Hidden in local-only mode and
+ * on read-only shared views (not yours to share). */
+function sharingBadge() {
+  if (!(typeof SYNC !== "undefined" && SYNC.enabled && SYNC.enabled())) return null;
+  if (activeTabObj() && activeTabObj().readonly) return null;
+  if (!CHAR.name) return null;
+  const pub = SYNC.isPublic(STORAGE.sanitizeName(CHAR.name));
+  return el("button", {
+    class: "sh-share-badge " + (pub ? "public" : "private"),
+    title: pub ? "Public — visible to other members. Click to make private."
+               : "Private. Click to share with other members.",
+    onclick: async e => { e.stopPropagation(); await toggleSharing(); renderSheet(); },
+  }, pub ? "🌐 Public" : "🔒 Private");
+}
+
 function sheetHeader() {
   const play = CHAR.play;
   const head = el("header", { class: "sheet-head" });
@@ -522,7 +538,8 @@ function sheetHeader() {
   const ident = el("div", { class: "sh-ident" },
     el("div", { class: "sh-ident-top" },
       sheetMenu(),
-      el("div", { class: "sh-name" }, CHAR.name || "Unnamed")),
+      el("div", { class: "sh-name" }, CHAR.name || "Unnamed"),
+      sharingBadge()),
     CHAR.player ? el("div", { class: "sh-player" }, CHAR.player) : null,
     el("div", { class: "sh-tags" },
       el("span", { class: "sh-tag" }, heritageLabel),
