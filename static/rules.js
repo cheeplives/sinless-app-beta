@@ -231,7 +231,7 @@ function defaultCharacter() {
     drones: [],
     vehicles: [],
     gear: [],
-    lifestyle: { name: "Squatter", months: 1 },
+    lifestyle: { name: "", months: 0 },   // no default lifestyle — must be chosen in chargen
     lifestyles: [],
     finalized: false,
     play: {
@@ -1926,6 +1926,13 @@ function calculate(character) {
   const cashRemaining = round2(priorities.starting_cash - cashSpent);
   if (cashRemaining < 0) {
     errors.push(`Cash overspent by ㄓ${Math.round(-cashRemaining).toLocaleString("en-US")}.`);
+  }
+
+  // Every character must live somewhere: at least one prepaid month of a lifestyle.
+  const hasLifestyle = (character.lifestyles || []).some(ls => (Number(ls.months) || 0) >= 1)
+    || (character.lifestyle && character.lifestyle.name && (Number(character.lifestyle.months) || 0) >= 1);
+  if (!hasLifestyle) {
+    errors.push("Choose a lifestyle with at least 1 prepaid month.");
   }
 
   const combat = deriveCombatStats(
