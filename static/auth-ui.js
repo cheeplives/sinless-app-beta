@@ -6,7 +6,7 @@
  */
 "use strict";
 
-const AUTH_SCREENS = ["#app", "#sheet", "#homebrew", "#login", "#pending", "#admin", "#workspace-tabs"];
+const AUTH_SCREENS = ["#app", "#sheet", "#homebrew", "#login", "#pending", "#admin", "#shared", "#workspace-tabs"];
 function hideAllScreens() {
   for (const sel of AUTH_SCREENS) { const e = $(sel); if (e) e.hidden = true; }
 }
@@ -132,7 +132,70 @@ function mountAccountControls() {
   if (!(typeof SYNC !== "undefined" && SYNC.enabled && SYNC.enabled())) return;
   const bar = $(".rail-actions");
   if (!bar || bar.querySelector(".btn-signout")) return;
+  bar.append(el("button", { class: "btn ghost btn-shared", onclick: openSharedGallery }, "Shared"));
   if (SYNC.isAdmin())
     bar.append(el("button", { class: "btn ghost btn-admin", onclick: openAdminPanel }, "Admin"));
   bar.append(el("button", { class: "btn ghost btn-signout", onclick: doSignOut }, "Sign out"));
+}
+
+/* ---- sharing: toggle + gallery ------------------------------------------- */
+async function toggleSharing() {
+  if (!CHAR.name) { alert("Give the character a name and save it first."); return; }
+  const slug = STORAGE.sanitizeName(CHAR.name);
+  STORAGE.saveCharacter(CHAR);          // ensure the latest is queued
+  await SYNC.flush();                   // push so the server has a row to toggle
+  const res = await SYNC.setVisibility(slug, !SYNC.isPublic(slug));
+  if (res === null) { alert("Couldn't update sharing — the character may not have synced yet. Try again in a moment."); return; }
+  alert(res ? "Now shared with other members." : "Now private.");
+}
+
+async function openSharedGallery() {
+  const root = $("#shared");
+  root.replaceChildren(el("div", { class: "auth-card admin-card" }, el("p", {}, "Loading…")));
+  hideAllScreens();
+  root.hidden = false;
+  await renderSharedList();
+}
+
+async function renderSharedList() {
+  const root = $("#shared");
+  const chars = await SYNC.listShared();
+  const back = el("button", { class: "btn ghost",
+    onclick: () => { $("#shared").hidden = true; showActiveTab(); } }, "← Back");
+  const card = el("div", { class: "auth-card admin-card" },
+    el("div", { class: "admin-head" }, el("h2", { class: "auth-title" }, "Shared characters"), back));
+  if (!chars.length) {
+    card.append(el("p", { class: "auth-meta" },
+      "No public characters yet. Share one from a character's ☰ menu → Sharing."));
+  } else {
+    for (const c of chars) {
+      card.append(el("div", { class: "admin-row" },
+        el("div", { class: "admin-id" },
+          el("div", { class: "admin-name" }, c.name || "(unnamed)"),
+          el("div", { class: "admin-email" }, "by " + (c.owner || "member"))),
+        el("div", { class: "admin-actions" },
+          el("button", { class: "btn small", onclick: () => viewShared(c.id) }, "View"),
+          el("button", { class: "btn small good", onclick: () => copyShared(c.id) }, "Save a copy"))));
+    }
+  }
+  root.replaceChildren(card);
+}
+
+async function viewShared(id) {
+  const rec = await SYNC.fetchShared(id);
+  if (!rec || !rec.data) { alert("That character is no longer available."); return; }
+  $("#shared").hidden = true;
+  await openReadonly(rec.data, { id: rec.id, owner: rec.owner });
+}
+
+async function copyShared(id) {
+  const rec = await SYNC.fetchShared(id);
+  if (!rec || !rec.data) { alert("That character is no longer available."); return; }
+  const copy = RULES.mergeDefaults(JSON.parse(JSON.stringify(rec.data)));
+  copy.name = uniqueCopyName(copy.name || rec.name || "Shared character");
+  copy.finalized = true;
+  STORAGE.saveCharacter(copy);
+  $("#shared").hidden = true;
+  await openCharacter(copy);
+  if (typeof refreshLoadList === "function") refreshLoadList();
 }

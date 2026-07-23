@@ -139,6 +139,8 @@ function ensurePlay() {
   return CHAR.play;
 }
 function schedulePlaySave() {
+  // Read-only shared views never persist (also server-rejected as non-owner).
+  if (typeof activeTabObj === "function" && activeTabObj() && activeTabObj().readonly) return;
   clearTimeout(playSaveTimer);
   playSaveTimer = setTimeout(() => {
     if (!CHAR.name) return;
@@ -302,9 +304,22 @@ function sheetTabList() {
     ["notes", "Notes"]];
 }
 
+function readonlyBanner() {
+  const tab = activeTabObj();
+  const who = (tab && tab.owner) ? `${tab.owner}'s` : "a shared";
+  return el("div", { class: "sh-readonly-banner" },
+    el("span", { class: "sh-ro-label" }, `👁 Viewing ${who} character — read only`),
+    el("span", { class: "sh-ro-actions" },
+      el("button", { class: "btn small good", onclick: saveReadonlyCopy }, "Save a copy to my account"),
+      el("button", { class: "btn small ghost", onclick: () => closeTab(WORKSPACE.active) }, "Close")));
+}
+
 function renderSheet() {
   const root = $("#sheet");
   root.innerHTML = "";
+  const ro = !!(typeof activeTabObj === "function" && activeTabObj() && activeTabObj().readonly);
+  document.body.classList.toggle("sheet-readonly", ro);
+  if (ro) root.append(readonlyBanner());
   const head = sheetHeader();
   const bar = sheetStickyBar();
   root.append(head, bar);
@@ -806,7 +821,16 @@ function sheetMenu() {
         el("button", { class: "btn warn", disabled: CHAR.name ? null : "1",
           title: CHAR.name ? "Permanently delete this character's save" : "Character has no name — nothing saved to delete",
           onclick: act(() => deleteSavedCharacter(CHAR.name)) }, "Delete Character"),
-        // Account controls appear only when signed in to a backend.
+        // Sharing + account controls appear only when signed in to a backend.
+        (typeof SYNC !== "undefined" && SYNC.enabled && SYNC.enabled()
+          && !(activeTabObj() && activeTabObj().readonly) && CHAR.name)
+          ? el("button", { class: "btn ghost", onclick: act(toggleSharing) },
+              SYNC.isPublic(STORAGE.sanitizeName(CHAR.name))
+                ? "Sharing: Public ✓ — make private"
+                : "Sharing: Private — make public")
+          : null,
+        (typeof SYNC !== "undefined" && SYNC.enabled && SYNC.enabled())
+          ? el("button", { class: "btn ghost", onclick: act(openSharedGallery) }, "Shared characters") : null,
         (typeof SYNC !== "undefined" && SYNC.enabled && SYNC.enabled() && SYNC.isAdmin())
           ? el("button", { class: "btn ghost", onclick: act(openAdminPanel) }, "Admin") : null,
         (typeof SYNC !== "undefined" && SYNC.enabled && SYNC.enabled())

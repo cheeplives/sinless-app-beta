@@ -55,7 +55,8 @@ function stashView(tab) {
  * closing a tab, unload) so a reload can restore them. Never called mid-keystroke,
  * which would save partial names into orphan slots. */
 function commitTabChar(tab) {
-  if (tab && tab.char.name) STORAGE.saveCharacter(tab.char);
+  if (!tab || tab.readonly) return;   // read-only shared views are never saved
+  if (tab.char.name) STORAGE.saveCharacter(tab.char);
 }
 /* Leaving the active tab: remember where the cursor was AND flush the char. */
 function leaveTab(tab) { stashView(tab); commitTabChar(tab); }
@@ -139,19 +140,22 @@ function renderWorkspaceBar() {
         const active = i === WORKSPACE.active;
         const name = (tab.char.name || "").trim() || "Unnamed";
         const finalized = !!tab.char.finalized;
+        const ro = !!tab.readonly;
         const chip = el("div", {
-          class: "ws-tab" + (active ? " active" : ""),
+          class: "ws-tab" + (active ? " active" : "") + (ro ? " ws-readonly" : ""),
           role: "button", tabindex: "0",
-          title: `${name} — ${finalized ? "play" : "chargen"}`,
+          title: ro ? `${name} — shared by ${tab.owner || "member"} (read only)`
+                    : `${name} — ${finalized ? "play" : "chargen"}`,
           "aria-current": active ? "true" : null,
           onpointerdown: e => onTabPointerDown(e, tab),
           onclick: () => { if (suppressTabClick) { suppressTabClick = false; return; } switchTab(i); },
           onkeydown: e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); switchTab(i); } },
         },
-          el("span", { class: "ws-dot " + (finalized ? "play" : "chargen"),
+          el("span", { class: "ws-dot " + (ro ? "readonly" : finalized ? "play" : "chargen"),
             "aria-hidden": "true" }),
-          el("span", { class: "ws-name" }, name),
-          el("button", {
+          el("span", { class: "ws-name" }, ro ? "👁 " + name : name),
+          // No duplicate button on a read-only view (use "Save a copy" instead).
+          ro ? null : el("button", {
             class: "ws-dup", "aria-label": `Duplicate ${name}`, title: "Duplicate tab",
             onclick: e => { e.stopPropagation(); duplicateTab(i); },
           }, "⎘"),
@@ -177,6 +181,7 @@ function showActiveTab() {
   const login = $("#login"); if (login) login.hidden = true;
   const pending = $("#pending"); if (pending) pending.hidden = true;
   const admin = $("#admin"); if (admin) admin.hidden = true;
+  const shared = $("#shared"); if (shared) shared.hidden = true;
   const nameInput = $("#char-name"), playerInput = $("#char-player");
   if (nameInput) nameInput.value = CHAR.name || "";
   if (playerInput) playerInput.value = CHAR.player || "";
@@ -250,6 +255,38 @@ async function newCharacterTab() {
   await recalc();
   showActiveTab();
   persistWorkspace();
+}
+
+/* Open someone else's shared character in a read-only tab: a throwaway deep copy
+ * (finalized so the play sheet renders), flagged so it's never saved to this
+ * account, never synced, and never restored on reload. `meta` = {id, owner}. */
+async function openReadonly(charData, meta) {
+  leaveTab(activeTabObj());
+  const copy = RULES.mergeDefaults(JSON.parse(JSON.stringify(charData)));
+  copy.finalized = true;
+  WORKSPACE.tabs.push({
+    char: copy, view: defaultView(),
+    readonly: true, owner: (meta && meta.owner) || "", publicId: (meta && meta.id) || null,
+  });
+  WORKSPACE.active = WORKSPACE.tabs.length - 1;
+  CHAR = copy;
+  restoreView(activeTabObj());
+  sheetStickyScrolled = false;
+  await recalc();
+  showActiveTab();          // read-only: no persistWorkspace()
+}
+
+/* Clone the active read-only shared character into the viewer's OWN account as a
+ * normal, editable, private character (unique "(copy)" name). */
+async function saveReadonlyCopy() {
+  const tab = activeTabObj();
+  if (!tab || !tab.readonly) return;
+  const copy = RULES.mergeDefaults(JSON.parse(JSON.stringify(tab.char)));
+  copy.name = uniqueCopyName(copy.name || "Shared character");
+  copy.finalized = true;
+  STORAGE.saveCharacter(copy);        // persist locally + queue sync to my account
+  await openCharacter(copy);          // open it as an owned, editable tab
+  if (typeof refreshLoadList === "function") refreshLoadList();
 }
 
 /* Duplicate the tab at index i: deep-copy its character (including play state,
@@ -346,7 +383,7 @@ function writeDescriptor() {
   const open = [];
   let active = 0;
   WORKSPACE.tabs.forEach((tab, i) => {
-    if (!tab.char.name) return;                 // unnamed drafts have no slot
+    if (tab.readonly || !tab.char.name) return;  // read-only views + unnamed drafts aren't restorable
     if (i === WORKSPACE.active) active = open.length;
     open.push(STORAGE.sanitizeName(tab.char.name));
   });

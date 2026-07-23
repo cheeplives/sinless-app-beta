@@ -674,9 +674,9 @@ tr.sh-modslots-row td{padding-top:0;padding-bottom:10px;border-bottom:1px solid 
 }
 
 /* ---------- auth screens (login / pending / admin) ---------- */
-#login,#pending,#admin{position:fixed;inset:0;z-index:90;display:flex;
+#login,#pending,#admin,#shared{position:fixed;inset:0;z-index:90;display:flex;
   align-items:center;justify-content:center;padding:24px;background:var(--ink);overflow-y:auto}
-#login[hidden],#pending[hidden],#admin[hidden]{display:none!important}
+#login[hidden],#pending[hidden],#admin[hidden],#shared[hidden]{display:none!important}
 .auth-card{width:100%;max-width:400px;background:var(--panel);border:1px solid var(--line);
   border-radius:14px;padding:34px 30px;text-align:center;box-shadow:0 14px 46px rgba(0,0,0,.45)}
 .auth-brand{font-family:var(--disp);font-weight:700;font-size:30px;letter-spacing:.24em;color:var(--manon)}
@@ -703,5 +703,26 @@ tr.sh-modslots-row td{padding-top:0;padding-bottom:10px;border-bottom:1px solid 
 .admin-email{color:var(--dim);font-size:12px;margin-top:1px}
 .admin-actions{display:flex;gap:6px;flex:none}
 
-/* Sign-out / Admin buttons sit under the rail actions grid, full width. */
-.rail-actions>.btn-signout,.rail-actions>.btn-admin{grid-column:1 / -1}
+/* Sign-out / Admin / Shared buttons sit under the rail actions grid, full width. */
+.rail-actions>.btn-signout,.rail-actions>.btn-admin,.rail-actions>.btn-shared{grid-column:1 / -1}
+
+/* ---------- character sharing ---------- */
+/* Read-only shared-view tab chip. */
+.ws-dot.readonly{background:var(--amber)}
+.ws-tab.ws-readonly{font-style:italic}
+/* Banner atop a read-only shared character sheet. */
+.sh-readonly-banner{display:flex;align-items:center;justify-content:space-between;gap:12px;
+  flex-wrap:wrap;margin-bottom:12px;padding:9px 14px;border-radius:8px;
+  background:var(--alert-warn-bg);border:1px solid var(--amber)}
+.sh-ro-label{font-weight:600;color:var(--amber)}
+.sh-ro-actions{display:flex;gap:8px;flex-wrap:wrap}
+/* When viewing read-only, neutralise the sheet's mutation controls (defence in
+ * depth — nothing persists anyway, but this makes it clearly non-editable). */
+body.sheet-readonly .sh-pool-btns,body.sheet-readonly .sh-pool-boost,
+body.sheet-readonly .mini-btn,body.sheet-readonly .stepper,
+body.sheet-readonly .sh-box,body.sheet-readonly .counter,
+body.sheet-readonly .btn-add,body.sheet-readonly .row-del,
+body.sheet-readonly .sh-init-roll,body.sheet-readonly .sh-roller-fab{
+  pointer-events:none;opacity:.45}
+/* …but keep the read-only banner's own buttons fully usable. */
+body.sheet-readonly .sh-readonly-banner .btn{pointer-events:auto;opacity:1}

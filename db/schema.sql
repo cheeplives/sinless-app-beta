@@ -46,12 +46,14 @@ CREATE TABLE IF NOT EXISTS characters (
   name              VARCHAR(191) NOT NULL DEFAULT '',
   data              LONGTEXT     NOT NULL,              -- character JSON (opaque)
   client_updated_at BIGINT UNSIGNED NOT NULL DEFAULT 0, -- epoch ms from the client
+  is_public         TINYINT(1)   NOT NULL DEFAULT 0,    -- 1 = visible to other members
   updated_at        DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
                                  ON UPDATE CURRENT_TIMESTAMP,
   created_at        DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   UNIQUE KEY uq_user_slug (user_id, slug),
   KEY idx_user (user_id),
+  KEY idx_public (is_public),
   CONSTRAINT fk_characters_user FOREIGN KEY (user_id)
     REFERENCES users (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

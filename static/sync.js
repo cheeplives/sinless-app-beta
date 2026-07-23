@@ -27,6 +27,7 @@ let user = null;                          // { id, email, name, avatar, status, 
 let csrf = "";
 let providers = [];                       // configured sign-in buttons, from me.php 401
 let flushTimer = null;
+const publicFlags = {};                   // own slug -> is_public (for the sharing toggle)
 
 /* ---- identity / namespace ------------------------------------------------ */
 function userPrefix() {                    // STORAGE keys hang off this
@@ -93,6 +94,7 @@ async function hydrate() {
 
     const list = (await (await api("GET", "characters.php")).json()).characters || [];
     for (const meta of list) {
+      publicFlags[meta.slug] = !!Number(meta.is_public);
       const full = await (await api("GET", "characters.php?slug=" + encodeURIComponent(meta.slug))).json();
       if (full && full.data) {
         STORAGE.cacheCharacter(full.data);
@@ -155,6 +157,41 @@ async function pushCustomContent(content) {
   try { await api("PUT", "custom-content.php", { data: content }); } catch { /* retry next edit */ }
 }
 
+/* ---- sharing (members-only) ---------------------------------------------- */
+function isPublic(slug) { return !!publicFlags[slug]; }
+
+/* Toggle sharing on one of YOUR characters. Returns the new state (or null on
+ * failure). The server enforces owner-only + is_public gating. */
+async function setVisibility(slug, makePublic) {
+  if (!enabled() || !csrf) return null;
+  try {
+    const res = await api("POST", "characters.php?slug=" + encodeURIComponent(slug), { is_public: !!makePublic });
+    if (!res.ok) return null;
+    const j = await res.json().catch(() => ({}));
+    if (j.updated === false) return null;   // character isn't on the server yet
+    publicFlags[slug] = !!makePublic;
+    return publicFlags[slug];
+  } catch { return null; }
+}
+
+/* The shared gallery: metadata for every public character (no data). */
+async function listShared() {
+  if (!enabled()) return [];
+  try {
+    const res = await api("GET", "characters.php?public=1");
+    return res.ok ? ((await res.json()).characters || []) : [];
+  } catch { return []; }
+}
+
+/* Fetch one public character's full record by global id (only if still public). */
+async function fetchShared(id) {
+  if (!enabled()) return null;
+  try {
+    const res = await api("GET", "characters.php?public_id=" + encodeURIComponent(id));
+    return res.ok ? await res.json() : null;
+  } catch { return null; }
+}
+
 /* ---- sign out ------------------------------------------------------------ */
 async function signOut() {
   const prefix = userPrefix();
@@ -172,6 +209,7 @@ window.addEventListener("online", () => { if (enabled()) flush(); });
 
 return {
   probe, hydrate, flush, onSave, onDelete, pushCustomContent, signOut,
+  isPublic, setVisibility, listShared, fetchShared,
   userPrefix, enabled, isAdmin, api,
   get mode() { return mode; },
   get user() { return user; },
