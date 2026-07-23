@@ -5,7 +5,7 @@
  *   PUT → body {data:<blob>}
  */
 declare(strict_types=1);
-require __DIR__ . '/../lib.php';
+require __DIR__ . '/lib.php';
 
 require_method('GET', 'PUT');
 $user = require_approved();

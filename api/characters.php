@@ -12,7 +12,7 @@
  * stored copy is ignored and the stored copy is returned (`stale: true`).
  */
 declare(strict_types=1);
-require __DIR__ . '/../lib.php';
+require __DIR__ . '/lib.php';
 
 require_method('GET', 'PUT', 'DELETE');
 $user = require_approved();

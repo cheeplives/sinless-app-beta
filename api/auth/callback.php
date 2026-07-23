@@ -15,7 +15,9 @@ require_method('GET');
 
 function auth_fail(string $reason): void {
   error_log('oauth callback failed: ' . $reason);
-  header('Location: /?auth_error=1', true, 302);
+  // Return to the app (which reads ?auth_error and shows a retry message), using
+  // the configured base_url so this works under a subpath (e.g. /sinless/).
+  header('Location: ' . rtrim((string) cfg('base_url'), '/') . '/?auth_error=1', true, 302);
   exit;
 }
 

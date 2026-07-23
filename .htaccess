@@ -28,7 +28,7 @@
 <FilesMatch "^config\.php$">
   Require all denied
 </FilesMatch>
-<FilesMatch "\.(sql|md|py)$">
+<FilesMatch "\.(sql|md|py|sh)$">
   Require all denied
 </FilesMatch>
 # Block dotfile *names* (e.g. .htaccess, .gitignore).
