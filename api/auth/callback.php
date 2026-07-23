@@ -12,6 +12,7 @@ declare(strict_types=1);
 require __DIR__ . '/../lib.php';
 
 require_method('GET');
+rate_limit('callback', client_ip(), 30, 300);   // 30 callbacks / 5 min / IP
 
 function auth_fail(string $reason): void {
   error_log('oauth callback failed: ' . $reason);

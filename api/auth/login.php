@@ -9,6 +9,7 @@ declare(strict_types=1);
 require __DIR__ . '/../lib.php';
 
 require_method('GET');
+rate_limit('login', client_ip(), 20, 300);   // 20 sign-in starts / 5 min / IP
 
 $provider = $_GET['provider'] ?? '';
 $oauth = cfg('oauth', []);

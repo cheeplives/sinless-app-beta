@@ -21,6 +21,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
 
 // PUT
 require_csrf();
+rate_limit('write', 'u' . $uid, 120, 60);   // 120 writes / min / user
 $body = read_json_body((int) cfg('max_custom_bytes', 1048576));
 $data = $body['data'] ?? null;
 if (!is_array($data)) json_error(400, 'missing_data');

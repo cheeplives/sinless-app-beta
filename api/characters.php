@@ -41,6 +41,7 @@ if ($method === 'GET') {
 
 // PUT / DELETE mutate → require CSRF + a valid slug.
 require_csrf();
+rate_limit('write', 'u' . $uid, 120, 60);   // 120 writes / min / user
 if (!valid_slug($slug)) json_error(400, 'bad_slug');
 
 if ($method === 'DELETE') {

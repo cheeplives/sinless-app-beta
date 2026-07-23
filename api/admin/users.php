@@ -32,6 +32,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
 
 // POST — approve / revoke
 require_csrf();
+rate_limit('admin', 'u' . $admin['id'], 60, 60);   // 60 admin actions / min
 $body = read_json_body(4096);
 $targetId = (int) ($body['user_id'] ?? 0);
 $action   = (string) ($body['action'] ?? '');

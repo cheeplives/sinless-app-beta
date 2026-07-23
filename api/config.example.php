@@ -75,6 +75,10 @@ return [
   'max_character_bytes' => 262144,   // 256 KB cap on a single character payload
   'max_custom_bytes'    => 1048576,  // 1 MB cap on the homebrew blob
 
+  // Per-IP throttling on sign-in + per-user throttling on writes (needs the
+  // rate_limits table from db/schema.sql). Leave true; set false only to debug.
+  'rate_limit_enabled' => true,
+
   // Set true only while debugging locally — leaks errors to the client. Keep
   // false in production (errors go to the PHP error log instead).
   'debug' => false,

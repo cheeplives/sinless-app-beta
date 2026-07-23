@@ -69,3 +69,17 @@ CREATE TABLE IF NOT EXISTS custom_content (
   CONSTRAINT fk_custom_user FOREIGN KEY (user_id)
     REFERENCES users (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- rate_limits — fixed-window counters for lib.php rate_limit(). Keyed by
+-- (bucket, id) where id is a client IP (auth endpoints) or "u<user_id>"
+-- (writes). Stale rows are GC'd opportunistically; safe to truncate anytime.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS rate_limits (
+  bucket        VARCHAR(32)  NOT NULL,
+  id            VARCHAR(64)  NOT NULL,
+  window_start  INT UNSIGNED NOT NULL,
+  hits          INT UNSIGNED NOT NULL DEFAULT 0,
+  PRIMARY KEY (bucket, id),
+  KEY idx_window (window_start)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

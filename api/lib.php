@@ -209,6 +209,47 @@ function safe_return_path(?string $p): string {
   return $p;
 }
 
+// --- rate limiting (DB-backed fixed window) --------------------------------
+/** Best-effort client IP. Uses REMOTE_ADDR only — X-Forwarded-For is spoofable
+ * and would let an attacker evade or poison the limiter. (Behind a trusted proxy
+ * like Cloudflare you'd switch to its verified header.) */
+function client_ip(): string {
+  $ip = $_SERVER['REMOTE_ADDR'] ?? '';
+  return filter_var($ip, FILTER_VALIDATE_IP) ? $ip : '0.0.0.0';
+}
+
+/** Fixed-window limiter: allow up to $max hits per $windowSec for (bucket,id);
+ * on exceed, respond 429 and exit. Fails OPEN on any DB error — a limiter glitch
+ * must never lock the whole app out (auth/IDOR are the real controls). Toggle
+ * off with config 'rate_limit_enabled' => false. */
+function rate_limit(string $bucket, string $id, int $max, int $windowSec): void {
+  if (!cfg('rate_limit_enabled', true)) return;
+  $now = time();
+  $win = (int) (floor($now / $windowSec) * $windowSec);
+  try {
+    $pdo = db();
+    // Distinct placeholders because real prepared statements can't reuse a name.
+    $pdo->prepare(
+      'INSERT INTO rate_limits (bucket, id, window_start, hits) VALUES (:b, :i, :w1, 1)
+       ON DUPLICATE KEY UPDATE hits = IF(window_start = :w2, hits + 1, 1), window_start = :w3'
+    )->execute([':b' => $bucket, ':i' => $id, ':w1' => $win, ':w2' => $win, ':w3' => $win]);
+    $sel = $pdo->prepare('SELECT hits FROM rate_limits WHERE bucket = ? AND id = ? LIMIT 1');
+    $sel->execute([$bucket, $id]);
+    $hits = (int) $sel->fetchColumn();
+    // Occasional GC so the table can't grow unbounded (~1% of calls).
+    if (random_int(1, 100) === 1) {
+      $pdo->prepare('DELETE FROM rate_limits WHERE window_start < ?')->execute([$now - 86400]);
+    }
+  } catch (Throwable $e) {
+    error_log('rate_limit error: ' . $e->getMessage());
+    return;   // fail open
+  }
+  if ($hits > $max) {
+    header('Retry-After: ' . $windowSec);
+    json_error(429, 'rate_limited');
+  }
+}
+
 // --- outbound HTTP (TLS-verified) -----------------------------------------
 function http_request(string $method, string $url, array $opts = []): array {
   $ch = curl_init($url);
