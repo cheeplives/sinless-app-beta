@@ -401,6 +401,7 @@ async function finalizeCharacter() {
   if (!confirm(msg)) return;
   CHAR.finalized = true;
   ensurePlay();
+  syncChargenLifestyles();   // carry chargen lifestyle(s) into play, even on re-finalize
   // snapshot of the worn-armor flags at the moment of finalize, for revert
   CHAR.play.armor_worn = CHAR.armor.map(a => a.active !== false);
   let rollNote = "";
@@ -1506,8 +1507,8 @@ function tabWeapons(p) {
       items: rows.map(r => ({
         name: r.Weapon, cost: +r.Cost,
         sub: (r.Type === "Melee"
-          ? `Rarity ${r.Rarity || "\u2014"} \u00b7 Reach ${r.Reach || 0} \u00b7 Weight ${r.Weight || 0} \u00b7 Pen ${r.Pen || 0} \u00b7 Conceal ${r.Conceal || 0} \u00b7 Damage ${r.Damage}`
-          : `Rarity ${r.Rarity || "\u2014"} \u00b7 Acc ${r.Accuracy || 0} \u00b7 ${r["Firing modes"] || ""} \u00b7 Weight ${r.Weight || 0} \u00b7 Pen ${r.Pen || 0} \u00b7 Conceal ${r.Conceal || 0} \u00b7 Damage ${r.Damage}`),
+          ? `Rarity ${r.Rarity || "\u2014"} \u00b7 ZR ${r.ZR || 0} \u00b7 Reach ${r.Reach || 0} \u00b7 Weight ${r.Weight || 0} \u00b7 Pen ${r.Pen || 0} \u00b7 Conceal ${r.Conceal || 0} \u00b7 Damage ${RULES.meleeDamage(r, CALC.attributes.Strength.final)}`
+          : `Rarity ${r.Rarity || "\u2014"} \u00b7 ZR ${r.ZR || 0} \u00b7 Acc ${r.Accuracy || 0} \u00b7 ${r["Firing modes"] || ""} \u00b7 Weight ${r.Weight || 0} \u00b7 Pen ${r.Pen || 0} \u00b7 Conceal ${r.Conceal || 0} \u00b7 Damage ${r.Damage}`),
       })),
     }));
   p.append(listEditor({
@@ -1521,7 +1522,7 @@ function tabWeapons(p) {
     onRemove: i => CHAR.weapons.splice(i, 1),
     render: (it, i, del) => {
       const r = DATA.tables.weapons.find(x => x.Weapon === it.name) || {};
-      const calcRow = (CALC.weapons || [])[i] || {};
+      const calcRow = (CALC.weapons || []).find(x => x.Weapon === it.name) || {};
       const isMelee = r.Type === "Melee";
       const isThrown = r.Type === "Thrown";
       // Melee, Thrown, Grenade Launchers, Heavy and Energy weapons can't take mods.
@@ -1536,7 +1537,7 @@ function tabWeapons(p) {
       return el("tr", {},
         el("td", {}, el("b", {}, it.name),
           el("div", { class: "sub" },
-            `${r.Type} \u00b7 Acc ${r.Accuracy || 0} \u00b7 DMG ${r.Damage} \u00b7 ${r["Firing modes"] || "melee"} \u00b7 Pen ${r.Pen || 0} \u00b7 Weight ${r.Weight || 0}`
+            `${r.Type} \u00b7 Acc ${r.Accuracy || 0} \u00b7 DMG ${calcRow.Damage ?? r.Damage} \u00b7 ${r["Firing modes"] || "melee"} \u00b7 Pen ${r.Pen || 0} \u00b7 ZR ${r.ZR || 0} \u00b7 Weight ${r.Weight || 0}`
             + (isThrown ? ` \u00b7 \u00d7${it.qty || 1}` : "")),
           canMod ? fittedCategoryEditor({
             id: `wmods-${i}-${it.name}`,

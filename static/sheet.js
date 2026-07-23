@@ -208,14 +208,33 @@ function logCash(label, delta) {
   CHAR.play.cash_log.unshift({ label, delta });
 }
 
+function chargenLifestyles() {
+  return (CHAR.lifestyles && CHAR.lifestyles.length)
+    ? CHAR.lifestyles
+    : (CHAR.lifestyle && CHAR.lifestyle.name ? [CHAR.lifestyle] : []);
+}
+
 function seedLifestyles() {
   const play = CHAR.play;
   if (play.lifestyles_seeded) return;
-  const prepaid = (CHAR.lifestyles && CHAR.lifestyles.length)
-    ? CHAR.lifestyles
-    : (CHAR.lifestyle && CHAR.lifestyle.name ? [CHAR.lifestyle] : []);
-  prepaid.forEach((ls, i) =>
+  chargenLifestyles().forEach((ls, i) =>
     play.lifestyles.push({ name: ls.name, months: ls.months || 0, active: i === 0 }));
+  play.lifestyles_seeded = true;
+}
+
+/* Merge chargen (prepaid) lifestyles into play at finalize: add any not already
+ * present by name, so a lifestyle picked or changed in chargen carries over even
+ * on a RE-finalize. Runs only at an explicit finalize (not on every sheet view),
+ * so it never resurrects a lifestyle the player removed during play. */
+function syncChargenLifestyles() {
+  const play = CHAR.play;
+  play.lifestyles = play.lifestyles || [];
+  for (const ls of chargenLifestyles()) {
+    if (!play.lifestyles.some(p => p.name === ls.name)) {
+      play.lifestyles.push({ name: ls.name, months: ls.months || 0,
+        active: play.lifestyles.length === 0 });
+    }
+  }
   play.lifestyles_seeded = true;
 }
 
@@ -1018,7 +1037,7 @@ function shOverview(body) {
         wt.append(el("tr", {},
           el("td", {}, el("b", {}, w.name + ((calcRow.smart ?? w.smart) ? " (smart)" : ""))),
           el("td", { class: "sub" },
-            `${r.Type || ""} · Acc ${r.Accuracy || 0} · DMG ${calcRow.Damage ?? r.Damage ?? "—"} · Pen ${r.Pen || 0}`
+            `${r.Type || ""} · Acc ${r.Accuracy || 0} · DMG ${calcRow.Damage ?? r.Damage ?? "—"} · Pen ${r.Pen || 0} · ZR ${r.ZR || 0}`
             + ((calcRow.Ammo ?? r.Ammo) ? ` · Ammo ${calcRow.Ammo ?? r.Ammo}` : "")),
           el("td", { class: "sub" }, modLines.length
             ? el("div", {}, ...modLines.map(l => el("div", {}, l)))
@@ -1861,7 +1880,7 @@ function shGear(body) {
       items: rows.map(r => ({ name: r.Weapon, cost: Math.round((+r.Cost || 0) * mult),
         sub: (r.Type === "Melee" ? `Reach ${r.Reach || 0}` : `Acc ${r.Accuracy || 0}`)
           + ` · DMG ${r.Type === "Melee" ? RULES.meleeDamage(r, CALC.attributes.Strength.final) : (r.Damage || "—")}`
-          + ` · Pen ${r.Pen || 0} · wt ${r.Weight || 0}` })),
+          + ` · Pen ${r.Pen || 0} · ZR ${r.ZR || 0} · wt ${r.Weight || 0}` })),
     }));
   if (CHAR.weapons.length) {
     const t = el("table");
@@ -1876,7 +1895,7 @@ function shGear(body) {
           el("div", { class: "sub", style: "color:var(--manon)" }, weaponRoll(r.Type)),
           shMountEditor(w, r, w.equipped !== false)),
         el("td", { class: "sub" },
-          `${r.Type || ""} · Acc ${r.Accuracy || 0} · DMG ${calcRow.Damage ?? r.Damage ?? "—"} · ${r["Firing modes"] || "melee"} · Pen ${r.Pen || 0} · Weight ${r.Weight || 0}` +
+          `${r.Type || ""} · Acc ${r.Accuracy || 0} · DMG ${calcRow.Damage ?? r.Damage ?? "—"} · ${r["Firing modes"] || "melee"} · Pen ${r.Pen || 0} · ZR ${r.ZR || 0} · Weight ${r.Weight || 0}` +
           ((calcRow.Ammo ?? r.Ammo) ? ` · Ammo ${calcRow.Ammo ?? r.Ammo}` : "")),
         el("td", {}, el("input", { type: "checkbox", ...(w.equipped !== false ? { checked: 1 } : {}),
           onchange: async e => { w.equipped = e.target.checked; await playChangedRecalc(); } })),
