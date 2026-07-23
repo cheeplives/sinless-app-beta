@@ -55,12 +55,13 @@ Set at minimum:
 - `admin_identities` → **your** email (or `github:<id>`) so your first login is auto-approved as admin
 - `approval_webhook_url` → your Discord/Slack incoming webhook
 
-> **Optional hardening — config above the web root.** Your home dir `~/` is not
-> web-served, only `~/public_html` is. To keep the secret entirely out of the
-> docroot: `mv api/config.php ~/sinless-config.php`, then edit the top of
-> `api/lib.php` so `$__CONFIG_PATH` points at `getenv('HOME') . '/sinless-config.php'`
-> (or an absolute path). `git pull` won't fight you because config.php is gone
-> from the tree.
+> **Recommended hardening — config above the web root.** Your home dir `~/` is
+> not web-served (only the domain folder is), so keeping the secret there means
+> it can't be requested over the web at all. `lib.php` auto-detects it, so just:
+> `mv api/config.php ~/sinless-config.php` — no code editing. (lib.php checks, in
+> order: `$SINLESS_CONFIG` env var → `<one level above DOCUMENT_ROOT>/sinless-config.php`
+> → `$HOME/sinless-config.php` → in-tree `api/config.php`.) Also
+> `chmod 600 ~/sinless-config.php`. `git pull` never touches it.
 
 **3. Import the database schema** (idempotent — safe to re-run):
 

@@ -6,8 +6,14 @@
  *
  * config.php holds secrets (DB password, OAuth client secrets) and is
  * gitignored. On Apache the bundled .htaccess denies direct access to it, but
- * the most robust option is to move config.php ABOVE the web root and adjust the
- * require path in lib.php. Never commit the real config.php.
+ * the most robust option is to keep it ABOVE the web root. lib.php looks for the
+ * config in this order (first match wins), so no path editing is needed:
+ *   1. the $SINLESS_CONFIG env var (absolute path)
+ *   2. <one level above DOCUMENT_ROOT>/sinless-config.php   (e.g. ~/sinless-config.php)
+ *   3. $HOME/sinless-config.php
+ *   4. api/config.php  (this in-tree location)
+ * So to harden: `mv api/config.php ~/sinless-config.php` and it just works.
+ * Never commit the real config.
  *
  * This file returns a plain array; lib.php reads it via require.
  */

@@ -17,12 +17,30 @@
 declare(strict_types=1);
 
 // --- config ----------------------------------------------------------------
-$__CONFIG_PATH = __DIR__ . '/config.php';               // move above webroot if you can
-if (!is_file($__CONFIG_PATH)) {
+// Preference order (first that exists wins), so secrets can live ABOVE the web
+// root — no path editing needed, just move the file up:
+//   1. $SINLESS_CONFIG env var (explicit absolute path)
+//   2. <one level above the document root>/sinless-config.php   (e.g. ~/sinless-config.php)
+//   3. $HOME/sinless-config.php
+//   4. api/config.php  (in-tree fallback — protected by .htaccess, but least ideal)
+$__candidates = [];
+$__envCfg = getenv('SINLESS_CONFIG') ?: ($_SERVER['SINLESS_CONFIG'] ?? '');
+if ($__envCfg !== '') $__candidates[] = $__envCfg;
+if (!empty($_SERVER['DOCUMENT_ROOT']))
+  $__candidates[] = dirname($_SERVER['DOCUMENT_ROOT']) . '/sinless-config.php';
+$__home = getenv('HOME') ?: ($_SERVER['HOME'] ?? '');
+if ($__home !== '') $__candidates[] = rtrim($__home, '/') . '/sinless-config.php';
+$__candidates[] = __DIR__ . '/config.php';
+
+$__CONFIG_PATH = '';
+foreach ($__candidates as $__c) {
+  if ($__c !== '' && is_file($__c)) { $__CONFIG_PATH = $__c; break; }
+}
+if ($__CONFIG_PATH === '') {
   http_response_code(500);
   header('Content-Type: application/json');
   echo json_encode(['error' => 'server_not_configured',
-                    'detail' => 'Copy api/config.example.php to api/config.php.']);
+                    'detail' => 'Copy api/config.example.php to api/config.php (or ~/sinless-config.php).']);
   exit;
 }
 $GLOBALS['__CFG'] = require $__CONFIG_PATH;
