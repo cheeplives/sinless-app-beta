@@ -101,6 +101,8 @@ async function boot() {
 const SCHEMES = [
   { id: "default", name: "Slate Violet", dot: "#9d7bff" },
   { id: "azure",   name: "Azure Steel",  dot: "#4a90e2" },
+  { id: "ghost",   name: "Ghost Aqua",   dot: "#2fd0cf" },
+  { id: "rose",    name: "Neon Rose",    dot: "#ff6ec7" },
 ];
 function initTheme() {
   const html = document.documentElement;
@@ -112,6 +114,8 @@ function initTheme() {
   const BG = {
     "default|dark": "#0d1017", "default|light": "#f2f3f8",
     "azure|dark":   "#0d1220", "azure|light":   "#eef1f9",
+    "ghost|dark":   "#0e141c", "ghost|light":   "#eef4f4",
+    "rose|dark":    "#150f18", "rose|light":    "#f9eef4",
   };
   const mode = () => (html.getAttribute("data-theme") === "light" ? "light" : "dark");
   const scheme = () => (SCHEMES.some(s => s.id === html.getAttribute("data-scheme"))

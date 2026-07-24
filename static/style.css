@@ -99,6 +99,81 @@
   --rail-grad-2:#dfe6f2;
   --brand-grad-end:#123a6e;
 }
+/* ---------- ghost aqua scheme ---------- (teal identity accent)
+ * Bright teal needs dark text on solid accent fills, so --on-accent flips in
+ * the dark variant; the light variant's accent is deep enough to keep white.
+ * The overbarrel slot shifts bluer so it stays distinct from the teal chassis. */
+:root[data-scheme="ghost"]:not([data-theme="light"]){
+  --ink:#0e141c;
+  --panel:#131b24;
+  --panel-2:#1a2530;
+  --line:#25333f;
+  --line-soft:#182029;
+  --line-dash:#202b35;
+  --text:#d4e6ec;
+  --dim:#7d94a0;
+  --manon:#2fd0cf;
+  --manon-dim:#1f8887;
+  --on-accent:#04302f;
+  --slot-chassis:#2fd0cf;
+  --slot-overbarrel:#4f9fd9;
+  --rail-grad-1:#0f1a20;
+  --rail-grad-2:#0a1218;
+  --brand-grad-end:#c9f6f4;
+}
+:root[data-scheme="ghost"][data-theme="light"]{
+  --ink:#eef4f4;
+  --panel:#ffffff;
+  --panel-2:#e6efef;
+  --line:#d0dede;
+  --line-soft:#e0eaea;
+  --line-dash:#cbdada;
+  --text:#132427;
+  --dim:#54666a;
+  --manon:#0e7d80;
+  --manon-dim:#3a9b9c;
+  --slot-chassis:#0e7d80;
+  --slot-overbarrel:#1663b0;
+  --rail-grad-1:#e7f2f2;
+  --rail-grad-2:#dcebeb;
+  --brand-grad-end:#0a4a4c;
+}
+/* ---------- neon rose scheme ---------- (magenta identity accent)
+ * Same on-accent handling as ghost: dark text on the bright pink fill in dark
+ * mode, white on the deepened magenta in light mode. */
+:root[data-scheme="rose"]:not([data-theme="light"]){
+  --ink:#150f18;
+  --panel:#1d1622;
+  --panel-2:#251c2e;
+  --line:#372a3f;
+  --line-soft:#241b2b;
+  --line-dash:#2e2338;
+  --text:#e7dbe8;
+  --dim:#9d8aa0;
+  --manon:#ff6ec7;
+  --manon-dim:#a54680;
+  --on-accent:#41142f;
+  --slot-chassis:#ff6ec7;
+  --rail-grad-1:#1b1420;
+  --rail-grad-2:#140e18;
+  --brand-grad-end:#ffd6f0;
+}
+:root[data-scheme="rose"][data-theme="light"]{
+  --ink:#f9eef4;
+  --panel:#ffffff;
+  --panel-2:#f3e6ee;
+  --line:#e6d0dd;
+  --line-soft:#f0e2ea;
+  --line-dash:#e0c8d6;
+  --text:#2a1622;
+  --dim:#6e5866;
+  --manon:#c02f8f;
+  --manon-dim:#d15fa5;
+  --slot-chassis:#c02f8f;
+  --rail-grad-1:#f7e9f1;
+  --rail-grad-2:#efdae7;
+  --brand-grad-end:#5c1240;
+}
 *{box-sizing:border-box}
 html,body{margin:0;height:100%}
 body{background:var(--ink);color:var(--text);font-family:var(--body);font-size:14px;line-height:1.45}
