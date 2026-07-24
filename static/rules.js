@@ -143,6 +143,7 @@ const ADRENALINE_BOOST_SIMPLE_ACTIONS = 3;
 const COMBAT_MASTERY_MELEE_EXPLOIT_BONUS = 2;
 const WIRED_REFLEXES_MELEE_EXPLOITS_BY_RANK = { 1: 1, 2: 2, 3: 2 };
 const COVERT_SYNTHSKIN_DODGE_BONUS = 1;
+const GYROMOUNT_RECOIL_BONUS = 2;
 const SOUND_FILTER_OBSERVATION_BONUS = 1;
 const MOVEMENT_ENHANCEMENT_METERS_PER_RATING = 2;
 const RIG_EXPLOIT_ACTIONS = 2;
@@ -561,12 +562,13 @@ function augmentLimbRequirement(row) {
 }
 
 /**
- * Computed melee damage for a cyber melee implant (Hand Blade/Razors, Spurs) —
- * a Cyberlimbs augment carrying a structured "Damage" bonus. Returns "" for
- * augments that aren't melee implants, otherwise meleeDamage (½ STR + bonus).
+ * Computed damage for an augment that carries a structured "Damage" bonus —
+ * cyber melee implants (Hand Blade/Razors, Spurs), Fangs, and the Eye Laser.
+ * meleeDamage adds ½ STR by default, or the row's "STR Mult" (0 = fixed damage,
+ * e.g. the Eye Laser). Returns "" for augments with no built-in attack.
  */
 function augmentMeleeDamage(row, strength) {
-  if (!row || row.Type !== "Cyberlimbs" || row.Damage === undefined || row.Damage === "") return "";
+  if (!row || row.Damage === undefined || row.Damage === "") return "";
   return meleeDamage(row, strength);
 }
 
@@ -591,13 +593,36 @@ function augmentEffectSums(owned) {
   if (names.has("Sound Filter")) {
     skillBonus["Observation"] = SOUND_FILTER_OBSERVATION_BONUS;
   }
+  // Situational skill dice that can't be a flat bonus (jump-only, conceal-only,
+  // reroll effects) surface as per-skill notes instead of inflating the rank.
+  const skillNotes = {};
+  const addSkillNote = (skill, note) =>
+    (skillNotes[skill] = skillNotes[skill] || []).push(note);
+  if (names.has("Rocket Boots")) addSkillNote("Athletics", "+8d & reroll 1s/2s when jumping (Rocket Boots)");
+  if (names.has("Compartment")) addSkillNote("Subterfuge", "+6d to conceal an item in the body compartment");
+  if (names.has("Covert Synthskin")) addSkillNote("Shadow", "reroll 1s/2s while hiding in appropriate gear (Covert Synthskin)");
+  if (names.has("Amplification")) addSkillNote("Observation", "reroll 1s (Amplification)");
+  // Situational firearm/optics modifiers, shown as reminders by the weapons UI.
+  const combatNotes = [];
+  if (names.has("Smartlink")) combatNotes.push("Smartlink: +1 Accuracy on smart guns (already applied)");
+  if (names.has("Laser Designator")) combatNotes.push("Laser Designator: +1 Accuracy when the laser is lit");
+  if (names.has("Augmented Eyesight")) combatNotes.push("Augmented Eyesight: shift firearm range one category closer");
+  for (const [row] of owned) {
+    if (row.Name.startsWith("Vision Magnification"))
+      combatNotes.push(`${row.Name}: reduce firearm range by ${augmentLevel(row.Name)}`);
+  }
   return {
     attribute_adjustment: attributeAdjustment,
     attribute_max_adjustment: attributeMaxAdjustment,
     skill_bonus: skillBonus,
+    skill_notes: skillNotes,
+    combat_notes: combatNotes,
     move_bonus: toInt(sumBy(owned, ([row, count]) =>
       row.Name.startsWith("Movement Enhancement")
         ? augmentLevel(row.Name) * MOVEMENT_ENHANCEMENT_METERS_PER_RATING * count : 0)),
+    // Recoil-capacity bonus: each Gyromount adds +2.
+    recoil_capacity_bonus: toInt(sumBy(owned, ([row, count]) =>
+      row.Name === "Gyromount" ? GYROMOUNT_RECOIL_BONUS * count : 0)),
     dodge_bonus: names.has("Covert Synthskin") ? COVERT_SYNTHSKIN_DODGE_BONUS : 0,
     impact_armor: toInt(sumBy(owned, ([row, count]) => asNumber(row["Impact Armor"]) * count)),
     ballistic_armor: toInt(sumBy(owned, ([row, count]) => asNumber(row["Ballistic Armor"]) * count)),
@@ -848,7 +873,11 @@ function mergeMountedAugments(augments, mounted) {
   for (const [skill, bonus] of Object.entries(mounted.skill_bonus)) {
     augments.skill_bonus[skill] = Math.max(augments.skill_bonus[skill] || 0, bonus);
   }
+  for (const [skill, notes] of Object.entries(mounted.skill_notes || {})) {
+    (augments.skill_notes[skill] = augments.skill_notes[skill] || []).push(...notes);
+  }
   augments.move_bonus += mounted.move_bonus;
+  augments.recoil_capacity_bonus += mounted.recoil_capacity_bonus || 0;
   augments.dodge_bonus = Math.max(augments.dodge_bonus, mounted.dodge_bonus);
   augments.impact_armor += mounted.impact_armor;
   augments.ballistic_armor += mounted.ballistic_armor;
@@ -859,6 +888,7 @@ function mergeMountedAugments(augments, mounted) {
                                           mounted.melee_exploit_bonus);
   augments.internal_armor_slot_items.push(...mounted.internal_armor_slot_items);
   augments.mobility_move_notes.push(...mounted.mobility_move_notes);
+  augments.combat_notes.push(...(mounted.combat_notes || []));
   augments.has_move_exploit = augments.has_move_exploit || mounted.has_move_exploit;
   augments.rows.push(...mounted.rows);
   augments.mounted_zr = mounted.mounted_zr;
@@ -1070,7 +1100,8 @@ function scoreSkills(character, heritage, amp, augments, warnings, errors) {
     results[name] = { points, bonus,
                       final: Math.max(points + bonus, softLevel, groupValue || 0),
                       soft: softLevel,
-                      pool, group, group_value: groupValue };
+                      pool, group, group_value: groupValue,
+                      notes: (augments.skill_notes || {})[name] || [] };
   }
 
   return {
@@ -1266,6 +1297,8 @@ function assignWeaponModSlots(modNames, modsTable) {
 function priceWeapons(character, data, gearCostMultiplier, warnings, strength) {
   const priced = [];
   let totalCost = 0.0, totalWeight = 0.0;
+  // Smartlink grants +1 Accuracy die to any smart-capable gun.
+  const hasSmartlink = (character.augments || []).some(a => a.name === "Smartlink");
   for (const entry of character.weapons) {
     const row = findRow(data.weapons, "Weapon", entry.name);
     if (!row) continue;
@@ -1313,6 +1346,11 @@ function priceWeapons(character, data, gearCostMultiplier, warnings, strength) {
     }
     if (row.Type === "Melee") item.Damage = meleeDamage(row, strength);
     item.smart = Boolean(entry.smart) || integratedSmart;
+    // Smartlink: +1 Accuracy die on a smart gun (not melee/thrown).
+    if (item.smart && hasSmartlink && item.Type !== "Melee" && item.Type !== "Thrown") {
+      item.Accuracy = String(toInt(asNumber(item.Accuracy)) + 1);
+      item.smartlink = true;
+    }
     item.qty = qty;
     item.mods = fittedMods;
     item.Ammo = applyExtendedMagazine(item.Ammo, fittedMods);
@@ -1686,6 +1724,10 @@ function deriveCombatStats(heritage, finalAttributes, augments, amp, weaponWeigh
     stun: stunCondition,
     move: BASE_MOVE_METERS + heritage.move_bonus + augments.move_bonus,
     move_special: [...heritage.special_move_notes, ...augments.mobility_move_notes],
+    // Recoil capacity: Strength + Gyromount(+2 each). Fitted weapon mods
+    // (Bi-pod, Gas Vent) and the Cybergun's doubled Strength add on top per-gun.
+    recoil_capacity: finalAttributes.Strength + augments.recoil_capacity_bonus,
+    optics_notes: augments.combat_notes,
     simple_actions: simpleActions,
     melee_exploit: meleeExploit,
     rig_exploit: rigExploitActions,

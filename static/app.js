@@ -846,7 +846,8 @@ function tabStats(p) {
           el("div", { class: "skill-name-line" }, name,
             name === "Martial Arts" ? el("span", { class: "sub" }, " \u00b72 pts/rank, \u2264 Unarmed Combat") : null,
             specToggle),
-          specText),
+          specText,
+          (s.notes && s.notes.length) ? el("div", { class: "sub" }, "\u2726 " + s.notes.join(" \u00b7 ")) : null),
         el("td", { class: "num" }, stepper(
           () => CHAR.skills[name] || 0,
           v => { CHAR.skills[name] = v; }, 0, 6)),
@@ -1598,6 +1599,8 @@ function tabWeapons(p) {
   p.append(el("p", { class: "hint" },
     "Smart-capable weapons cost double their base price; integrated-smart weapons are always Smart at no extra cost. Each weapon takes one Underbarrel, one Overbarrel, and Chassis mods. "
     + "Melee, Thrown, and Grenade Launcher weapons can't take mods. Thrown weapons can be bought in quantity."));
+  if (CALC.combat.optics_notes && CALC.combat.optics_notes.length)
+    p.append(el("p", { class: "hint" }, "Optics: " + CALC.combat.optics_notes.join(" · ")));
   const weaponGroups = Object.entries(
     DATA.tables.weapons.reduce((acc, r) => (((acc[r.Type] ??= []).push(r)), acc), {}))
     .map(([type, rows]) => ({
@@ -1640,7 +1643,7 @@ function tabWeapons(p) {
       return el("tr", {},
         el("td", {}, el("b", {}, it.name),
           el("div", { class: "sub" },
-            `${r.Type} \u00b7 Acc ${r.Accuracy || 0} \u00b7 DMG ${calcRow.Damage ?? r.Damage} \u00b7 ${r["Firing modes"] || "melee"} \u00b7 Pen ${r.Pen || 0} \u00b7 ZR ${r.ZR || 0} \u00b7 Weight ${r.Weight || 0}`
+            `${r.Type} \u00b7 Acc ${calcRow.Accuracy ?? r.Accuracy ?? 0}${calcRow.smartlink ? " (smart)" : ""} \u00b7 DMG ${calcRow.Damage ?? r.Damage} \u00b7 ${r["Firing modes"] || "melee"} \u00b7 Pen ${r.Pen || 0} \u00b7 ZR ${r.ZR || 0} \u00b7 Weight ${r.Weight || 0}`
             + (isThrown ? ` \u00b7 \u00d7${it.qty || 1}` : "")),
           canMod ? fittedCategoryEditor({
             id: `wmods-${i}-${it.name}`,

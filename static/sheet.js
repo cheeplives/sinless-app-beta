@@ -985,6 +985,7 @@ function shOverview(body) {
     statLine("Armor B / I", `${c.ballistic_armor} / ${c.impact_armor}`),
     statLine("Max B / Min I", `${c.max_ballistic} / ${c.min_impact}`),
     statLine("Simple actions", String(c.simple_actions)),
+    statLine("Recoil capacity", String(c.recoil_capacity)),
     c.melee_exploit ? statLine("Melee exploit", `+${c.melee_exploit}`) : null,
     c.dodge_bonus ? statLine("Dodge bonus", `+${c.dodge_bonus}`) : null,
     c.soak_bonus ? statLine("Soak bonus", `+${c.soak_bonus}`) : null,
@@ -1037,7 +1038,7 @@ function shOverview(body) {
         wt.append(el("tr", {},
           el("td", {}, el("b", {}, w.name + ((calcRow.smart ?? w.smart) ? " (smart)" : ""))),
           el("td", { class: "sub" },
-            `${r.Type || ""} · Acc ${r.Accuracy || 0} · DMG ${calcRow.Damage ?? r.Damage ?? "—"} · Pen ${r.Pen || 0} · ZR ${r.ZR || 0}`
+            `${r.Type || ""} · Acc ${calcRow.Accuracy ?? r.Accuracy ?? 0} · DMG ${calcRow.Damage ?? r.Damage ?? "—"} · Pen ${r.Pen || 0} · ZR ${r.ZR || 0}`
             + ((calcRow.Ammo ?? r.Ammo) ? ` · Ammo ${calcRow.Ammo ?? r.Ammo}` : "")),
           el("td", { class: "sub" }, modLines.length
             ? el("div", {}, ...modLines.map(l => el("div", {}, l)))
@@ -1177,7 +1178,8 @@ function skillTableRow(name, dim = false) {
   const groupDice = s.points === 0 && s.group_value != null ? s.group_value - s.bonus : 0;
   return el("tr", dim ? { class: "dim" } : {},
     el("td", {}, name,
-      specOn && spec.text ? el("span", { class: "sub skill-spec-note" }, ` — ${spec.text}`) : null),
+      specOn && spec.text ? el("span", { class: "sub skill-spec-note" }, ` — ${spec.text}`) : null,
+      (s.notes && s.notes.length) ? el("div", { class: "sub" }, "✦ " + s.notes.join(" · ")) : null),
     el("td", { class: "num sub" }, s.points ? String(s.points) : ""),
     el("td", { class: "num sub" }, s.bonus ? (s.bonus > 0 ? `+${s.bonus}` : String(s.bonus)) : ""),
     el("td", { class: "num sub" }, groupDice ? String(groupDice) : ""),
@@ -1211,7 +1213,8 @@ function shSkills(body) {
       el("div", { class: "colhead" }, el("span", {}, pool),
         el("b", {}, String(CALC.pools[pool]))));
     const trained = Object.entries(DATA.skills)
-      .filter(([n, m]) => m.pool === pool && (CALC.skills[n].final > 0 || CALC.skills[n].dice_bonus))
+      .filter(([n, m]) => m.pool === pool && (CALC.skills[n].final > 0 || CALC.skills[n].dice_bonus
+        || (CALC.skills[n].notes && CALC.skills[n].notes.length)))
       .sort((a, b) => CALC.skills[b[0]].final - CALC.skills[a[0]].final);
     if (!trained.length) col.append(el("p", { class: "hint" }, "No trained skills."));
     else {
@@ -1873,6 +1876,8 @@ function shGear(body) {
     el("span", { class: "mod-underbarrel" }, "● Underbarrel"),
     el("span", { class: "mod-chassis" }, "● Chassis"),
     el("span", { class: "mod-upgrade" }, "● Upgrade")));
+  if (CALC.combat.optics_notes && CALC.combat.optics_notes.length)
+    weaponCard.append(el("p", { class: "hint" }, "Optics: " + CALC.combat.optics_notes.join(" · ")));
   const weaponBuyGroups = Object.entries(
     DATA.tables.weapons.reduce((acc, r) => (((acc[r.Type] ??= []).push(r)), acc), {}))
     .map(([type, rows]) => ({
@@ -1895,7 +1900,7 @@ function shGear(body) {
           el("div", { class: "sub", style: "color:var(--manon)" }, weaponRoll(r.Type)),
           shMountEditor(w, r, w.equipped !== false)),
         el("td", { class: "sub" },
-          `${r.Type || ""} · Acc ${r.Accuracy || 0} · DMG ${calcRow.Damage ?? r.Damage ?? "—"} · ${r["Firing modes"] || "melee"} · Pen ${r.Pen || 0} · ZR ${r.ZR || 0} · Weight ${r.Weight || 0}` +
+          `${r.Type || ""} · Acc ${calcRow.Accuracy ?? r.Accuracy ?? 0} · DMG ${calcRow.Damage ?? r.Damage ?? "—"} · ${r["Firing modes"] || "melee"} · Pen ${r.Pen || 0} · ZR ${r.ZR || 0} · Weight ${r.Weight || 0}` +
           ((calcRow.Ammo ?? r.Ammo) ? ` · Ammo ${calcRow.Ammo ?? r.Ammo}` : "")),
         el("td", {}, el("input", { type: "checkbox", ...(w.equipped !== false ? { checked: 1 } : {}),
           onchange: async e => { w.equipped = e.target.checked; await playChangedRecalc(); } })),
@@ -3341,7 +3346,7 @@ function buildMarkdown() {
     CHAR.weapons.forEach(w => {
       const r = DATA.tables.weapons.find(x => x.Weapon === w.name) || {};
       const calcRow = (CALC.weapons || []).find(x => x.Weapon === w.name) || {};
-      L.push(`- **${w.name}**${(calcRow.smart ?? w.smart) ? " (smart)" : ""} — DMG ${calcRow.Damage ?? r.Damage ?? "—"}, Acc ${r.Accuracy || 0}, Pen ${r.Pen || 0}`
+      L.push(`- **${w.name}**${(calcRow.smart ?? w.smart) ? " (smart)" : ""} — DMG ${calcRow.Damage ?? r.Damage ?? "—"}, Acc ${calcRow.Accuracy ?? r.Accuracy ?? 0}, Pen ${r.Pen || 0}`
         + ((w.mods || []).length ? ` (${w.mods.join(", ")})` : ""));
     });
     L.push("");
