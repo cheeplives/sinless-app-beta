@@ -1506,6 +1506,11 @@ function tabWeapons(p) {
       label: WEAPON_TYPE_LABELS[type] || type,
       items: rows.map(r => ({
         name: r.Weapon, cost: +r.Cost,
+        // Some weapons require another weapon already equipped (e.g. the
+        // Militech M31-a1G under-barrel launcher needs its host rifle).
+        disabled: Boolean(r.Requires) && !CHAR.weapons.some(
+          w => w.name === r.Requires && w.equipped !== false),
+        reason: r.Requires ? `Requires an equipped ${r.Requires}.` : null,
         sub: (r.Type === "Melee"
           ? `Rarity ${r.Rarity || "\u2014"} \u00b7 ZR ${r.ZR || 0} \u00b7 Reach ${r.Reach || 0} \u00b7 Weight ${r.Weight || 0} \u00b7 Pen ${r.Pen || 0} \u00b7 Conceal ${r.Conceal || 0} \u00b7 Damage ${RULES.meleeDamage(r, CALC.attributes.Strength.final)}`
           : `Rarity ${r.Rarity || "\u2014"} \u00b7 ZR ${r.ZR || 0} \u00b7 Acc ${r.Accuracy || 0} \u00b7 ${r["Firing modes"] || ""} \u00b7 Weight ${r.Weight || 0} \u00b7 Pen ${r.Pen || 0} \u00b7 Conceal ${r.Conceal || 0} \u00b7 Damage ${r.Damage}`),
@@ -1547,6 +1552,11 @@ function tabWeapons(p) {
             // mod that would leave the fitted set without a free slot.
             guard: name => {
               if ((it.mods || []).includes(name)) return `${name} is already fitted.`;
+              // Some mods are restricted to a weapon category (e.g. Bi-pod is
+              // Rifle-only via the data "Req Type" column).
+              const modRow = DATA.tables.weapon_mods.find(m => m.Modification === name) || {};
+              if (modRow["Req Type"] && r.Type !== modRow["Req Type"])
+                return `${name} can only be mounted on ${WEAPON_TYPE_LABELS[modRow["Req Type"]] || modRow["Req Type"]}.`;
               const { overflow } = RULES.assignWeaponModSlots(
                 [...(it.mods || []), name], DATA.tables.weapon_mods);
               return overflow.length
