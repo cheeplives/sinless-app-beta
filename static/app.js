@@ -98,6 +98,11 @@ async function boot() {
  *   - colour SCHEME    -> data-scheme (the pill dropdown, lists accent colours)
  * This wires up both controls and keeps the button labels + PWA theme-color
  * meta in sync with the active mode×scheme combination. */
+// Colour schemes shown in the picker dropdown (id must match a data-scheme
+// block in style.css; dot is the swatch colour). To add one: add its dark+light
+// var blocks in style.css, add an entry here AND to the BG map in initTheme(),
+// then bump CACHE_VERSION. `default` is the base violet (no CSS override). See
+// the theming header comment at the top of style.css for the full contract.
 const SCHEMES = [
   { id: "default", name: "Slate Violet", dot: "#9d7bff" },
   { id: "azure",   name: "Azure Steel",  dot: "#4a90e2" },

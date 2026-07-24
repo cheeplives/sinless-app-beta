@@ -1,4 +1,30 @@
-/* Sinless dossier — cold slate base, manon violet (magic) + signal amber (money) */
+/* Sinless dossier — cold slate base, manon violet (magic) + signal amber (money)
+ * ============================================================================
+ * THEMING ARCHITECTURE — two independent axes, both set on <html>:
+ *
+ *   data-theme  = light | dark      -> MODE   (base luminance; the 🌙/☀ toggle)
+ *   data-scheme = default|azure|…   -> SCHEME (identity accent; the pill dropdown)
+ *
+ * They are orthogonal, so every mode×scheme combination is valid. Both are
+ * applied pre-paint by static/theme-init.js (no flash, strict CSP) and wired to
+ * their controls by initTheme() in static/app.js. Persisted as localStorage
+ * sinless:theme (mode) and sinless:scheme (scheme).
+ *
+ * Layering (later + more specific wins):
+ *   1. :root                              -> base DARK palette (all vars)
+ *   2. :root[data-theme="light"]          -> LIGHT mode overrides (surfaces +
+ *                                            deepened accents + semantic colours)
+ *   3. :root[data-scheme="X"]…            -> SCHEME overrides (identity accent +
+ *                                            base tint), split per mode via
+ *                                            :not([data-theme="light"]) / [light]
+ *
+ * To ADD A SCHEME: add a dark + a light var block (see the azure/ghost/rose
+ * blocks below for the pattern), then register it in SCHEMES + BG in app.js and
+ * bump CACHE_VERSION in sw.js. Override ONLY identity vars in a scheme block —
+ * NEVER --amber/--ok/--bad/pools; those must fall through to the mode block so
+ * money/ok/bad keep their meaning in every scheme. If the accent is bright
+ * (teal, pink) set --on-accent to a dark value in the dark variant.
+ * ============================================================================ */
 :root{
   --ink:#12151d;
   --panel:#181c26;
