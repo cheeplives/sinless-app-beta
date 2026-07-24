@@ -99,15 +99,25 @@ async function boot() {
 function initTheme() {
   const btn = $("#theme-toggle");
   const meta = $('meta[name="theme-color"]');
-  const THEME_COLOR = { dark: "#0d1017", light: "#f2f3f8" };
-  const applyIcon = theme => {
-    btn.textContent = theme === "light" ? "☀" : "🌙";
-    btn.setAttribute("aria-label", `Switch to ${theme === "light" ? "dark" : "light"} theme`);
-    if (meta) meta.setAttribute("content", THEME_COLOR[theme]);
+  // Ordered cycle; the button steps to the next entry each click.
+  const THEMES = ["dark", "light", "azure"];
+  const THEME_META = {
+    dark:  { icon: "🌙", label: "dark",        color: "#0d1017" },
+    light: { icon: "☀",  label: "light",       color: "#f2f3f8" },
+    azure: { icon: "🔷", label: "azure steel", color: "#0d1220" },
   };
-  applyIcon(document.documentElement.getAttribute("data-theme") || "dark");
+  const normalize = t => (THEME_META[t] ? t : "dark");
+  const applyIcon = theme => {
+    const t = normalize(theme);
+    const next = THEMES[(THEMES.indexOf(t) + 1) % THEMES.length];
+    btn.textContent = THEME_META[t].icon;
+    btn.setAttribute("aria-label", `Switch to ${THEME_META[next].label} theme`);
+    if (meta) meta.setAttribute("content", THEME_META[t].color);
+  };
+  applyIcon(document.documentElement.getAttribute("data-theme"));
   btn.addEventListener("click", () => {
-    const next = document.documentElement.getAttribute("data-theme") === "light" ? "dark" : "light";
+    const cur = normalize(document.documentElement.getAttribute("data-theme"));
+    const next = THEMES[(THEMES.indexOf(cur) + 1) % THEMES.length];
     document.documentElement.setAttribute("data-theme", next);
     try { localStorage.setItem("sinless:theme", next); } catch { /* best-effort persistence */ }
     applyIcon(next);

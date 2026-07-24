@@ -58,6 +58,28 @@
   --rail-grad-2:#e4e7f0;
   --brand-grad-end:#2c1a5c;
 }
+/* ---------- azure steel theme ----------
+ * A second DARK theme: deep navy base with an azure identity accent (the manon
+ * violet becomes corporate blue). Only the identity vars are overridden; every
+ * semantic colour (amber money, ok/bad, alert tints) and the pool colours fall
+ * through to the base :root dark values, so meaning is preserved. Selected via
+ * the theme toggle's three-way cycle (dark → light → azure). */
+:root[data-theme="azure"]{
+  --ink:#0d1220;
+  --panel:#141b2b;
+  --panel-2:#1c2438;
+  --line:#293448;
+  --line-soft:#19212f;
+  --line-dash:#212b3e;
+  --text:#d6e0f0;
+  --dim:#7f8da6;
+  --manon:#4a90e2;
+  --manon-dim:#2f5f9e;
+  --slot-chassis:#4a90e2;      /* chassis slot tracks the identity accent */
+  --rail-grad-1:#101828;
+  --rail-grad-2:#0b1220;
+  --brand-grad-end:#d3e8ff;
+}
 *{box-sizing:border-box}
 html,body{margin:0;height:100%}
 body{background:var(--ink);color:var(--text);font-family:var(--body);font-size:14px;line-height:1.45}
