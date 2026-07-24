@@ -752,11 +752,6 @@ function tallyAugments(character, data, warnings, errors) {
                   + `Replacement ${strengthEnhancementRank}+ (you have `
                   + `${muscleReplacementRank}) — you risk injury when exerting yourself.`);
   }
-  if (strengthEnhancementRank > 0) {
-    warnings.push("Strength Enhancement is added to your Strength for all tests here, "
-                  + "but by the rules it only boosts actions using that cyberlimb — "
-                  + "adjudicate meat-limb Strength tests without it.");
-  }
 
   const effZr = augmentEffZr, effCost = augmentEffCost;
 
