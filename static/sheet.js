@@ -957,6 +957,10 @@ function shOverview(body) {
       ? el("div", { class: "sub", style: "color:var(--bad)" },
           "Doubled by " + (CALC.combat.wound_penalty_doubled_by || "an augment")
           + (rawWound < 0 ? ` — would be ${rawWound}` : ""))
+      : null,
+    CALC.combat.physical_damage_reduction
+      ? el("div", { class: "sub", style: "color:var(--ok)" },
+          `Damage soak: −${CALC.combat.physical_damage_reduction} physical per hit (min 1) — Platelet Production Enhancement`)
       : null);
 
   // --- initiative + combat numbers
@@ -982,6 +986,8 @@ function shOverview(body) {
   const combatCard = el("div", { class: "card sh-card" },
     el("h3", {}, "Combat"),
     statLine("Move", `${c.move} m` + (moveSpecial() ? ` · ${moveSpecial()}` : "")),
+    (c.move_modes && c.move_modes.length)
+      ? statLine("Alt movement", c.move_modes.map(m => `${m.mode} ${m.meters}m`).join(" · ")) : null,
     statLine("Armor B / I", `${c.ballistic_armor} / ${c.impact_armor}`),
     statLine("Max B / Min I", `${c.max_ballistic} / ${c.min_impact}`),
     statLine("Simple actions", String(c.simple_actions)),
@@ -2140,6 +2146,12 @@ function shAugments(body) {
       "α-cyber Augments are bleeding edge, reducing the ZR by 20% but doubling the cost. "
       + "Augments mounted on gear are managed on the Gear tab with their host item.")));
 
+  // Curated "special senses & immunities" summary (perception + immunity augments).
+  if (CALC.combat.sense_notes && CALC.combat.sense_notes.length)
+    body.append(el("div", { class: "card sh-card" }, el("h3", {}, "Senses & immunities"),
+      ...CALC.combat.sense_notes.map(s =>
+        el("p", { class: "hint", style: "margin:4px 0" }, el("b", {}, s.name + ": "), s.effect))));
+
   // One card per augment type, in anatomical-ish order.
   const byType = {};
   augEntries.forEach(en => {
@@ -3272,7 +3284,8 @@ function buildMarkdown() {
   L.push("| " + POOL_ORDER.map(p => CALC.pools[p]).join(" | ") + " |");
   L.push("");
   L.push(`**Physical:** ${CALC.condition.physical} boxes · **Stun:** ${CALC.condition.stun} boxes`);
-  L.push(`**Move:** ${c.move} m${moveSpecial() ? " (" + moveSpecial() + ")" : ""} · **Armor:** ${c.ballistic_armor}B / ${c.impact_armor}I · **Simple actions:** ${c.simple_actions}`);
+  const altMoves = (c.move_modes || []).map(m => `${m.mode} ${m.meters}m`).join(", ");
+  L.push(`**Move:** ${c.move} m${moveSpecial() ? " (" + moveSpecial() + ")" : ""}${altMoves ? ` · **Alt move:** ${altMoves}` : ""} · **Armor:** ${c.ballistic_armor}B / ${c.impact_armor}I · **Simple actions:** ${c.simple_actions}`);
   L.push("");
   L.push("*Wound rule: every 3 boxes marked on either track = −1 die on tasks, cumulative. Biotech can remove these penalties during combat.*");
   L.push("");

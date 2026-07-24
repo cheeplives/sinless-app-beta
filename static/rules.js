@@ -144,6 +144,14 @@ const COMBAT_MASTERY_MELEE_EXPLOIT_BONUS = 2;
 const WIRED_REFLEXES_MELEE_EXPLOITS_BY_RANK = { 1: 1, 2: 2, 3: 2 };
 const COVERT_SYNTHSKIN_DODGE_BONUS = 1;
 const GYROMOUNT_RECOIL_BONUS = 2;
+const PLATELET_DAMAGE_REDUCTION = 1;
+// Augments granting a special sense or immunity (no numeric stat) — surfaced as
+// a "senses & immunities" summary rather than folded into a derived number.
+const SENSE_AUGMENTS = new Set([
+  "Low-Light", "Thermographic", "Flare Compensation", "Augmented Eyesight",
+  "Echolocation Positioning", "Dampener", "Gills", "Metabolic Stasis",
+  "Broadcast Jammer", "Covert Synthskin", "Shimmerskin",
+]);
 const SOUND_FILTER_OBSERVATION_BONUS = 1;
 const MOVEMENT_ENHANCEMENT_METERS_PER_RATING = 2;
 const RIG_EXPLOIT_ACTIONS = 2;
@@ -611,12 +619,23 @@ function augmentEffectSums(owned) {
     if (row.Name.startsWith("Vision Magnification"))
       combatNotes.push(`${row.Name}: reduce firearm range by ${augmentLevel(row.Name)}`);
   }
+  // Special senses / immunities (curated) and alternate movement modes (Mobi
+  // augments with an AltMove value) surface as summaries; damage soak is a flag.
+  const senseNotes = owned
+    .filter(([row]) => SENSE_AUGMENTS.has(row.Name))
+    .map(([row]) => ({ name: row.Name, effect: row.Effect || "" }));
+  const moveModes = owned
+    .filter(([row]) => row.AltMove !== undefined && row.AltMove !== "")
+    .map(([row]) => ({ name: row.Name, mode: row.MoveMode || "Alt", meters: toInt(asNumber(row.AltMove)) }));
   return {
     attribute_adjustment: attributeAdjustment,
     attribute_max_adjustment: attributeMaxAdjustment,
     skill_bonus: skillBonus,
     skill_notes: skillNotes,
     combat_notes: combatNotes,
+    sense_notes: senseNotes,
+    move_modes: moveModes,
+    physical_damage_reduction: names.has("Platelet Production Enhancement") ? PLATELET_DAMAGE_REDUCTION : 0,
     move_bonus: toInt(sumBy(owned, ([row, count]) =>
       row.Name.startsWith("Movement Enhancement")
         ? augmentLevel(row.Name) * MOVEMENT_ENHANCEMENT_METERS_PER_RATING * count : 0)),
@@ -732,6 +751,11 @@ function tallyAugments(character, data, warnings, errors) {
     warnings.push(`Strength Enhancement ${strengthEnhancementRank} needs Muscle `
                   + `Replacement ${strengthEnhancementRank}+ (you have `
                   + `${muscleReplacementRank}) — you risk injury when exerting yourself.`);
+  }
+  if (strengthEnhancementRank > 0) {
+    warnings.push("Strength Enhancement is added to your Strength for all tests here, "
+                  + "but by the rules it only boosts actions using that cyberlimb — "
+                  + "adjudicate meat-limb Strength tests without it.");
   }
 
   const effZr = augmentEffZr, effCost = augmentEffCost;
@@ -889,6 +913,10 @@ function mergeMountedAugments(augments, mounted) {
   augments.internal_armor_slot_items.push(...mounted.internal_armor_slot_items);
   augments.mobility_move_notes.push(...mounted.mobility_move_notes);
   augments.combat_notes.push(...(mounted.combat_notes || []));
+  augments.sense_notes.push(...(mounted.sense_notes || []));
+  augments.move_modes.push(...(mounted.move_modes || []));
+  augments.physical_damage_reduction = Math.max(augments.physical_damage_reduction,
+                                                 mounted.physical_damage_reduction || 0);
   augments.has_move_exploit = augments.has_move_exploit || mounted.has_move_exploit;
   augments.rows.push(...mounted.rows);
   augments.mounted_zr = mounted.mounted_zr;
@@ -1723,11 +1751,15 @@ function deriveCombatStats(heritage, finalAttributes, augments, amp, weaponWeigh
     physical: physicalCondition,
     stun: stunCondition,
     move: BASE_MOVE_METERS + heritage.move_bonus + augments.move_bonus,
-    move_special: [...heritage.special_move_notes, ...augments.mobility_move_notes],
+    // Mobi augments now surface as structured move_modes; keep heritage quirks here.
+    move_special: [...heritage.special_move_notes],
     // Recoil capacity: Strength + Gyromount(+2 each). Fitted weapon mods
     // (Bi-pod, Gas Vent) and the Cybergun's doubled Strength add on top per-gun.
     recoil_capacity: finalAttributes.Strength + augments.recoil_capacity_bonus,
     optics_notes: augments.combat_notes,
+    sense_notes: augments.sense_notes,
+    move_modes: augments.move_modes,
+    physical_damage_reduction: augments.physical_damage_reduction,
     simple_actions: simpleActions,
     melee_exploit: meleeExploit,
     rig_exploit: rigExploitActions,
