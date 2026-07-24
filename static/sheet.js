@@ -2217,10 +2217,32 @@ function shAugments(body) {
     const effectText = gun
       ? [r.Effect || "", `${gun.Type}: Acc ${gun.Acc} · DMG ${gun.Dmg} · Ammo ${gun.Ammo} · ${gun.Modes} · Pen ${gun.Pen} · Rarity ${gun.Rarity}`].filter(Boolean).join(" · ")
       : [r.Effect || "", implantDmg !== "" ? `DMG ${implantDmg}` : ""].filter(Boolean).join(" · ");
+    // Cybergun: choose / change the mounted gun in play. The gun-cost difference
+    // (× heritage surcharge) is charged or refunded to the play cash ledger.
+    let gunSel = null;
+    if (a.name === "Cybergun Installation") {
+      gunSel = el("select", { onchange: async e => {
+        const nv = e.target.value;
+        const oldGun = (DATA.tables.cyberguns || []).find(g => g.Type === a.gunType);
+        const newGun = (DATA.tables.cyberguns || []).find(g => g.Type === nv);
+        const delta = Math.round(((newGun ? +newGun.Cost : 0) - (oldGun ? +oldGun.Cost : 0)) * mult);
+        if (delta > 0 && CHAR.play.cash < delta
+            && !confirm(`${nv} costs ${fmt(delta)} more but you have ${fmt(CHAR.play.cash)}. Overdraw?`)) {
+          e.target.value = a.gunType || ""; return;
+        }
+        a.gunType = nv;
+        if (delta !== 0) logCash(`Cybergun gun: ${oldGun ? oldGun.Type : "none"} → ${nv || "none"}`, -delta);
+        await playChangedRecalc();
+      } },
+        el("option", { value: "" }, "Choose gun…"),
+        ...(DATA.tables.cyberguns || []).map(g =>
+          el("option", { value: g.Type }, `${g.Type} (${fmt(Math.round(+g.Cost * mult))})`)));
+      gunSel.value = a.gunType || "";
+    }
     return el("tr", {},
       el("td", {}, el("b", {}, a.name),
         inPlay ? el("span", { class: "sh-tag" }, "bought in play") : null,
-        target),
+        target, gunSel),
       countCell,
       el("td", {}, alphaCell),
       el("td", {}, slottedCell),
@@ -2254,6 +2276,9 @@ function shAugments(body) {
   const buyAugType = a => (DATA.tables.augments.find(x => x.Name === a.name) || {}).Type || "";
   const ownsArm = ownedAugsAll.some(a => ARM_T.has(buyAugType(a)));
   const ownsLeg = ownedAugsAll.some(a => LEG_T.has(buyAugType(a)));
+  // Cyberguns are capped at one per cyberarm.
+  const cyberarmCount = ownedAugsAll.filter(a => ARM_T.has(buyAugType(a))).length;
+  const cybergunCount = ownedAugsAll.filter(a => a.name === "Cybergun Installation").length;
   const buyLimbNeed = r => {
     switch (RULES.augmentLimbRequirement(r)) {
       case "Arm": return ownsArm ? null : "a Cyberarm";
@@ -2272,13 +2297,22 @@ function shAugments(body) {
         const banned = bioBanned ? "Synthetics cannot install Bioware" : augAvail.bannedReason(r.Name);
         const need = buyLimbNeed(r);
         const dmg = RULES.augmentMeleeDamage(r, CALC.attributes.Strength.final);
+        const isCybergun = r.Name === "Cybergun Installation";
+        let disabled = !!need;
+        let reason = banned || (need ? `Requires ${need} installed` : "");
+        let note = banned ? "banned" : (need ? `needs ${need}` : "");
+        if (isCybergun && !banned && !need && cybergunCount >= cyberarmCount) {
+          disabled = true;
+          reason = `One cybergun per cyberarm (${cybergunCount}/${cyberarmCount} installed)`;
+          note = "at capacity";
+        }
         return {
           name: r.Name, cost: Math.round((+r.Cost || 0) * mult),
           sub: `ZR ${r.ZR || 0} · BI ${r.BI || 0}${dmg !== "" ? " · DMG " + dmg : ""}${r.Effect ? " · " + r.Effect : ""}`,
           banned: !!banned,
-          disabled: !!need,
-          reason: banned || (need ? `Requires ${need} installed` : ""),
-          note: banned ? "banned" : (need ? `needs ${need}` : ""),
+          disabled,
+          reason,
+          note,
         };
       }),
     }));
@@ -2381,6 +2415,14 @@ async function buyAugment(name, mult) {
   const owned = [...CHAR.augments, ...CHAR.play.purchases.augments];
   const banReason = augmentAvailability(owned).bannedReason(name);
   if (banReason) { alert(`Can't install ${name}: ${banReason}.`); return; }
+  // Cyberguns are capped at one per installed cyberarm.
+  if (name === "Cybergun Installation") {
+    const armTypes = new Set(["Right Arm", "Left Arm"]);
+    const arms = owned.filter(a => armTypes.has((DATA.tables.augments.find(x => x.Name === a.name) || {}).Type)).length;
+    const guns = owned.filter(a => a.name === "Cybergun Installation").length;
+    if (arms === 0) { alert("Can't install a Cybergun: requires a Cyberarm."); return; }
+    if (guns >= arms) { alert(`Can't install another Cybergun: one per cyberarm (${guns}/${arms}).`); return; }
+  }
   const cost = Math.round(r.Cost * mult);
   const z = CALC.zoetics;
   const newBI = z.body_index + (+r.BI || 0);

@@ -1137,6 +1137,9 @@ function tabAugments(p) {
   const ownedAugType = e => (DATA.tables.augments.find(a => a.Name === e.name) || {}).Type || "";
   const hasCyberarm = CHAR.augments.some(e => ARM_TYPES.has(ownedAugType(e)));
   const hasCyberleg = CHAR.augments.some(e => LEG_TYPES.has(ownedAugType(e)));
+  // Cyberguns are capped at one per cyberarm.
+  const cyberarmCount = CHAR.augments.filter(e => ARM_TYPES.has(ownedAugType(e))).length;
+  const cybergunCount = CHAR.augments.filter(e => e.name === "Cybergun Installation").length;
   // Which limb (if any) a cyberlimb augment still needs; null when satisfied.
   const limbUnmet = r => {
     switch (RULES.augmentLimbRequirement(r)) {
@@ -1165,16 +1168,27 @@ function tabAugments(p) {
       const bioBanned = syntheticNoBio && r.Type === "Bioware";
       const banned = bioBanned ? "Synthetics cannot install Bioware" : avail.bannedReason(r.Name);
       const dmg = RULES.augmentMeleeDamage(r, CALC.attributes.Strength.final);
+      // Cybergun: one per cyberarm, so it stays visible after the first install
+      // and disables at capacity rather than hiding.
+      const isCybergun = r.Name === "Cybergun Installation";
+      let disabled = !!need;
+      let reason = banned || (need ? `Requires ${need} installed` : "");
+      let note = banned ? "banned" : (need ? `needs ${need}` : "");
+      if (isCybergun && !banned && !need && cybergunCount >= cyberarmCount) {
+        disabled = true;
+        reason = `One cybergun per cyberarm (${cybergunCount}/${cyberarmCount} installed)`;
+        note = "at capacity";
+      }
       return {
         name: r.Name, cost: +r.Cost,
         sub: [(+r.ZR ? `ZR ${r.ZR}` : ""), (+r.BI ? `BI ${r.BI}` : ""),
               (dmg !== "" ? `DMG ${dmg}` : ""), r.Effect || ""]
           .filter(Boolean).join(" \u00b7 "),
-        hidden: avail.hidden(r.Name),
+        hidden: isCybergun ? false : avail.hidden(r.Name),
         banned: !!banned,
-        disabled: !!need,
-        reason: banned || (need ? `Requires ${need} installed` : ""),
-        note: banned ? "banned" : (need ? `needs ${need}` : ""),
+        disabled,
+        reason,
+        note,
       };
     }),
   }));
