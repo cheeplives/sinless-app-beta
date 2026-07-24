@@ -5,7 +5,11 @@
 (function () {
   try {
     var t = localStorage.getItem("sinless:theme");
+    var sc = localStorage.getItem("sinless:scheme");
+    // Migrate the retired three-way value: "azure" was a mode, now it's a scheme.
+    if (t === "azure") { sc = sc || "azure"; t = "dark"; }
     if (!t) t = matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
     document.documentElement.setAttribute("data-theme", t);
+    document.documentElement.setAttribute("data-scheme", sc || "default");
   } catch (e) { /* localStorage unavailable — default dark styling still applies */ }
 })();

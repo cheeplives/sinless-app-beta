@@ -93,35 +93,77 @@ async function boot() {
   refreshLoadList();
 }
 
-/* Theme is applied pre-paint by the inline script in index.html; this just
- * wires up the toggle button and keeps its icon + the PWA theme-color meta
- * in sync with whichever theme is active. */
+/* Theme has two independent axes, both applied pre-paint by theme-init.js:
+ *   - light/dark MODE  -> data-theme (the 🌙/☀ toggle, a simple flip)
+ *   - colour SCHEME    -> data-scheme (the pill dropdown, lists accent colours)
+ * This wires up both controls and keeps the button labels + PWA theme-color
+ * meta in sync with the active mode×scheme combination. */
+const SCHEMES = [
+  { id: "default", name: "Slate Violet", dot: "#9d7bff" },
+  { id: "azure",   name: "Azure Steel",  dot: "#4a90e2" },
+];
 function initTheme() {
-  const btn = $("#theme-toggle");
+  const html = document.documentElement;
   const meta = $('meta[name="theme-color"]');
-  // Ordered cycle; the button steps to the next entry each click.
-  const THEMES = ["dark", "light", "azure"];
-  const THEME_META = {
-    dark:  { icon: "🌙", label: "dark",        color: "#0d1017" },
-    light: { icon: "☀",  label: "light",       color: "#f2f3f8" },
-    azure: { icon: "🔷", label: "azure steel", color: "#0d1220" },
+  const modeBtn = $("#theme-toggle");
+  const schemeBtn = $("#scheme-btn");
+  const schemeList = $("#scheme-list");
+  // Top-of-page browser chrome colour per mode×scheme (matches --ink).
+  const BG = {
+    "default|dark": "#0d1017", "default|light": "#f2f3f8",
+    "azure|dark":   "#0d1220", "azure|light":   "#eef1f9",
   };
-  const normalize = t => (THEME_META[t] ? t : "dark");
-  const applyIcon = theme => {
-    const t = normalize(theme);
-    const next = THEMES[(THEMES.indexOf(t) + 1) % THEMES.length];
-    btn.textContent = THEME_META[t].icon;
-    btn.setAttribute("aria-label", `Switch to ${THEME_META[next].label} theme`);
-    if (meta) meta.setAttribute("content", THEME_META[t].color);
+  const mode = () => (html.getAttribute("data-theme") === "light" ? "light" : "dark");
+  const scheme = () => (SCHEMES.some(s => s.id === html.getAttribute("data-scheme"))
+    ? html.getAttribute("data-scheme") : "default");
+  const schemeOf = id => SCHEMES.find(s => s.id === id) || SCHEMES[0];
+
+  const syncMeta = () => { if (meta) meta.setAttribute("content", BG[`${scheme()}|${mode()}`]); };
+  const syncModeBtn = () => {
+    const m = mode();
+    modeBtn.textContent = m === "light" ? "☀" : "🌙";
+    modeBtn.setAttribute("aria-label", `Switch to ${m === "light" ? "dark" : "light"} mode`);
   };
-  applyIcon(document.documentElement.getAttribute("data-theme"));
-  btn.addEventListener("click", () => {
-    const cur = normalize(document.documentElement.getAttribute("data-theme"));
-    const next = THEMES[(THEMES.indexOf(cur) + 1) % THEMES.length];
-    document.documentElement.setAttribute("data-theme", next);
-    try { localStorage.setItem("sinless:theme", next); } catch { /* best-effort persistence */ }
-    applyIcon(next);
+  const syncSchemeBtn = () => {
+    const s = schemeOf(scheme());
+    schemeBtn.querySelector(".scheme-dot").style.background = s.dot;
+    schemeBtn.querySelector(".scheme-name").textContent = s.name;
+  };
+  const markActive = () => schemeList.querySelectorAll(".scheme-opt").forEach(b =>
+    b.setAttribute("aria-checked", b.dataset.id === scheme() ? "true" : "false"));
+
+  // ----- light/dark mode toggle (restored simple flip) -----
+  modeBtn.addEventListener("click", () => {
+    html.setAttribute("data-theme", mode() === "light" ? "dark" : "light");
+    try { localStorage.setItem("sinless:theme", mode()); } catch { /* best-effort */ }
+    syncModeBtn(); syncMeta();
   });
+
+  // ----- colour-scheme dropdown -----
+  schemeList.replaceChildren(...SCHEMES.map(s => el("li", { role: "none" },
+    el("button", { type: "button", role: "menuitemradio", class: "scheme-opt", "data-id": s.id,
+      onclick: () => { setScheme(s.id); closeMenu(); } },
+      el("span", { class: "scheme-dot", style: `background:${s.dot}` }),
+      el("span", {}, s.name)))));
+  function setScheme(id) {
+    html.setAttribute("data-scheme", id);
+    try { localStorage.setItem("sinless:scheme", id); } catch { /* best-effort */ }
+    syncSchemeBtn(); syncMeta(); markActive();
+  }
+  let open = false;
+  function closeMenu() { open = false; schemeList.hidden = true; schemeBtn.setAttribute("aria-expanded", "false"); }
+  function openMenu() { open = true; schemeList.hidden = false; schemeBtn.setAttribute("aria-expanded", "true"); markActive(); }
+  schemeBtn.addEventListener("click", e => { e.stopPropagation(); open ? closeMenu() : openMenu(); });
+  document.addEventListener("click", () => { if (open) closeMenu(); });
+  document.addEventListener("keydown", e => { if (e.key === "Escape" && open) closeMenu(); });
+
+  if (!html.getAttribute("data-scheme")) html.setAttribute("data-scheme", "default");
+  // Persist canonical values so any migrated/legacy storage is cleaned up.
+  try {
+    localStorage.setItem("sinless:theme", mode());
+    localStorage.setItem("sinless:scheme", scheme());
+  } catch { /* best-effort */ }
+  syncModeBtn(); syncSchemeBtn(); syncMeta();
 }
 
 function scheduleRecalc() {

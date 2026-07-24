@@ -14,7 +14,17 @@
 </head>
 <body>
 <nav id="workspace-tabs" aria-label="Open characters"></nav>
-<button id="theme-toggle" class="theme-toggle" title="Toggle light / dark theme" aria-label="Toggle light / dark theme">🌙</button>
+<div id="theme-controls" class="theme-controls">
+  <div id="scheme-menu" class="scheme-menu">
+    <button id="scheme-btn" class="scheme-btn" type="button" aria-haspopup="true" aria-expanded="false" title="Colour scheme">
+      <span class="scheme-dot"></span>
+      <span class="scheme-name">Slate Violet</span>
+      <span class="scheme-caret" aria-hidden="true">▾</span>
+    </button>
+    <ul id="scheme-list" class="scheme-list" role="menu" aria-label="Colour scheme" hidden></ul>
+  </div>
+  <button id="theme-toggle" class="theme-toggle" type="button" title="Toggle light / dark mode" aria-label="Toggle light / dark mode">🌙</button>
+</div>
 <div id="app">
   <aside id="rail">
     <header class="rail-brand">
