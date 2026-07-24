@@ -537,7 +537,37 @@ function augmentEffCost(row, entry) {
   const base = asNumber(row.Cost);
   // Doubles the cost, but the increase is at least 1000 so cheap augments
   // still pay a real premium for bleeding-edge grade.
-  return (entry && entry.alpha) ? base + Math.max(base, 1000) : base;
+  let cost = (entry && entry.alpha) ? base + Math.max(base, 1000) : base;
+  // Cybergun Installation: the chosen gun type adds its own cost on top of the
+  // installation (added flat, after the α-grade premium on the installation).
+  if (entry && entry.gunType) {
+    const gun = (BUNDLE.tables.cyberguns || []).find(g => g.Type === entry.gunType);
+    if (gun) cost += asNumber(gun.Cost);
+  }
+  return cost;
+}
+
+/**
+ * A Cyberlimbs augment's limb requirement, driven by the data "Req Limb" field:
+ *   "Arm" -> needs a cyberarm, "Leg" -> a cyberleg, "Any" -> either.
+ * Hand implants (blades/razors) name-match to no requirement; any other
+ * Cyberlimbs augment with no explicit field defaults to "Any". Returns "" for
+ * non-cyberlimb augments and for augments that need no limb.
+ */
+function augmentLimbRequirement(row) {
+  if (!row || row.Type !== "Cyberlimbs") return "";
+  if (row["Req Limb"]) return row["Req Limb"];
+  return /^(Hand Blade|Hand Razors)/.test(row.Name || "") ? "" : "Any";
+}
+
+/**
+ * Computed melee damage for a cyber melee implant (Hand Blade/Razors, Spurs) —
+ * a Cyberlimbs augment carrying a structured "Damage" bonus. Returns "" for
+ * augments that aren't melee implants, otherwise meleeDamage (½ STR + bonus).
+ */
+function augmentMeleeDamage(row, strength) {
+  if (!row || row.Type !== "Cyberlimbs" || row.Damage === undefined || row.Damage === "") return "";
+  return meleeDamage(row, strength);
 }
 
 // Effect sums shared by body-installed augments (tallyAugments) and augments
@@ -2051,6 +2081,7 @@ return {
   GHOST_RATING_DICE,
   rigStats, applyExtendedMagazine, meleeDamage, assignWeaponModSlots,
   mountCapability, mountRefusal, augmentEffZr, augmentEffCost,
+  augmentLimbRequirement, augmentMeleeDamage,
 };
 
 })();

@@ -1131,13 +1131,21 @@ function tabAugments(p) {
     + "α-cyber Augments are bleeding edge, reducing the ZR by 20% (minimum 0.1) but doubling the cost (minimum +ㄓ1,000). "
     + "Augments installed in your body are managed here; some gear (Power Armor, Arwin Goggles, …) can mount augments on the Weapons & Armor / Gear tabs instead — those never count against your ZP."));
   const avail = augmentAvailability(CHAR.augments);
-  // Cyberlimb augments (except the melee implants below) need a replacement limb.
-  const LIMB_TYPES = new Set(["Right Arm", "Left Arm", "Right Leg", "Left Leg"]);
-  const hasReplacementLimb = CHAR.augments.some(e => {
-    const row = DATA.tables.augments.find(a => a.Name === e.name) || {};
-    return LIMB_TYPES.has(row.Type || "");
-  });
-  const cyberlimbExempt = name => /^(Hand Blade|Hand Razors|Knee Spurs|Elbow Spurs)/.test(name);
+  // Cyberlimb augments may require a cyberarm and/or cyberleg (data "Req Limb").
+  const ARM_TYPES = new Set(["Right Arm", "Left Arm"]);
+  const LEG_TYPES = new Set(["Right Leg", "Left Leg"]);
+  const ownedAugType = e => (DATA.tables.augments.find(a => a.Name === e.name) || {}).Type || "";
+  const hasCyberarm = CHAR.augments.some(e => ARM_TYPES.has(ownedAugType(e)));
+  const hasCyberleg = CHAR.augments.some(e => LEG_TYPES.has(ownedAugType(e)));
+  // Which limb (if any) a cyberlimb augment still needs; null when satisfied.
+  const limbUnmet = r => {
+    switch (RULES.augmentLimbRequirement(r)) {
+      case "Arm": return hasCyberarm ? null : "a Cyberarm";
+      case "Leg": return hasCyberleg ? null : "a Cyberleg";
+      case "Any": return (hasCyberarm || hasCyberleg) ? null : "a Cyberarm or Cyberleg";
+      default:    return null;
+    }
+  };
   // Group order: Cyberlimbs first, the four limb-replacement groups directly
   // under it (they're what the cyberlimb augments attach to), then the rest.
   const GROUP_ORDER = ["Cyberlimbs", "Right Arm", "Left Arm", "Right Leg", "Left Leg"];
@@ -1153,18 +1161,20 @@ function tabAugments(p) {
   const augGroups = orderedTypes.map(type => ({
     label: type,
     items: byType[type].map(r => {
-      const needsLimb = type === "Cyberlimbs" && !cyberlimbExempt(r.Name) && !hasReplacementLimb;
+      const need = limbUnmet(r);
       const bioBanned = syntheticNoBio && r.Type === "Bioware";
       const banned = bioBanned ? "Synthetics cannot install Bioware" : avail.bannedReason(r.Name);
+      const dmg = RULES.augmentMeleeDamage(r, CALC.attributes.Strength.final);
       return {
         name: r.Name, cost: +r.Cost,
-        sub: [(+r.ZR ? `ZR ${r.ZR}` : ""), (+r.BI ? `BI ${r.BI}` : ""), r.Effect || ""]
+        sub: [(+r.ZR ? `ZR ${r.ZR}` : ""), (+r.BI ? `BI ${r.BI}` : ""),
+              (dmg !== "" ? `DMG ${dmg}` : ""), r.Effect || ""]
           .filter(Boolean).join(" \u00b7 "),
         hidden: avail.hidden(r.Name),
         banned: !!banned,
-        disabled: needsLimb,
-        reason: banned || (needsLimb ? "Requires a Replacement Arm or Leg" : ""),
-        note: banned ? "banned" : (needsLimb ? "needs a replacement limb" : ""),
+        disabled: !!need,
+        reason: banned || (need ? `Requires ${need} installed` : ""),
+        note: banned ? "banned" : (need ? `needs ${need}` : ""),
       };
     }),
   }));
@@ -1197,14 +1207,27 @@ function tabAugments(p) {
           ...Object.keys(DATA.skills).sort().map(x => el("option", {}, x)));
         target.value = it.target || "";
       }
+      // Cybergun Installation: choose the mounted gun. Its cost adds to the
+      // installation (RULES.augmentEffCost) and its stats replace the effect text.
+      let gunSel = null, gun = null;
+      if (it.name === "Cybergun Installation") {
+        gun = it.gunType ? (DATA.tables.cyberguns || []).find(g => g.Type === it.gunType) : null;
+        gunSel = el("select", { onchange: e => { it.gunType = e.target.value; refresh(); } },
+          el("option", { value: "" }, "Choose gun…"),
+          ...(DATA.tables.cyberguns || []).map(g =>
+            el("option", { value: g.Type }, `${g.Type} (+${fmt(+g.Cost)})`)));
+        gunSel.value = it.gunType || "";
+      }
+      // Cyber melee implants show their computed ½ STR + bonus damage number.
+      const implantDmg = RULES.augmentMeleeDamage(r, CALC.attributes.Strength.final);
+      const effectText = gun
+        ? [r.Effect || "", `${gun.Type}: Acc ${gun.Acc} · DMG ${gun.Dmg} · Ammo ${gun.Ammo} · ${gun.Modes} · Pen ${gun.Pen} · Rarity ${gun.Rarity}`].filter(Boolean).join(" · ")
+        : [r.Effect || "", implantDmg !== "" ? `DMG ${implantDmg}` : ""].filter(Boolean).join(" · ");
       // Alpha grade: only augments that carry ZR can go bleeding-edge.
       const hasZr = !!(+r.ZR);
       const alphaZr = hasZr
         ? Math.max(0, Math.ceil((+r.ZR - Math.max(+r.ZR * 0.2, 0.1)) * 10) / 10) : 0;
-      const costOf = () => {
-        const base = +r.Cost || 0;
-        return (it.alpha ? base + Math.max(base, 1000) : base) * (it.count || 1);
-      };
+      const costOf = () => RULES.augmentEffCost(r, it) * (it.count || 1);
       const costCell = el("td", { class: "num" }, fmt(costOf()));
       const zrCell = el("td", { class: "num" },
         hasZr ? `ZR ${it.alpha ? alphaZr : +r.ZR}` : r.BI ? `BI ${r.BI}` : "");
@@ -1239,8 +1262,8 @@ function tabAugments(p) {
       return el("tr", {},
         el("td", {}, el("b", {}, it.name),
           el("div", { class: "sub" }, `${r.Type || ""}${r.Ban ? ` \u00b7 bans: ${r.Ban}` : ""}`),
-          target),
-        el("td", { class: "sub" }, r.Effect || ""),
+          target, gunSel),
+        el("td", { class: "sub" }, effectText),
         zrCell,
         costCell,
         el("td", {}, alphaCtl, slottedCtl),

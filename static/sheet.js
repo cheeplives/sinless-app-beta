@@ -2210,6 +2210,13 @@ function shAugments(body) {
             await playChangedRecalc();
           } }, "+")))
       : el("td", { class: "num" }, String(a.count || 1));
+    // Cybergun shows its chosen gun's stats; melee implants show computed damage.
+    const gun = a.name === "Cybergun Installation" && a.gunType
+      ? (DATA.tables.cyberguns || []).find(g => g.Type === a.gunType) : null;
+    const implantDmg = RULES.augmentMeleeDamage(r, CALC.attributes.Strength.final);
+    const effectText = gun
+      ? [r.Effect || "", `${gun.Type}: Acc ${gun.Acc} · DMG ${gun.Dmg} · Ammo ${gun.Ammo} · ${gun.Modes} · Pen ${gun.Pen} · Rarity ${gun.Rarity}`].filter(Boolean).join(" · ")
+      : [r.Effect || "", implantDmg !== "" ? `DMG ${implantDmg}` : ""].filter(Boolean).join(" · ");
     return el("tr", {},
       el("td", {}, el("b", {}, a.name),
         inPlay ? el("span", { class: "sh-tag" }, "bought in play") : null,
@@ -2217,7 +2224,7 @@ function shAugments(body) {
       countCell,
       el("td", {}, alphaCell),
       el("td", {}, slottedCell),
-      el("td", { class: "sub" }, r.Effect || ""),
+      el("td", { class: "sub" }, effectText),
       el("td", {}, el("button", { class: "row-del", title: "Remove (surgical removal — not refunded)",
         onclick: async () => {
           if (!confirm(`Remove ${a.name}? Surgical removal is not refunded.`)) return;
@@ -2242,6 +2249,19 @@ function shAugments(body) {
   // ===== Buy augments — same browser that used to live on the Gear tab.
   const augAvail = augmentAvailability(ownedAugsAll);
   const syntheticNoBio = CHAR.heritage.type === "Synthetic";
+  // Cyberlimb augments may need a cyberarm/leg first (data "Req Limb").
+  const ARM_T = new Set(["Right Arm", "Left Arm"]), LEG_T = new Set(["Right Leg", "Left Leg"]);
+  const buyAugType = a => (DATA.tables.augments.find(x => x.Name === a.name) || {}).Type || "";
+  const ownsArm = ownedAugsAll.some(a => ARM_T.has(buyAugType(a)));
+  const ownsLeg = ownedAugsAll.some(a => LEG_T.has(buyAugType(a)));
+  const buyLimbNeed = r => {
+    switch (RULES.augmentLimbRequirement(r)) {
+      case "Arm": return ownsArm ? null : "a Cyberarm";
+      case "Leg": return ownsLeg ? null : "a Cyberleg";
+      case "Any": return (ownsArm || ownsLeg) ? null : "a Cyberarm or Cyberleg";
+      default:    return null;
+    }
+  };
   const augBuyGroups = Object.entries(
     DATA.tables.augments.reduce((acc, r) => (((acc[r.Type || "Augment"] ??= []).push(r)), acc), {}))
     .sort(([a], [b]) => a.localeCompare(b))
@@ -2250,12 +2270,15 @@ function shAugments(body) {
       items: rows.map(r => {
         const bioBanned = syntheticNoBio && r.Type === "Bioware";
         const banned = bioBanned ? "Synthetics cannot install Bioware" : augAvail.bannedReason(r.Name);
+        const need = buyLimbNeed(r);
+        const dmg = RULES.augmentMeleeDamage(r, CALC.attributes.Strength.final);
         return {
           name: r.Name, cost: Math.round((+r.Cost || 0) * mult),
-          sub: `ZR ${r.ZR || 0} · BI ${r.BI || 0}${r.Effect ? " · " + r.Effect : ""}`,
+          sub: `ZR ${r.ZR || 0} · BI ${r.BI || 0}${dmg !== "" ? " · DMG " + dmg : ""}${r.Effect ? " · " + r.Effect : ""}`,
           banned: !!banned,
-          reason: banned || "",
-          note: banned ? "banned" : "",
+          disabled: !!need,
+          reason: banned || (need ? `Requires ${need} installed` : ""),
+          note: banned ? "banned" : (need ? `needs ${need}` : ""),
         };
       }),
     }));
