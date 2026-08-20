@@ -3482,6 +3482,7 @@ function runningNowPanel() {
   const fx = poolEffects().filter(e => !e.dose);
   const shifted = shiftedForm();
 
+  const deck = runningDeckInfo();
   const onFx = fx.filter(e => poolEffectOn(e.id));
   const anyOn = Boolean(spells.length || doses.length || onFx.length || shifted);
   const count = spells.length + doses.length + onFx.length + (shifted ? 1 : 0);
@@ -3516,7 +3517,34 @@ function runningNowPanel() {
     el("div", { class: "sh-fold-sum" },
       anyOn ? bits.join(" · ")
         : nothingToSwitch ? "Nothing running — no spells up, no doses, nothing switched on."
-        : fx.map(e => e.label).join(" · ") + " — none active"));
+        : fx.map(e => e.label).join(" · ") + " — none active"),
+    // The deck rides on its own line rather than joining `bits`: a jacked-in
+    // deck is not a switched-on effect and must not make the card read "warn"
+    // or bump the count, but its MCP reserve and its threads are exactly the
+    // per-round state this band exists to show, and they lived on the Decking
+    // tab alone. Reference only — spending happens where the programs are run.
+    deck ? el("div", { class: "sh-fold-sum" },
+      `🖧 ${deck.name} · MCP ${deck.left}/${deck.max} · `
+      + (deck.loaded.length ? `${deck.loaded.length} loaded: ${deck.loaded.join(", ")}`
+                            : "nothing loaded")) : null);
+}
+
+/* What the character's deck is contributing right now, for the Running Now box:
+ * the MCP reserve (spent before Focus when a program runs, back each round) and
+ * whatever is sitting on its threads. Null for everyone with no deck, which is
+ * most characters. Read-only — the counter, the ↻ and the Load/Unload buttons
+ * stay on the Decking tab, where the programs they act on are. */
+function runningDeckInfo() {
+  const row = activeDeckRow();
+  if (!row) return null;
+  const dk = (CHAR.play || {}).decking || {};
+  return {
+    name: row.Name,
+    max: mcpDiceMax(),
+    left: mcpDiceLeft(),
+    threads: Math.max(0, toIntSafe(row.Threads)),
+    loaded: [...(dk.loaded || [])],
+  };
 }
 
 /* Doses summarised the way the banner folds them: two Crams read as one row
@@ -3553,6 +3581,24 @@ function openRunningPopover() {
       if (doses) body.push(doses);
       const fx = poolEffectsPanel({ after: refresh });
       if (fx) body.push(fx);
+      const deck = runningDeckInfo();
+      if (deck) {
+        const threadChip = `Loaded ${deck.loaded.length} / ${deck.threads}`;
+        body.push(el("div", { class: "sh-run-group" },
+          el("div", { class: "sh-popover-sub" }, "Deck"),
+          el("div", { class: "sh-fx-dice" },
+            el("span", {}, el("b", {}, deck.name), el("span", { class: "sub" }, " jacked in")),
+            el("span", { class: "chip" + (deck.left ? " ok" : " neg"),
+              title: "MCP dice — spent before the Focus pool when you run a program, "
+                + "and back in full each round. Adjusted on the Decking tab." },
+              `MCP dice ${deck.left} / ${deck.max}`),
+            el("span", { class: "chip" + (deck.loaded.length > deck.threads ? " neg" : "") },
+              threadChip)),
+          deck.loaded.length
+            ? el("div", { class: "sub" }, deck.loaded.join(" · "))
+            : el("p", { class: "hint" },
+                "No programs loaded — load them on the Decking tab.")));
+      }
       if (spells.length) {
         body.push(el("p", { class: "hint" },
           "Durations are fiction-paced, so nothing expires on a clock. The Magic "
@@ -10414,15 +10460,32 @@ function shMagic(body) {
  * ceiling for free.
  */
 
+/* The deck the character is jacked into, as the PLAY sheet sees it: the active
+ * choice if it names a deck they actually have, else the first one.
+ *
+ * Deliberately not RULES.equippedDeckName(CHAR). That function is right, but
+ * only about the character it is given: the engine calls it on the folded copy,
+ * where `decks` is the play kit plus everything bought in play. Called with the
+ * raw CHAR it reads the CHARGEN record, so a deck bought in play and set active
+ * isn't in the list at all and the fallback quietly hands back the first
+ * chargen deck instead — the MCP reserve on the Decking tab, and the dice Run
+ * spent, came off the wrong machine. ownedDecks() is the list the Decking tab
+ * itself picks from, so the two can't disagree. */
+function activeDeckName() {
+  const owned = ownedDecks().map(e => e.ref);
+  const chosen = ((CHAR.play || {}).decking || {}).active_deck;
+  return owned.some(d => d.name === chosen) ? chosen : ((owned[0] || {}).name || "");
+}
+function activeDeckRow() {
+  const name = activeDeckName();
+  return name ? (DATA.tables.decks.find(x => x.Name === name) || null) : null;
+}
+
 /* The size of the MCP reserve: the MCP rating of the deck the character is
  * jacked into. Zero with no active deck, which is also the "no MCP dice" case,
- * so callers need no separate check. Goes through RULES.equippedDeckName so it
- * agrees with the engine about which deck is the live one. */
+ * so callers need no separate check. */
 function mcpDiceMax() {
-  const name = RULES.equippedDeckName(CHAR);
-  if (!name) return 0;
-  const row = DATA.tables.decks.find(x => x.Name === name) || {};
-  return Math.max(0, toIntSafe(row.MCP));
+  return Math.max(0, toIntSafe((activeDeckRow() || {}).MCP));
 }
 
 /* MCP dice still available. null (never touched) reads as full, and the value

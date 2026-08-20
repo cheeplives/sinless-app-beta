@@ -1669,6 +1669,48 @@ path by which play could reach into the creation record.
   internally; this one does, and it would have shut under the reader's finger.
 - **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
 
+### P06-058: Running Now carries the deck, and reads the deck you are actually jacked into
+- **Type:** correctness
+- **Steps:** any tab. Escape first, so a popover left open by an earlier case
+  isn't toggled shut by this one's click.
+- **Check:**
+
+      (async () => { document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); await new Promise(r => setTimeout(r, 60)); const c = RULES.defaultCharacter(); c.name = "QA MCP Box"; c.priorities = { heritage: 2, magic: 0, attributes: 3, skills: 2, resources: 3 }; c.heritage.type = "Human"; c.decks = [{ name: "MasterDeck", mods: [], hacking: "Hacking 2" }]; c.programs = ["Analysis Locus 1"]; c.hacking_rating = 2; c.finalized = true; c.lifestyles = [{ name: "Squatter", months: 1 }]; await openCharacter(c); sheetTab = "overview"; renderSheet(); const lineOf = () => [...document.querySelectorAll(".sh-running .sh-fold-sum")].map(d => d.textContent).at(-1); const chargen = { deck: runningDeckInfo().name, mcp: runningDeckInfo().max, line: lineOf() }; CHAR.play.purchases.decks.push({ name: "Shingo Activa", mods: [], hacking: "Hacking 2" }); CHAR.play.decking.active_deck = "Shingo Activa"; CHAR.play.decking.loaded = ["Analysis Locus 1"]; CHAR.play.mcp_dice = 2; await playChangedRecalc(); renderSheet(); const boughtInPlay = { info: runningDeckInfo(), staleEngineAnswer: RULES.equippedDeckName(CHAR), line: lineOf() }; document.querySelector(".sh-running").click(); await new Promise(r => setTimeout(r, 200)); const txt = document.querySelector(".sh-popover").innerText.split("\n"); const deckLines = txt.slice(txt.indexOf("DECK")); document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); const mundane = (() => { CHAR.play.purchases.decks.length = 0; CHAR.decks = []; CHAR.play.kit.decks = []; renderSheet(); return { info: runningDeckInfo(), summaryLines: document.querySelectorAll(".sh-running .sh-fold-sum").length }; })(); await closeTabByName("QA MCP Box"); return { chargen, boughtInPlay, deckLines, mundane }; })()
+
+- **Expected:**
+
+      { "chargen": { "deck": "MasterDeck", "mcp": 3,
+                     "line": "🖧 MasterDeck · MCP 3/3 · nothing loaded" },
+        "boughtInPlay": {
+          "info": { "name": "Shingo Activa", "max": 5, "left": 2, "threads": 5,
+                    "loaded": ["Analysis Locus 1"] },
+          "staleEngineAnswer": "MasterDeck",
+          "line": "🖧 Shingo Activa · MCP 2/5 · 1 loaded: Analysis Locus 1" },
+        "deckLines": ["DECK", "Shingo Activa jacked in", "MCP dice 2 / 5",
+                      "Loaded 1 / 5", "Analysis Locus 1"],
+        "mundane": { "info": null, "summaryLines": 1 } }
+
+- **Note:** `staleEngineAnswer` is the load-bearing field, and it is expected to
+  be **wrong on purpose**: `RULES.equippedDeckName` reads `character.decks`, and
+  the engine calls it on the FOLDED character (kit + play purchases) where that
+  is the right list. Called with the raw `CHAR` — which is what `mcpDiceMax`
+  used to do — it reads the CHARGEN record, so a deck bought in play is not in
+  the list at all and the "nobody chose" fallback quietly returns the first
+  chargen deck. The whole MCP feature was reading the wrong machine: the chip on
+  the Decking tab, and the dice a Run actually spent, came off MasterDeck (MCP
+  3) while the character was jacked into a Shingo Activa (MCP 5). The sheet now
+  derives it from `ownedDecks()` (`activeDeckName`), which is the same list the
+  Decking tab picks the active deck from, so the two cannot disagree. If
+  `boughtInPlay.info.max` ever equals `chargen.mcp`, the CHAR-vs-folded mistake
+  is back.
+
+  The rest is the Running Now deck line itself: it is a SEPARATE summary line,
+  never folded into the effect bits, because a jacked-in deck is not a
+  switched-on effect and must not make the card read "warn" or raise its count.
+  `mundane.summaryLines` is 1 — a character with no deck sees no deck line at
+  all, which is most characters.
+- **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
+
 ---
 
 ## Wrapping up
