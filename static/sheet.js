@@ -10710,20 +10710,17 @@ function shDecking(body) {
           // Jacking out is its own state, not "sell it" and not "leave it at
           // home": the deck is still owned, still carried, still contributing
           // its own ZR — it just isn't running, so its cores grant no Decking
-          // exploit actions, its threads hold nothing and it has no MCP to
-          // spend. What is loaded is REMEMBERED across a jack out, since the
-          // threads are the same ones when you jack back into the same deck.
+          // exploit actions, it has no MCP to spend, and its threads come back
+          // empty (RULES.jackOutDeck unloads them, the same as swapping decks).
           isActive
             ? el("span", { style: "display:inline-flex;gap:6px;align-items:center" },
                 el("span", { class: "chip ok" }, "Active"),
                 counterBtn("Jack out", () => {
-                  dk.jacked_out = true; playChangedRecalc();
+                  RULES.jackOutDeck(CHAR); playChangedRecalc();
                 }))
             : counterBtn(jackedOut && d.name === dk.active_deck ? "Jack in" : "Set Active",
                 () => {
-                  // Only a real change of deck empties the threads — jacking
-                  // back into the one you left keeps what was on them.
-                  if (dk.active_deck !== d.name) dk.loaded = [];
+                  dk.loaded = [];
                   dk.active_deck = d.name;
                   dk.jacked_out = false;
                   playChangedRecalc();
@@ -10746,8 +10743,8 @@ function shDecking(body) {
     "Jacked out — nothing is running. The decks above are still owned and still "
     + "carried (they keep contributing their Zoetic Rating), but no cores grant "
     + "Decking exploit actions, no threads are available and there are no MCP "
-    + `dice to spend. Jack back into ${dk.active_deck || "a deck"} to pick up `
-    + "where you left off."));
+    + `dice to spend. Jacking out unloaded the threads, so ${dk.active_deck || "a deck"} `
+    + "starts empty when you jack back in."));
 
   // buy a new cyberdeck in play
   const deckGroups = [{ label: "Cyberdecks", items: DATA.tables.decks.map(x => ({
@@ -10831,12 +10828,10 @@ function shDecking(body) {
         mcpMax
           ? counterBtn("↻", () => { refreshMcpDice(); playChanged(); }, "good")
           : null,
-        // Jacked out there are no threads, but what was loaded is remembered —
-        // so the chip counts it without the over-capacity red, which would be
-        // reporting a problem the player doesn't have.
+        // Jacked out there are no threads to count against, so the chip says
+        // that rather than printing a bare "0 / 0" the reader has to interpret.
         el("span", { class: "chip" + (!jackedOut && dk.loaded.length > threads ? " neg" : "") },
-          jackedOut ? `Loaded ${dk.loaded.length} · jacked out`
-                    : `Loaded ${dk.loaded.length} / ${threads}`),
+          jackedOut ? "Loaded — · jacked out" : `Loaded ${dk.loaded.length} / ${threads}`),
         // Bulk counterpart to the per-program Unload below, parked on the
         // thread count because that is the number it zeroes. Hidden rather
         // than disabled with nothing loaded: an empty deck has nothing to

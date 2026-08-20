@@ -2735,7 +2735,9 @@ function activeDeckSelect() {
     // out of is still carried and still needs no Hacking program to sit there.
     none: { label: "— none (jacked out) —",
       get: () => !!decking.jacked_out,
-      set: v => { decking.jacked_out = v; } },
+      // Through RULES.jackOutDeck so this clears the threads exactly the way
+      // the play sheet's own "Jack out" button does.
+      set: v => { if (v) RULES.jackOutDeck(CHAR); else decking.jacked_out = false; } },
   });
 }
 

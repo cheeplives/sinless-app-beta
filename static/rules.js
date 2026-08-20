@@ -774,6 +774,20 @@ function equippedDeckName(character) {
   return decks.some(d => d.name === chosen) ? chosen : ((decks[0] || {}).name || "");
 }
 
+/** Jack out: stop running the deck AND clear its threads.
+ *
+ *  Pulling the jack drops what was loaded — the threads come back empty when
+ *  you jack in again, the same as swapping decks. Kept here, in one function
+ *  called by both the play sheet's "Jack out" button and the chargen picker's
+ *  "none (jacked out)" option, so the two can't drift into leaving a character
+ *  jacked out with programs still sitting on threads that aren't running. */
+function jackOutDeck(character) {
+  const decking = ((character || {}).play || {}).decking;
+  if (!decking) return;
+  decking.jacked_out = true;
+  decking.loaded = [];
+}
+
 function programNeedsThread(row) {
   return !PROGRAM_NO_THREAD_IO.has(String((row || {})["I/O"] || "").trim());
 }
@@ -6424,7 +6438,7 @@ return {
   SUMMON_SPELLS, isSummonSpell, isFormSpell, shapeshiftState, summonedAnimal,
   spellDrain, drainIsLethal, DRAIN_SPECIAL,
   drainSoakOrder, fetishesForSpell,
-  equippedDeckName,
+  equippedDeckName, jackOutDeck,
   SPEAKER_BOND_MAX, speakerBondCount,
   HAND_COUNT_BASE, HAND_COUNT_MAX, handCount,
   KIT_CATEGORIES, applyPlayAdvances,
