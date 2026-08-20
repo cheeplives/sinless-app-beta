@@ -36,7 +36,7 @@ const BUNDLE = (typeof DATA_BUNDLE !== "undefined")
  * default fill claim this build made it: "unknown" is a fact worth keeping,
  * and a confidently wrong version is worse than none when you are working out
  * why an old file behaves oddly. */
-const APP_VERSION = "328";
+const APP_VERSION = "329";
 
 // ============================================================== game constants
 // The numeric knobs the engine reads; grouped by chargen step below.
@@ -1106,6 +1106,13 @@ function defaultCharacter() {
       // "never chose" and resolves to the first owned deck.
       decking: { active_deck: "", loaded: [], jacked_out: false },
       rigging: { active_rig: "", units: {} },
+      // The campaign clock. `start` is null until the player sets one — a date
+      // nobody chose is worse than no date, and the sheet refuses to advance
+      // time without it. Months only ever move through the Time Passes dialog,
+      // which is also what burns a lifestyle month, spends ammunition and ticks
+      // a Replicant's lifespan, so `entries` is the record of what each month
+      // cost as well as what happened in it.
+      calendar: { start: null, months_elapsed: 0, entries: [] },
     },
   };
 }

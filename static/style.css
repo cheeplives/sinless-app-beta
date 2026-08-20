@@ -1218,6 +1218,45 @@ label.opt input{margin-top:3px}
    collapse keeps description -> notes -> images -> dossier rather than
    interleaving the columns. */
 .sh-notes-col{display:grid;gap:14px;align-content:start;min-width:0}
+/* ---- campaign calendar (Notes tab) ----
+   The start date reads as one sentence, so its parts sit on a line together and
+   wrap as a group on a phone rather than stacking into a form. */
+.sh-cal-start{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:6px 0 10px}
+.sh-cal-year{width:84px}
+.sh-cal-now{font-family:var(--mono);font-size:12px;color:var(--pool-kismet);margin-left:auto}
+.sh-cal-actions{margin-bottom:10px}
+.sh-cal-entry{border-top:1px dashed var(--line-dash);padding:8px 0 2px}
+.sh-cal-entry-head{display:flex;align-items:center;gap:10px;margin-bottom:4px}
+.sh-cal-date{font-family:var(--disp);letter-spacing:.04em}
+.sh-cal-entry-head .btn{margin-left:auto}
+.sh-cal-prose{display:grid;grid-template-columns:104px 1fr;gap:8px;font-size:12.5px;
+  padding:1px 0}
+.sh-cal-key{font-family:var(--disp);font-size:10px;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--dim);padding-top:2px}
+/* ---- the Time Passes dialog ---- */
+.sh-cal-modal{max-width:520px}
+.sh-cal-modal textarea{width:100%;min-height:64px}
+.sh-cal-block{margin-top:12px}
+.sh-cal-legend{font-family:var(--disp);font-size:10px;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--dim);margin-bottom:4px}
+.sh-cal-choice{display:flex;align-items:flex-start;gap:8px;padding:3px 0;cursor:pointer}
+.sh-cal-choice input[disabled]{cursor:not-allowed}
+.sh-cal-choice input[disabled]+span{opacity:.55}
+/* Name, then the two checkboxes in fixed columns so every row's boxes line up
+   under their headings however long the ammunition's name is. */
+.sh-cal-ammo-head,.sh-cal-ammo-row{display:grid;grid-template-columns:1fr 46px 62px 44px;
+  align-items:center;gap:4px}
+.sh-cal-ammo-head{font-family:var(--disp);font-size:10px;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--dim);text-align:center}
+.sh-cal-ammo-head span:first-child{text-align:left}
+.sh-cal-ammo-row{padding:2px 0;border-bottom:1px dashed var(--line-dash)}
+.sh-cal-ammo-row input{justify-self:center}
+.sh-cal-ammo-cost{text-align:right;font-family:var(--mono);color:var(--mcp)}
+.sh-cal-lifespan{margin:12px 0 0;color:var(--amber)}
+@media (max-width:900px){
+  .sh-cal-prose{grid-template-columns:1fr;gap:0}
+  .sh-cal-now{margin-left:0;width:100%}
+}
 @media (max-width:900px){ .sh-notes-top{grid-template-columns:1fr} }
 
 /* One card per pool, laid out 2×2 (see #13). Grid items default to

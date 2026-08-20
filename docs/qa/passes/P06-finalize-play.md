@@ -1810,6 +1810,87 @@ path by which play could reach into the creation record.
   what the option's own tooltip now warns.
 - **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
 
+### P06-061: A month passes, and can be taken back whole
+- **Type:** correctness
+- **Steps:** load `kitchen-sink-final.json` and enter play mode. Stub
+  `alert`/`confirm` per P00 §3 (the case answers the undo confirm).
+- **Check:**
+
+      (async () => { CHAR.play.purchases.gear.push({ name: "Gel", qty: 8, carried: true, carried_qty: 8 }); CHAR.play.calendar.start = { month: 12, year: 2070 }; await playChangedRecalc(); sheetTab = "notes"; renderSheet(); await new Promise(r => setTimeout(r, 150)); const snap = () => ({ now: calendarLabel(calendarNow()), elapsed: CHAR.play.calendar.months_elapsed, entries: CHAR.play.calendar.entries.length, low: (CHAR.play.lifestyles.find(l => l.name === "Low") || {}).months, active: (CHAR.play.lifestyles.find(l => l.active) || {}).name, ap: (ownedAmmoStacks().find(a => a.name === "AP") || {}).qty, gel: (ownedAmmoStacks().find(a => a.name === "Gel") || {}).qty, cash: CHAR.play.cash }); const before = snap(); [...document.querySelectorAll("button")].find(b => /Time Passes/.test(b.textContent)).click(); await new Promise(r => setTimeout(r, 250)); const m = document.querySelector(".sh-cal-modal"); const title = m.querySelector("h3").textContent; const tas = m.querySelectorAll("textarea"); tas[0].value = "Ghost run on Renraku sublevel"; tas[1].value = "Legwork — mapped the grid"; const rows = [...m.querySelectorAll(".sh-cal-ammo-row")]; rows[0].querySelectorAll("input")[0].click(); rows[1].querySelectorAll("input")[1].click(); const faImpliesUsed = rows[1].querySelectorAll("input")[0].checked; [...m.querySelectorAll("button")].find(b => /Advance the month/.test(b.textContent)).click(); await new Promise(r => setTimeout(r, 400)); const after = snap(); const entry = CHAR.play.calendar.entries[0]; const logged = CHAR.play.cash_log.slice(0, 3).map(e => e.label); document.querySelector(".sh-cal-entry button").click(); await new Promise(r => setTimeout(r, 400)); const undone = snap(); return { title, faImpliesUsed, before, after, entry: { month: entry.month, year: entry.year, lifestyle: entry.lifestyle, ammo: entry.ammo }, logged, undone }; })()
+
+- **Expected:**
+
+      { "title": "Time Passes — December 2070 → January 2071",
+        "faImpliesUsed": true,
+        "before": { "now": "December 2070", "elapsed": 0, "entries": 0, "low": 2,
+                    "active": "Low", "ap": 20, "gel": 8, "cash": 1500 },
+        "after":  { "now": "January 2071", "elapsed": 1, "entries": 1, "low": 1,
+                    "active": "Low", "ap": 19, "gel": 6, "cash": 1500 },
+        "entry": { "month": 12, "year": 2070,
+                   "lifestyle": { "name": "Low", "spent_month": true, "bought": false, "cost": 0 },
+                   "ammo": [{ "name": "AP", "used": 1, "fa": false },
+                            { "name": "Gel", "used": 2, "fa": true }] },
+        "logged": ["Used 2 Gel — 6 left", "Used 1 AP — 19 left",
+                   "Sector turn: 1 month of Low lifestyle"],
+        "undone": { "now": "December 2070", "elapsed": 0, "entries": 0, "low": 2,
+                    "active": "Low", "ap": 20, "gel": 8, "cash": 1500 } }
+
+- **Note:** `undone` is `before` — that is the whole case. A month costs four
+  separate things (a lifestyle month, two ammunition stacks at different rates,
+  the date itself) written through four different mechanisms, and Undo has to
+  put every one of them back or the sheet quietly drifts from the table's idea
+  of what happened.
+
+  The entry is dated **December** while the clock now reads January: an entry
+  records the month that CLOSED, not the one you are in. `used: 2` for Gel with
+  `fa: true` is the FA rule — a burst spends two — and `faImpliesUsed` guards the
+  half of it a player will hit by accident: ticking only the second box still
+  means the round was fired.
+
+  `logged` proves the month went through the existing ledger rather than a
+  private log of its own: `adjustOwned` wrote the two ammunition lines (so a
+  stack that ran out mid-month records what actually came off it) and the
+  lifestyle line is a zero-cash `lifestyle_adjust`, undoable from the Activity
+  card too. `cash` never moves here because the month was prepaid; the buy-a-
+  month path is the one that charges, and its undo refunds.
+- **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
+
+### P06-062: The three ways a month's lifestyle gets covered
+- **Type:** correctness
+- **Steps:** continues from P06-061 (same character, month back at December 2070).
+- **Check:**
+
+      (async () => { const pick = async (setup, choose) => { await setup(); await playChangedRecalc(); renderSheet(); await new Promise(r => setTimeout(r, 150)); [...document.querySelectorAll("button")].find(b => /Time Passes/.test(b.textContent)).click(); await new Promise(r => setTimeout(r, 250)); const m = document.querySelector(".sh-cal-modal"); const radios = [...m.querySelectorAll("input[type=radio]")]; const shape = radios.map(r => ({ v: r.value, disabled: r.disabled })); choose(m, radios); [...m.querySelectorAll("button")].find(b => /Advance the month/.test(b.textContent)).click(); await new Promise(r => setTimeout(r, 400)); const e = CHAR.play.calendar.entries[0]; const out = { shape, lifestyle: e.lifestyle, cash: CHAR.play.cash, lifestyles: CHAR.play.lifestyles.map(l => `${l.name}:${l.months}${l.active ? "*" : ""}`) }; document.querySelector(".sh-cal-entry button").click(); await new Promise(r => setTimeout(r, 400)); return out; }; const buy = await pick(async () => { CHAR.play.lifestyles.find(l => l.name === "Low").months = 0; CHAR.play.cash = 1500; }, (m, radios) => { radios.find(r => r.value === "buy").checked = true; m.querySelector("select").value = "Low"; }); const squat = await pick(async () => { CHAR.play.lifestyles = []; }, (m, radios) => { radios.find(r => r.value === "squatter").checked = true; }); return { buy, squat, cashAfterUndo: CHAR.play.cash }; })()
+
+- **Expected:**
+
+      { "buy": { "shape": [{ "v": "spend:Low", "disabled": true },
+                           { "v": "buy", "disabled": false },
+                           { "v": "squatter", "disabled": false }],
+                 "lifestyle": { "name": "Low", "spent_month": true, "bought": true, "cost": 300 },
+                 "cash": 1200, "lifestyles": ["Low:0*"] },
+        "squat": { "shape": [{ "v": "buy", "disabled": false },
+                             { "v": "squatter", "disabled": false }],
+                   "lifestyle": { "name": "Squatter", "spent_month": false, "bought": false, "cost": 0 },
+                   "cash": 1500, "lifestyles": ["Squatter:0*"] },
+        "cashAfterUndo": 1500 }
+
+- **Note:** The dialog will not advance a month nobody paid for, and these are
+  the only three ways to pay: spend a prepaid month, buy one now, or live rough.
+  A lifestyle with nothing left on it renders **disabled** rather than absent —
+  it is still the character's lifestyle, it just can't cover this month.
+
+  A bought month is added and then spent, which is why `lifestyles` reads
+  `Low:0` afterwards: two ledger rows (a charged "Prepaid 1 month" and a
+  zero-cash "Sector turn"), each undoable on its own from the Activity card, and
+  the month count ends where a player would expect to find it. `cashAfterUndo`
+  is the half worth watching — undoing the month has to hand the ㄓ300 back.
+
+  Squatter is the floor, and taking it ADDS Squatter to `play.lifestyles` marked
+  active, so the header's lifestyle select, the Gear tab's lifestyle card and the
+  calendar all describe the same month.
+- **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
+
 ---
 
 ## Wrapping up

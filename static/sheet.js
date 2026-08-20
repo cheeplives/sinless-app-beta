@@ -174,6 +174,7 @@ let expandedPool = null;      // pool card the user clicked open on Overview
 // all four, so opening Brawn's doesn't also open Finesse's.
 let poolTempOpen = new Set();
 let imagesCollapsed = false;  // Images section folded shut on the Notes tab
+let calendarCollapsed = false;  // Calendar section folded shut on the Notes tab
 let playSaveTimer = null;
 let sheetMenuOpen = false;    // hamburger menu (Back to Chargen / Homebrew / Export / …)
 let sheetHeadObserver = null; // IntersectionObserver toggling the compact sticky strip
@@ -7446,6 +7447,441 @@ function trackedEffectList(title, items, addLabel, placeholder, emptyText) {
   return card;
 }
 
+/* ---- the campaign calendar (Notes tab) --------------------------------------
+ *
+ * A month passing is bookkeeping, not flavour: it burns a month of lifestyle,
+ * ticks a Replicant closer to the end, and the rounds fired during it come off
+ * the shelf. All of that was on the player to remember, in the right order,
+ * with nothing left behind saying the month happened. One dialog does the whole
+ * checklist and writes one entry that can be taken back whole.
+ *
+ * The clock lives in play state (CHAR.play.calendar) because it is a fact about
+ * the campaign this character is being played in, not about how they were
+ * built — the same reason cash and doses live there.
+ */
+const MONTH_NAMES = ["January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December"];
+
+function calendarState() {
+  const play = CHAR.play;
+  const cal = play.calendar = play.calendar || { start: null, months_elapsed: 0, entries: [] };
+  cal.entries = cal.entries || [];
+  cal.months_elapsed = Math.max(0, toIntSafe(cal.months_elapsed));
+  return cal;
+}
+
+/** start + N months, as {month (1-12), year}. Null start means no clock yet. */
+function calendarDateAfter(start, months) {
+  if (!start) return null;
+  const zero = (toIntSafe(start.month) - 1) + toIntSafe(months);
+  const year = toIntSafe(start.year) + Math.floor(zero / 12);
+  const month = ((zero % 12) + 12) % 12 + 1;
+  return { month, year };
+}
+function calendarNow() {
+  const cal = calendarState();
+  return calendarDateAfter(cal.start, cal.months_elapsed);
+}
+const calendarLabel = d => (d ? `${MONTH_NAMES[d.month - 1]} ${d.year}` : "—");
+const calendarShort = d => (d ? `${MONTH_NAMES[d.month - 1].slice(0, 3)} ${d.year}` : "—");
+
+/* A month of this lifestyle, with the Hyperthyroid surcharge the augment's own
+   effect text states. Shared with lifestyleCard so the Gear tab and the Time
+   Passes dialog can never quote different prices for the same month. */
+function lifestyleMonthlyCost(name) {
+  const row = DATA.tables.lifestyles.find(x => x.Lifestyle === name) || {};
+  const surcharge = allAugmentsOwned().some(a => a.name === "Hyperthyroid") ? 1.10 : 1;
+  return Math.round((+row.MonthlyCost || 0) * surcharge);
+}
+
+/** The play-state lifestyle entry of this name, created (at 0 months) if new. */
+function ensureLifestyle(name) {
+  const play = CHAR.play;
+  play.lifestyles = play.lifestyles || [];
+  let ls = play.lifestyles.find(x => x.name === name);
+  if (!ls) { ls = { name, months: 0, active: false }; play.lifestyles.push(ls); }
+  return ls;
+}
+/** Make this the current lifestyle — the flag the header select reads. */
+function setActiveLifestyle(name) {
+  (CHAR.play.lifestyles || []).forEach(l => { l.active = l.name === name; });
+}
+
+/* Ammunition the character owns, one row per NAME with the total across stacks.
+   A name can sit in two stacks at once (what they left creation with, plus what
+   they bought in play); the dialog asks about ammunition, not about stacks, so
+   it totals them and spends from the first stack that still has rounds. */
+function ownedAmmoStacks() {
+  const seen = new Map();
+  for (const en of ownedGear()) {
+    const row = DATA.tables.misc_gear.find(x => x.Item === en.ref.name);
+    if (!row || !String(row.Class || "").startsWith("Ammo")) continue;
+    const at = seen.get(en.ref.name) || { name: en.ref.name, qty: 0, entries: [] };
+    at.qty += ownedQty(en.ref);
+    at.entries.push(en.ref);
+    seen.set(en.ref.name, at);
+  }
+  return [...seen.values()];
+}
+/** Move `n` rounds of one ammunition (negative spends, positive restocks).
+    Returns how many actually moved, which is short when the shelf runs out. */
+function moveAmmoByName(name, n) {
+  if (!n) return 0;
+  let left = Math.abs(n), moved = 0;
+  const stacks = ownedAmmoStacks().find(s => s.name === name);
+  for (const entry of (stacks ? stacks.entries : [])) {
+    if (!left) break;
+    const step = n < 0 ? -Math.min(left, ownedQty(entry)) : left;
+    const did = adjustOwned(entry, step);
+    left -= Math.abs(did); moved += did;
+    if (n < 0 && !did) continue;      // that stack was empty; try the next
+    if (n > 0) break;                 // restocking goes back on one shelf
+  }
+  return moved;
+}
+
+/* The Notes tab's Calendar card: where the campaign started, where it is now,
+   the button that moves it, and what each month cost. Folds like the Images
+   card — the log grows without bound and this tab is also where the player
+   writes. */
+function calendarCard() {
+  const cal = calendarState();
+  const ro = !!(activeTabObj() && activeTabObj().readonly);
+  const now = calendarNow();
+  const head = el("div", { class: "sh-card-head" },
+    el("h3", {}, "Calendar",
+      now ? el("span", { class: "sub" },
+        ` · ${calendarShort(now)}${cal.months_elapsed
+          ? ` · ${cal.months_elapsed} month${cal.months_elapsed === 1 ? "" : "s"} elapsed` : ""}`) : null),
+    counterBtn(calendarCollapsed ? "Show ▾" : "Hide ▴", () => {
+      calendarCollapsed = !calendarCollapsed; renderSheet();
+    }));
+  const card = el("div", { class: "card sh-card" }, head);
+  if (calendarCollapsed) {
+    card.append(el("p", { class: "hint", style: "margin:2px 0 0" },
+      cal.start
+        ? `Started ${cal.start.month}/${cal.start.year}`
+          + (cal.entries.length ? ` · last month logged ${calendarShort(cal.entries[0])}` : " · no months logged yet")
+        : "No campaign start date set."));
+    return card;
+  }
+
+  // Start date. Stored as numbers so the arithmetic never parses a string; the
+  // inputs save as you type like the two textareas on this tab.
+  const monthSel = el("select", { "aria-label": "Campaign start month",
+    ...(ro ? { disabled: "1" } : {}),
+    onchange: e => {
+      cal.start = { month: +e.target.value, year: (cal.start && cal.start.year) || new Date().getFullYear() };
+      playChanged();
+    } },
+    el("option", { value: "" }, "MM"),
+    ...MONTH_NAMES.map((m, i) => el("option", { value: String(i + 1) },
+      `${String(i + 1).padStart(2, "0")} — ${m}`)));
+  monthSel.value = cal.start ? String(cal.start.month) : "";
+  const yearInput = el("input", { type: "number", class: "sh-cal-year", placeholder: "YYYY",
+    min: "1", max: "9999", "aria-label": "Campaign start year",
+    ...(ro ? { readonly: "1" } : {}),
+    oninput: e => {
+      const y = parseInt(e.target.value, 10);
+      if (!Number.isFinite(y)) return;
+      cal.start = { month: (cal.start && cal.start.month) || 1, year: y };
+      playChanged(false);
+    } });
+  yearInput.value = cal.start ? String(cal.start.year) : "";
+  card.append(el("div", { class: "sh-cal-start" },
+    el("span", { class: "sub" }, "Campaign start"), monthSel,
+    el("span", { class: "sub" }, "/"), yearInput,
+    el("span", { class: "sh-cal-now" }, now ? `Now: ${calendarLabel(now)}` : "Set a start date")));
+
+  // Time Passes. Disabled rather than hidden without a start date: the button
+  // is the point of the card, and a missing date is a thing to fix, not a
+  // reason to pretend the feature isn't there.
+  if (!ro) card.append(el("div", { class: "sh-cal-actions" },
+    el("button", { class: "btn-add", disabled: cal.start ? null : "1",
+      title: cal.start ? "Close out this month — missions, lifestyle, ammunition — and move to the next"
+                       : "Set a campaign start date first",
+      onclick: runTimePasses }, "⏭ Time Passes")));
+
+  if (!cal.entries.length) {
+    card.append(el("p", { class: "hint", style: "margin:8px 0 0" },
+      "No months logged yet. Time Passes records what happened in a month and "
+      + "settles what it cost: a lifestyle month, the rounds you fired, and a "
+      + "Replicant's remaining lifespan."));
+    return card;
+  }
+  cal.entries.forEach((entry, i) => card.append(calendarEntryRow(entry, i === 0 && !ro)));
+  return card;
+}
+
+/* One logged month. Undo rides on the newest entry only — rolling the date back
+   past a month that isn't the last one would leave every entry after it
+   claiming a date that never happened. */
+function calendarEntryRow(entry, undoable) {
+  const lines = [];
+  const lifestyle = entry.lifestyle || {};
+  if (lifestyle.name) {
+    lines.push(["Lifestyle", lifestyle.name
+      + (lifestyle.bought ? ` (bought a month for ${fmt(lifestyle.cost || 0)}, spent it)`
+        : lifestyle.spent_month ? " (1 month spent)"
+        : " (no months to spend)")]);
+  }
+  if ((entry.ammo || []).length) {
+    lines.push(["Ammo", entry.ammo
+      .map(a => `${a.name} ×${a.used}${a.fa ? " (FA)" : ""}`).join(" · ")]);
+  }
+  if (entry.lifespan) lines.push(["Lifespan", `${entry.lifespan.from} → ${entry.lifespan.to} months`]);
+  const prose = (label, text) => {
+    const t = String(text || "").trim();
+    if (!t) return null;
+    return el("div", { class: "sh-cal-prose" },
+      el("span", { class: "sh-cal-key" }, label),
+      el("div", {}, ...t.split("\n").filter(l => l.trim())
+        .map(l => el("div", {}, l))));
+  };
+  return el("div", { class: "sh-cal-entry" },
+    el("div", { class: "sh-cal-entry-head" },
+      el("b", { class: "sh-cal-date" }, calendarLabel(entry)),
+      undoable
+        ? el("button", { class: "btn small",
+            title: "Take this month back — the date, the lifestyle month, the "
+              + "ammunition and the lifespan all go back to where they were",
+            onclick: () => undoCalendarEntry(entry) }, "Undo")
+        : null),
+    prose("Missions", entry.missions),
+    prose("Sector actions", entry.sector_actions),
+    ...lines.map(([k, v]) => el("div", { class: "sh-cal-prose" },
+      el("span", { class: "sh-cal-key" }, k), el("div", { class: "sub" }, v))));
+}
+
+/* The month-end dialog. Resolves to what the player chose, or null — nothing is
+   written here, so cancelling really is free (promptDisposal's contract). */
+function promptTimePasses(from, to) {
+  return new Promise(resolve => {
+    const play = CHAR.play;
+    const owned = play.lifestyles || [];
+    const ammo = ownedAmmoStacks();
+    const isReplicant = CHAR.heritage.type === "Replicant";
+    const lifespan = isReplicant ? toIntSafe(play.replicant_lifespan_months) : null;
+
+    const backdrop = el("div", { class: "mount-modal-backdrop" });
+    const done = val => {
+      document.removeEventListener("keydown", onKey); backdrop.remove(); resolve(val);
+    };
+    const onKey = e => { if (e.key === "Escape") done(null); };
+
+    const missions = el("textarea", { rows: "3", placeholder: "One mission per line…" });
+    const sectors = el("textarea", { rows: "3", placeholder: "One sector action per line…" });
+
+    // Lifestyle: one flat radio group over every way the month can be paid for,
+    // so the "I own one", "I own one with nothing left on it" and "I own none"
+    // cases are the same control rather than three different ones.
+    const lsName = "cal-ls-" + Date.now();
+    const buySel = el("select", {},
+      ...DATA.tables.lifestyles.map(r => el("option", { value: r.Lifestyle },
+        `${r.Lifestyle} — ${fmt(lifestyleMonthlyCost(r.Lifestyle))}/month`)));
+    const choices = [];
+    const radio = (value, label, note, checked) => {
+      const input = el("input", { type: "radio", name: lsName, value,
+        ...(checked ? { checked: 1 } : {}) });
+      choices.push({ input, value });
+      return el("label", { class: "sh-cal-choice" }, input,
+        el("span", {}, el("b", {}, label), note ? el("span", { class: "sub" }, ` ${note}`) : null));
+    };
+    const lsBlock = el("div", { class: "sh-cal-block" },
+      el("div", { class: "sh-cal-legend" }, "Lifestyle this month"));
+    const spendable = owned.filter(l => (l.months || 0) > 0);
+    owned.forEach((l, i) => {
+      const months = l.months || 0;
+      lsBlock.append(radio(`spend:${l.name}`, l.name,
+        months ? `${months} month${months === 1 ? "" : "s"} prepaid — spends one`
+               : "0 months left — buy one below, or take Squatter",
+        spendable.length ? l === spendable[0] : false));
+      if (!months) choices[choices.length - 1].input.disabled = true;
+    });
+    lsBlock.append(el("label", { class: "sh-cal-choice" },
+      (() => { const input = el("input", { type: "radio", name: lsName, value: "buy",
+        ...(spendable.length ? {} : { checked: 1 }) });
+        choices.push({ input, value: "buy" }); return input; })(),
+      el("span", {}, el("b", {}, "Buy one month:"), " ", buySel,
+        el("span", { class: "sub" }, ` — charged now, you have ${fmt(play.cash)}`))));
+    lsBlock.append(radio("squatter", "Squatter", "free — living rough this month", false));
+
+    // Ammunition. FA implies used: a burst is still a burst if you only ticked
+    // the second box, and the alternative is a row that means nothing.
+    const ammoRows = [];
+    const ammoBlock = el("div", { class: "sh-cal-block" },
+      el("div", { class: "sh-cal-legend" }, "Ammunition spent"));
+    if (!ammo.length) {
+      ammoBlock.append(el("p", { class: "hint", style: "margin:0" }, "No ammunition owned."));
+    } else {
+      ammoBlock.append(el("div", { class: "sh-cal-ammo-head" },
+        el("span", {}, ""), el("span", {}, "used"), el("span", {}, "FA used")));
+      ammo.forEach(a => {
+        const empty = a.qty <= 0;
+        const used = el("input", { type: "checkbox", ...(empty ? { disabled: "1" } : {}),
+          "aria-label": `${a.name} used` });
+        const fa = el("input", { type: "checkbox", ...(empty ? { disabled: "1" } : {}),
+          "aria-label": `${a.name} full auto used` });
+        const cost = el("span", { class: "sub sh-cal-ammo-cost" }, empty ? "empty" : "");
+        const sync = () => {
+          const n = fa.checked ? 2 : used.checked ? 1 : 0;
+          cost.textContent = empty ? "empty" : n ? `−${n}` : "";
+        };
+        used.addEventListener("change", sync);
+        fa.addEventListener("change", () => { if (fa.checked) used.checked = true; sync(); });
+        ammoRows.push({ name: a.name, used, fa });
+        ammoBlock.append(el("div", { class: "sh-cal-ammo-row" },
+          el("span", {}, el("b", {}, a.name), el("span", { class: "sub" }, ` ${a.qty} left`)),
+          used, fa, cost));
+      });
+    }
+
+    const modal = el("div", { class: "card mount-modal sh-cal-modal" },
+      el("h3", {}, `Time Passes — ${calendarLabel(from)} → ${calendarLabel(to)}`),
+      el("p", { class: "hint" },
+        "What happened this month, and what it cost. Nothing is written until you "
+        + "advance, and the month can be undone afterwards."),
+      el("div", { class: "sh-cal-block" },
+        el("div", { class: "sh-cal-legend" }, "Missions taken"), missions),
+      el("div", { class: "sh-cal-block" },
+        el("div", { class: "sh-cal-legend" }, "Sector actions taken"), sectors),
+      lsBlock, ammoBlock,
+      lifespan != null
+        ? el("p", { class: "hint sh-cal-lifespan" },
+            `⏳ Replicant lifespan ${lifespan} → ${Math.max(0, lifespan - 1)} months.`)
+        : null,
+      el("div", { style: "display:flex;gap:8px;flex-wrap:wrap;margin-top:14px" },
+        el("button", { class: "btn-add", onclick: () => {
+          const picked = choices.find(c => c.input.checked);
+          if (!picked) { alert("Pick how this month's lifestyle is covered."); return; }
+          const [kind, name] = picked.value.split(":");
+          done({
+            missions: missions.value, sector_actions: sectors.value,
+            lifestyle: kind === "spend" ? { action: "spend", name }
+              : kind === "buy" ? { action: "buy", name: buySel.value }
+              : { action: "squatter", name: "Squatter" },
+            ammo: ammoRows.map(r => ({ name: r.name, fa: r.fa.checked,
+                                       used: r.fa.checked ? 2 : r.used.checked ? 1 : 0 }))
+                          .filter(r => r.used > 0),
+          });
+        } }, "Advance the month"),
+        el("button", { class: "btn ghost", onclick: () => done(null) }, "Cancel")));
+    backdrop.append(modal);
+    backdrop.addEventListener("click", e => { if (e.target === backdrop) done(null); });
+    document.addEventListener("keydown", onKey);
+    document.body.append(backdrop);
+    missions.focus();
+  });
+}
+
+/* Ask, then write. Every write is recorded on the entry in the form its undo
+   needs — what the months WERE, what the lifespan WAS — rather than being
+   recomputed later against numbers that have since moved. */
+async function runTimePasses() {
+  const cal = calendarState();
+  const from = calendarNow();
+  const to = calendarDateAfter(cal.start, cal.months_elapsed + 1);
+  const result = await promptTimePasses(from, to);
+  if (!result) return;
+  const play = CHAR.play;
+  const id = `cal-${Date.now()}`;
+  const entry = { id, month: from.month, year: from.year,
+    missions: result.missions, sector_actions: result.sector_actions,
+    prev_active: (play.lifestyles || []).find(l => l.active) ? (play.lifestyles.find(l => l.active).name) : null,
+    lifestyle: null, ammo: [], lifespan: null };
+
+  // --- lifestyle. A bought month is added and then spent, as two ledger rows:
+  // that is what actually happens, it reuses the ledger's own undo kinds, and
+  // it leaves the month count where a player expects to find it.
+  const choice = result.lifestyle;
+  const ls = ensureLifestyle(choice.name);
+  const tag = () => { if (play.cash_log[0]) play.cash_log[0].cal = id; };
+  let cost = 0, bought = false, spent = false;
+  if (choice.action === "buy") {
+    cost = lifestyleMonthlyCost(choice.name);
+    if (play.cash < cost
+        && !confirm(`A month of ${choice.name} costs ${fmt(cost)} but you have ${fmt(play.cash)}. Overdraw?`))
+      return;
+    ls.months = (ls.months || 0) + 1;
+    logCash(`Prepaid 1 month of ${choice.name} lifestyle`, -cost,
+      { kind: "lifestyle_month", name: choice.name });
+    tag();
+    bought = true;
+  }
+  if ((ls.months || 0) > 0) {
+    const before = ls.months;
+    ls.months = before - 1;
+    logCash(`Sector turn: 1 month of ${choice.name} lifestyle`, 0,
+      { kind: "lifestyle_adjust", name: choice.name, from: before });
+    tag();
+    spent = true;
+  } else {
+    logCash(`Sector turn: living rough (${choice.name})`, 0);
+    tag();
+  }
+  setActiveLifestyle(choice.name);
+  entry.lifestyle = { name: choice.name, spent_month: spent, bought, cost };
+
+  // --- ammunition. adjustOwned floors at 0 and writes its own ledger line, so
+  // a stack that ran out mid-month records what actually came off it.
+  for (const a of result.ammo) {
+    const moved = moveAmmoByName(a.name, -a.used);
+    if (moved) entry.ammo.push({ name: a.name, used: -moved, fa: !!a.fa });
+  }
+
+  // --- the Replicant clock, floored at 0: the fiction ends at 0, the counter
+  // doesn't go negative to say so.
+  if (CHAR.heritage.type === "Replicant" && play.replicant_lifespan_months != null) {
+    const was = toIntSafe(play.replicant_lifespan_months);
+    play.replicant_lifespan_months = Math.max(0, was - 1);
+    entry.lifespan = { from: was, to: play.replicant_lifespan_months };
+  }
+
+  cal.entries.unshift(entry);
+  cal.months_elapsed += 1;
+  await playChangedRecalc();
+  renderSheet();
+}
+
+/* Take the newest month back. Reverses the same list in the same order, then
+   removes the ledger rows this month wrote — matched by the entry's own id
+   rather than by position, so anything logged since is left alone. */
+async function undoCalendarEntry(entry) {
+  const cal = calendarState();
+  if (cal.entries[0] !== entry) return;             // newest only
+  const play = CHAR.play;
+  const bits = [`The date goes back to ${calendarLabel(entry)}`];
+  const ls = entry.lifestyle || {};
+  if (ls.spent_month) bits.push(`1 month of ${ls.name} is returned`);
+  if (ls.bought) bits.push(`${fmt(ls.cost || 0)} for the month you bought comes back`);
+  (entry.ammo || []).forEach(a => bits.push(`${a.used} ${a.name} goes back on the shelf`));
+  if (entry.lifespan) bits.push(`Replicant lifespan back to ${entry.lifespan.from}`);
+  bits.push("The month's missions and sector actions are deleted");
+  if (!confirm(`Undo ${calendarLabel(entry)}?\n\n  · ${bits.join("\n  · ")}`)) return;
+
+  if (ls.name) {
+    const live = (play.lifestyles || []).find(l => l.name === ls.name);
+    if (live) {
+      if (ls.spent_month) live.months = (live.months || 0) + 1;
+      if (ls.bought) live.months = Math.max(0, (live.months || 0) - 1);
+    }
+  }
+  for (const a of (entry.ammo || [])) moveAmmoByName(a.name, a.used);
+  if (entry.lifespan) play.replicant_lifespan_months = entry.lifespan.from;
+  if (entry.prev_active) setActiveLifestyle(entry.prev_active);
+
+  // The rows this month wrote, cash and all, taken back off the ledger.
+  play.cash_log = (play.cash_log || []).filter(row => {
+    if (row.cal !== entry.id) return true;
+    play.cash -= row.delta || 0;
+    return false;
+  });
+  cal.entries.shift();
+  cal.months_elapsed = Math.max(0, cal.months_elapsed - 1);
+  await playChangedRecalc();
+  renderSheet();
+}
+
 function notesCard(rows) {
   // Read-only shares must not invite typing that will silently not persist --
   // schedulePlaySave() already returns early, but nothing said so. The attribute
@@ -9921,13 +10357,10 @@ function lifestyleCard() {
     el("p", { class: "hint" },
       "Each sector turn requires eliminating one month of pre-purchased lifestyle "
       + "or paying upkeep for your desired lifestyle."));
-  // Hyperthyroid raises lifestyle cost 10% (matches HYPERTHYROID_LIFESTYLE_SURCHARGE in rules.js).
-  const hasHyperthyroid = allAugmentsOwned()
-    .some(a => a.name === "Hyperthyroid");
-  const lifestyleSurcharge = hasHyperthyroid ? 1.10 : 1;
   play.lifestyles.forEach((ls, i) => {
-    const row = DATA.tables.lifestyles.find(x => x.Lifestyle === ls.name) || {};
-    const monthly = Math.round((+row.MonthlyCost || 0) * lifestyleSurcharge);
+    // Hyperthyroid's 10% is in lifestyleMonthlyCost, shared with the Time
+    // Passes dialog so the two can't quote different prices for one month.
+    const monthly = lifestyleMonthlyCost(ls.name);
     card.append(el("div", { class: "sh-advrow" + (ls.active ? " active-row" : "") },
       el("span", {},
         el("input", { type: "radio", name: "ls-active", title: "Set as current lifestyle",
@@ -12040,7 +12473,7 @@ function shNotes(body) {
   // collapses to one column, and wrappers keep the phone order description ->
   // notes -> dossier -> images instead of splitting the two textareas apart.
   body.append(el("div", { class: "sh-notes-top" },
-    el("div", { class: "sh-notes-col" }, descriptionCard(), notes),
+    el("div", { class: "sh-notes-col" }, descriptionCard(), calendarCard(), notes),
     el("div", { class: "sh-notes-col" }, dossier, imagesCard())));
   const traits = heritageTraitsCard();
   if (traits) body.append(traits);
