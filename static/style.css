@@ -1252,6 +1252,16 @@ label.opt input{margin-top:3px}
 .sh-cal-ammo-row{padding:2px 0;border-bottom:1px dashed var(--line-dash)}
 .sh-cal-ammo-row input{justify-self:center}
 .sh-cal-ammo-cost{text-align:right;font-family:var(--mono);color:var(--mcp)}
+/* Awards: mission on the left, the two numbers in fixed columns under their
+   headings, so a long run name can't push the fields out of line. */
+.sh-cal-award-head,.sh-cal-award-row{display:grid;grid-template-columns:1fr 74px 96px;
+  align-items:center;gap:6px}
+.sh-cal-award-head{font-family:var(--disp);font-size:10px;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--dim);text-align:center}
+.sh-cal-award-head span:first-child{text-align:left}
+.sh-cal-award-row{padding:2px 0}
+.sh-cal-award-row input{width:100%;min-width:0}
+.sh-cal-award-name{overflow-wrap:anywhere;font-size:12.5px}
 .sh-cal-lifespan{margin:12px 0 0;color:var(--amber)}
 @media (max-width:900px){
   .sh-cal-prose{grid-template-columns:1fr;gap:0}

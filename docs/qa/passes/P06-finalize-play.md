@@ -1891,6 +1891,50 @@ path by which play could reach into the creation record.
   calendar all describe the same month.
 - **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
 
+### P06-063: A mission's Kismet and payout land on the character, and come back with the month
+- **Type:** correctness
+- **Steps:** load `kitchen-sink-final.json` and enter play mode. Stub
+  `alert`/`confirm` per P00 §3 — the case reads an alert and answers a confirm.
+- **Check:**
+
+      (async () => { CHAR.play.calendar.start = { month: 12, year: 2070 }; await playChangedRecalc(); sheetTab = "notes"; renderSheet(); await new Promise(r => setTimeout(r, 150)); const snap = () => ({ kismet: CHAR.play.kismet, lifetime: CHAR.play.kismet_earned, cash: CHAR.play.cash, entries: CHAR.play.calendar.entries.length }); const before = snap(); [...document.querySelectorAll("button")].find(b => /Time Passes/.test(b.textContent)).click(); await new Promise(r => setTimeout(r, 250)); const m = document.querySelector(".sh-cal-modal"); const ta = m.querySelectorAll("textarea")[0]; const emptyHint = !!m.querySelector(".sh-cal-award-row"); ta.value = "Ghost run on Renraku sublevel\nEscort the fixer to Sector 9"; ta.dispatchEvent(new Event("input", { bubbles: true })); await new Promise(r => setTimeout(r, 100)); const rows = [...m.querySelectorAll(".sh-cal-award-row")]; const set = (row, idx, v) => { const i = row.querySelectorAll("input")[idx]; i.value = String(v); i.dispatchEvent(new Event("input", { bubbles: true })); }; set(rows[0], 0, 3); set(rows[0], 1, 5000); set(rows[1], 0, 1); ta.value = "Ghost run on Renraku sublevel (Renraku)\nEscort the fixer to Sector 9"; ta.dispatchEvent(new Event("input", { bubbles: true })); await new Promise(r => setTimeout(r, 100)); const keptWhileTyping = [...m.querySelectorAll(".sh-cal-award-row")].map(r => [...r.querySelectorAll("input")].map(i => i.value)); [...m.querySelectorAll("button")].find(b => /Advance the month/.test(b.textContent)).click(); await new Promise(r => setTimeout(r, 400)); const after = snap(); const awards = CHAR.play.calendar.entries[0].awards; const tagged = { kismet: CHAR.play.kismet_log.filter(r => r.cal).map(r => r.label), cash: CHAR.play.cash_log.filter(r => r.cal).map(r => r.label) }; const spent = CHAR.play.kismet; CHAR.play.kismet = 0; renderSheet(); await new Promise(r => setTimeout(r, 120)); window.__alerts = []; document.querySelector(".sh-cal-entry button").click(); await new Promise(r => setTimeout(r, 300)); const refused = { alert: window.__alerts[0], entries: CHAR.play.calendar.entries.length, lifetime: CHAR.play.kismet_earned }; CHAR.play.kismet = spent; renderSheet(); await new Promise(r => setTimeout(r, 120)); document.querySelector(".sh-cal-entry button").click(); await new Promise(r => setTimeout(r, 400)); const undone = snap(); return { awardsHiddenUntilTyped: !emptyHint, keptWhileTyping, before, after, awards, tagged, refused, undone }; })()
+
+- **Expected:**
+
+      { "awardsHiddenUntilTyped": true,
+        "keptWhileTyping": [["3", "5000"], ["1", ""]],
+        "before": { "kismet": 12, "lifetime": 30, "cash": 1500, "entries": 0 },
+        "after":  { "kismet": 16, "lifetime": 34, "cash": 6500, "entries": 1 },
+        "awards": [{ "mission": "Ghost run on Renraku sublevel (Renraku)", "kismet": 3, "cash": 5000 },
+                   { "mission": "Escort the fixer to Sector 9", "kismet": 1, "cash": 0 }],
+        "tagged": { "kismet": ["Escort the fixer to Sector 9 — Kismet award",
+                               "Ghost run on Renraku sublevel (Renraku) — Kismet award"],
+                    "cash":   ["Ghost run on Renraku sublevel (Renraku) — payout",
+                               "Sector turn: 1 month of Low lifestyle"] },
+        "refused": { "alert": "December 2070 can't be undone yet.\n\nThat award gave 4 Kismet and only 0 is still unspent. Undo what it paid for first, then undo the award.",
+                     "entries": 1, "lifetime": 34 },
+        "undone": { "kismet": 12, "lifetime": 30, "cash": 1500, "entries": 0 } }
+
+- **Note:** Awards are attached to the MISSION, not to the month: the rows are
+  built from the mission lines and each ledger entry is named after the run that
+  paid it, which is the form the question takes later ("what did the Renraku job
+  actually pay?"). `keptWhileTyping` guards the mechanism — the rows are rebuilt
+  on every keystroke in the missions box and the numbers are held BY LINE INDEX,
+  so a name still being typed doesn't drop the award beside it.
+
+  `lifetime` is the load-bearing figure. Kismet goes through `awardKismet`, which
+  raises the lifetime total as well as the balance — that total sizes the Kismet
+  die pool and the boon milestones, so an award that only moved the balance would
+  quietly cost the character a boon. Undo runs back through `undoKismetSpend` for
+  the same reason.
+
+  `refused` is the case that matters most: the month-undo asks
+  `kismetUndoBlocker` FIRST and refuses as a whole when the awarded Kismet has
+  already been spent. `entries` is still 1 and `lifetime` still 34 — nothing was
+  half-undone. A version that reversed the ammunition and the lifestyle month and
+  then stalled on the Kismet would leave the sheet in a state no one asked for.
+- **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
+
 ---
 
 ## Wrapping up

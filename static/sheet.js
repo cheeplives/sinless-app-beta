@@ -417,29 +417,43 @@ function speakerKismetSection(spend) {
 /* "2nd" / "3rd" / "4th" — only ever called with 2-4. */
 function ordinalish(n) { return n + (n === 2 ? "nd" : n === 3 ? "rd" : "th"); }
 
+/* Why taking `n` Kismet back would be unsafe, or null when it is fine.
+ *
+ * Two states make it unsafe and both REFUSE rather than force it (#76) --
+ * quietly un-redeeming a boon, or driving the balance negative, is worse than
+ * asking for the undo in order. Shared by the single-entry undo below and by
+ * the calendar's month-undo, which has to know BEFORE it starts whether the
+ * whole month can come back; a month that reversed its ammunition and then
+ * stalled on the Kismet would be worse than one that refused outright. */
+function kismetUndoBlocker(n) {
+  const play = CHAR.play;
+  const want = Math.max(0, +n || 0);
+  if (!want) return null;
+  if (play.kismet < want) {
+    return `That award gave ${want} Kismet and only ${play.kismet} is still unspent. `
+      + "Undo what it paid for first, then undo the award.";
+  }
+  const lifetimeAfter = Math.max(0, (play.kismet_earned || 0) - want);
+  const incAfter = Math.floor(lifetimeAfter / 10);
+  const majorsAfter = Math.floor(incAfter / 2);
+  if ((play.major_boons_spent || 0) > majorsAfter
+      || (play.boons_spent || 0) > incAfter - majorsAfter) {
+    return "Undoing this would drop the lifetime total below a milestone whose "
+      + "boon has already been redeemed. Undo the boon first.";
+  }
+  return null;
+}
+
 function undoKismetSpend(entry) {
   const play = CHAR.play;
   const idx = play.kismet_log.indexOf(entry);
   // An AWARD runs the other way: it handed out Kismet and raised the lifetime
-  // total, so undoing has to take back both (#76). Two states make that unsafe,
-  // and both REFUSE rather than force it -- quietly un-redeeming a boon, or
-  // driving the balance negative, is worse than asking for the undo in order.
+  // total, so undoing has to take back both (#76).
   if (idx >= 0 && entry.undo && entry.undo.kind === "award") {
     const n = Math.max(0, +entry.delta || 0);
-    if (play.kismet < n) {
-      alert(`That award gave ${n} Kismet and only ${play.kismet} is still unspent. `
-        + "Undo what it paid for first, then undo the award.");
-      return;
-    }
+    const blocked = kismetUndoBlocker(n);
+    if (blocked) { alert(blocked); return; }
     const lifetimeAfter = Math.max(0, (play.kismet_earned || 0) - n);
-    const incAfter = Math.floor(lifetimeAfter / 10);
-    const majorsAfter = Math.floor(incAfter / 2);
-    if ((play.major_boons_spent || 0) > majorsAfter
-        || (play.boons_spent || 0) > incAfter - majorsAfter) {
-      alert("Undoing this would drop the lifetime total below a milestone whose "
-        + "boon has already been redeemed. Undo the boon first.");
-      return;
-    }
     play.kismet -= n;
     play.kismet_earned = lifetimeAfter;
     // The Kismet die pool is sized off the lifetime total, so a smaller total
@@ -7629,6 +7643,9 @@ function calendarEntryRow(entry, undoable) {
     lines.push(["Ammo", entry.ammo
       .map(a => `${a.name} ×${a.used}${a.fa ? " (FA)" : ""}`).join(" · ")]);
   }
+  (entry.awards || []).forEach(a => lines.push(["Award",
+    `${a.mission} — ${[a.kismet ? `${a.kismet} Kismet` : null,
+                       a.cash ? fmt(a.cash) : null].filter(Boolean).join(" · ")}`]));
   if (entry.lifespan) lines.push(["Lifespan", `${entry.lifespan.from} → ${entry.lifespan.to} months`]);
   const prose = (label, text) => {
     const t = String(text || "").trim();
@@ -7671,6 +7688,42 @@ function promptTimePasses(from, to) {
 
     const missions = el("textarea", { rows: "3", placeholder: "One mission per line…" });
     const sectors = el("textarea", { rows: "3", placeholder: "One sector action per line…" });
+
+    // Awards hang off the missions rather than off the month: "who paid for
+    // this" is the question a table actually asks later, and a lump sum for a
+    // month with three runs in it answers none of it. The rows are built from
+    // whatever is typed above — one per non-empty line, rebuilt as you type,
+    // with what has been entered kept BY LINE INDEX so a name growing a letter
+    // at a time doesn't drop the numbers beside it.
+    const awardValues = [];
+    const awardRows = el("div", {});
+    const missionLines = () => missions.value.split("\n").map(s => s.trim()).filter(Boolean);
+    const renderAwards = () => {
+      const lines = missionLines();
+      awardRows.innerHTML = "";
+      if (!lines.length) {
+        awardRows.append(el("p", { class: "hint", style: "margin:0" },
+          "Type a mission above to award Kismet or "
+          + `${RULES.currencyName().toLowerCase()} for it.`));
+        return;
+      }
+      awardRows.append(el("div", { class: "sh-cal-award-head" },
+        el("span", {}, ""), el("span", {}, "Kismet"), el("span", {}, RULES.currencySymbol())));
+      lines.forEach((line, i) => {
+        const at = awardValues[i] = awardValues[i] || { kismet: 0, cash: 0 };
+        const num = (key, min) => {
+          const input = el("input", { type: "number", min: String(min), step: "1",
+            "aria-label": `${line} ${key === "kismet" ? "Kismet" : RULES.currencyName()} award`,
+            oninput: e => { at[key] = Math.max(min, parseInt(e.target.value, 10) || 0); } });
+          input.value = at[key] ? String(at[key]) : "";
+          return input;
+        };
+        awardRows.append(el("div", { class: "sh-cal-award-row" },
+          el("span", { class: "sh-cal-award-name" }, line),
+          num("kismet", 0), num("cash", 0)));
+      });
+    };
+    missions.addEventListener("input", renderAwards);
 
     // Lifestyle: one flat radio group over every way the month can be paid for,
     // so the "I own one", "I own one with nothing left on it" and "I own none"
@@ -7745,6 +7798,8 @@ function promptTimePasses(from, to) {
         el("div", { class: "sh-cal-legend" }, "Missions taken"), missions),
       el("div", { class: "sh-cal-block" },
         el("div", { class: "sh-cal-legend" }, "Sector actions taken"), sectors),
+      el("div", { class: "sh-cal-block" },
+        el("div", { class: "sh-cal-legend" }, "Awards, by mission"), awardRows),
       lsBlock, ammoBlock,
       lifespan != null
         ? el("p", { class: "hint sh-cal-lifespan" },
@@ -7757,6 +7812,10 @@ function promptTimePasses(from, to) {
           const [kind, name] = picked.value.split(":");
           done({
             missions: missions.value, sector_actions: sectors.value,
+            awards: missionLines().map((mission, i) => ({ mission,
+              kismet: Math.max(0, (awardValues[i] || {}).kismet || 0),
+              cash: Math.max(0, (awardValues[i] || {}).cash || 0) }))
+              .filter(a => a.kismet || a.cash),
             lifestyle: kind === "spend" ? { action: "spend", name }
               : kind === "buy" ? { action: "buy", name: buySel.value }
               : { action: "squatter", name: "Squatter" },
@@ -7769,6 +7828,7 @@ function promptTimePasses(from, to) {
     backdrop.append(modal);
     backdrop.addEventListener("click", e => { if (e.target === backdrop) done(null); });
     document.addEventListener("keydown", onKey);
+    renderAwards();
     document.body.append(backdrop);
     missions.focus();
   });
@@ -7788,7 +7848,7 @@ async function runTimePasses() {
   const entry = { id, month: from.month, year: from.year,
     missions: result.missions, sector_actions: result.sector_actions,
     prev_active: (play.lifestyles || []).find(l => l.active) ? (play.lifestyles.find(l => l.active).name) : null,
-    lifestyle: null, ammo: [], lifespan: null };
+    lifestyle: null, ammo: [], awards: [], lifespan: null };
 
   // --- lifestyle. A bought month is added and then spent, as two ledger rows:
   // that is what actually happens, it reuses the ledger's own undo kinds, and
@@ -7822,6 +7882,20 @@ async function runTimePasses() {
   setActiveLifestyle(choice.name);
   entry.lifestyle = { name: choice.name, spent_month: spent, bought, cost };
 
+  // --- what the missions paid. Both ledgers do their own bookkeeping: Kismet
+  // through awardKismet (which raises the lifetime total the boon milestones
+  // are sized off, not just the balance), money through logCash. Each row is
+  // tagged with this month so the undo can find exactly these and nothing else,
+  // and each is named after the mission that paid it.
+  for (const a of (result.awards || [])) {
+    if (a.kismet > 0) {
+      awardKismet(`${a.mission} — Kismet award`, a.kismet);
+      if (play.kismet_log[0]) play.kismet_log[0].cal = id;
+    }
+    if (a.cash > 0) { logCash(`${a.mission} — payout`, a.cash); tag(); }
+    entry.awards.push({ mission: a.mission, kismet: a.kismet || 0, cash: a.cash || 0 });
+  }
+
   // --- ammunition. adjustOwned floors at 0 and writes its own ledger line, so
   // a stack that ran out mid-month records what actually came off it.
   for (const a of result.ammo) {
@@ -7850,11 +7924,23 @@ async function undoCalendarEntry(entry) {
   const cal = calendarState();
   if (cal.entries[0] !== entry) return;             // newest only
   const play = CHAR.play;
+  const play0 = CHAR.play;
+  // Kismet first, and only as a question: an award that has already been SPENT,
+  // or that carried the character past a boon milestone they have redeemed,
+  // cannot come back — and a month that reversed its ammunition and then stalled
+  // there would be worse than one that refused as a whole.
+  const kismetBack = (entry.awards || []).reduce((n, a) => n + (a.kismet || 0), 0);
+  const blocked = kismetUndoBlocker(kismetBack);
+  if (blocked) { alert(`${calendarLabel(entry)} can't be undone yet.\n\n${blocked}`); return; }
+
   const bits = [`The date goes back to ${calendarLabel(entry)}`];
   const ls = entry.lifestyle || {};
   if (ls.spent_month) bits.push(`1 month of ${ls.name} is returned`);
   if (ls.bought) bits.push(`${fmt(ls.cost || 0)} for the month you bought comes back`);
   (entry.ammo || []).forEach(a => bits.push(`${a.used} ${a.name} goes back on the shelf`));
+  (entry.awards || []).forEach(a => bits.push(
+    `${a.mission} takes back ${[a.kismet ? `${a.kismet} Kismet` : null,
+                               a.cash ? fmt(a.cash) : null].filter(Boolean).join(" and ")}`));
   if (entry.lifespan) bits.push(`Replicant lifespan back to ${entry.lifespan.from}`);
   bits.push("The month's missions and sector actions are deleted");
   if (!confirm(`Undo ${calendarLabel(entry)}?\n\n  · ${bits.join("\n  · ")}`)) return;
@@ -7867,6 +7953,9 @@ async function undoCalendarEntry(entry) {
     }
   }
   for (const a of (entry.ammo || [])) moveAmmoByName(a.name, a.used);
+  // The Kismet rows go back through the ledger's own undo, which is what knows
+  // to walk the lifetime total back as well as the balance.
+  for (const row of (play0.kismet_log || []).filter(r => r.cal === entry.id)) undoKismetSpend(row);
   if (entry.lifespan) play.replicant_lifespan_months = entry.lifespan.from;
   if (entry.prev_active) setActiveLifestyle(entry.prev_active);
 
