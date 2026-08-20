@@ -10723,7 +10723,18 @@ function shDecking(body) {
           ? counterBtn("↻", () => { refreshMcpDice(); playChanged(); }, "good")
           : null,
         el("span", { class: "chip" + (dk.loaded.length > threads ? " neg" : "") },
-          `Loaded ${dk.loaded.length} / ${threads}`))),
+          `Loaded ${dk.loaded.length} / ${threads}`),
+        // Bulk counterpart to the per-program Unload below, parked on the
+        // thread count because that is the number it zeroes. Hidden rather
+        // than disabled with nothing loaded: an empty deck has nothing to
+        // say about unloading. Frees threads only — a program stays owned,
+        // and loading costs no actions, so neither does clearing them.
+        dk.loaded.length
+          ? el("button", { class: "btn small",
+              title: `Unload all ${dk.loaded.length} program(s), freeing every thread. `
+                + "Costs no Actions; the programs stay owned.",
+              onclick: () => { dk.loaded = []; playChanged(); } }, "Unload All")
+          : null)),
     hackBox);   // the Hacking program lives at the top of the Programs section
   // Programs whose I/O is N/A or No are never loaded onto threads — they run
   // without occupying a thread slot, so no Load button is shown for them. The
