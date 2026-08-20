@@ -36,7 +36,7 @@ const BUNDLE = (typeof DATA_BUNDLE !== "undefined")
  * default fill claim this build made it: "unknown" is a fact worth keeping,
  * and a confidently wrong version is worse than none when you are working out
  * why an old file behaves oddly. */
-const APP_VERSION = "333";
+const APP_VERSION = "335";
 
 // ============================================================== game constants
 // The numeric knobs the engine reads; grouped by chargen step below.
@@ -2288,6 +2288,9 @@ function tallyAugments(character, data, warnings, errors, playErrors) {
     }
     if (entry.slotted === false) continue;
     slottedSkillsoftCount++;
+    // Beyond the Chipjack cap (e.g. a Chipjack was removed after this was
+    // slotted), the excess grants no bonus — the error below just explains why.
+    if (slottedSkillsoftCount > chipjackCount) continue;
     skillsoftLevels[target] = Math.max(skillsoftLevels[target] || 0, level);
   }
   if (slottedSkillsoftCount > chipjackCount) {

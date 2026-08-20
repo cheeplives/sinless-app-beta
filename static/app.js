@@ -1772,7 +1772,21 @@ function tabAugments(p) {
     sortBy: sortedAZ("augments")
       ? (a, b) => String(a.name).localeCompare(String(b.name)) : null,
     picker: categoryBrowser({ id: "augments", groups: augGroups,
-      onAdd: n => CHAR.augments.push({ name: n, count: 1 }) }),
+      // A freshly-added Skillsoft only starts slotted if a free Chipjack is
+      // still available — otherwise it lands unslotted rather than silently
+      // busting the cap (recomputed here, not the stale render-time counts,
+      // since several can be added before the panel re-renders).
+      onAdd: n => {
+        const entry = { name: n, count: 1 };
+        if (n.startsWith("Skillsoft")) {
+          const jacks = CHAR.augments.filter(a => a.name === "Chipjack")
+            .reduce((sum, a) => sum + (a.count || 1), 0);
+          const slotted = CHAR.augments
+            .filter(a => a.name.startsWith("Skillsoft") && a.slotted !== false).length;
+          if (slotted >= jacks) entry.slotted = false;
+        }
+        CHAR.augments.push(entry);
+      } }),
     onRemove: i => CHAR.augments.splice(i, 1),
     render: (it, i, del) => {
       const r = DATA.tables.augments.find(x => x.Name === it.name) || {};

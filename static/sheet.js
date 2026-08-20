@@ -10360,8 +10360,10 @@ function shAugments(body) {
         target, gunSel, qualitySel),
       countCell,
       el("td", {}, alphaCell),
-      el("td", {}, slottedCell),
-      el("td", { class: "sub" }, effectText,
+      el("td", { class: "num" }, r.BI ? String(+r.BI) : el("span", { class: "sub" }, "—")),
+      el("td", { class: "sub" },
+        isSkillsoft ? el("div", {}, slottedCell) : null,
+        effectText,
         descriptionExpander(r.Description, `augments:${a.name}`)),
       // Cyberware comes out surgically: there is no resale market for a used
       // arm, so the dialog opens with nothing offered. A table that wants to
@@ -10377,7 +10379,7 @@ function shAugments(body) {
   for (const type of types) {
     const t = el("table");
     t.append(el("tr", {}, el("th", {}, "Augment"), el("th", { class: "num" }, "×"),
-      el("th", {}, "α-cyber"), el("th", {}, "Slotted"), el("th", {}, "Effect"), el("th", {}, "")));
+      el("th", {}, "α-cyber"), el("th", {}, "BI"), el("th", {}, "Effect"), el("th", {}, "")));
     byType[type].forEach(en => t.append(augmentRow(en)));
     body.append(el("div", { class: "card sh-card" }, el("h3", {}, type), t));
   }
@@ -10576,7 +10578,20 @@ async function buyAugment(name, mult) {
   const existing = isStackableAugment(name)
     && CHAR.play.purchases.augments.find(a => a.name === name && !a.alpha);
   if (existing) existing.count = (existing.count || 1) + 1;
-  else CHAR.play.purchases.augments.push({ name, count: 1 });
+  else {
+    const entry = { name, count: 1 };
+    // A freshly-bought Skillsoft only starts slotted if a free Chipjack is
+    // still available — otherwise it lands unslotted rather than silently
+    // busting the cap.
+    if (name.startsWith("Skillsoft")) {
+      const jacks = owned.filter(a => a.name === "Chipjack")
+        .reduce((sum, a) => sum + (a.count || 1), 0);
+      const slotted = owned
+        .filter(a => a.name.startsWith("Skillsoft") && a.slotted !== false).length;
+      if (slotted >= jacks) entry.slotted = false;
+    }
+    CHAR.play.purchases.augments.push(entry);
+  }
   logCash(`Installed ${name}`, -cost, { kind: "augment", name });
   await playChangedRecalc();
 }
