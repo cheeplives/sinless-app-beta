@@ -7475,6 +7475,10 @@ function trackedEffectList(title, items, addLabel, placeholder, emptyText) {
  */
 const MONTH_NAMES = ["January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December"];
+/* The year a campaign starts in unless the player says otherwise. The setting's
+   year, not this one: picking a month used to fill in whatever year the wall
+   clock said, which dated every fresh character to the real world. */
+const CAMPAIGN_DEFAULT_YEAR = 2090;
 
 function calendarState() {
   const play = CHAR.play;
@@ -7585,7 +7589,7 @@ function calendarCard() {
   const monthSel = el("select", { "aria-label": "Campaign start month",
     ...(ro ? { disabled: "1" } : {}),
     onchange: e => {
-      cal.start = { month: +e.target.value, year: (cal.start && cal.start.year) || new Date().getFullYear() };
+      cal.start = { month: +e.target.value, year: (cal.start && cal.start.year) || CAMPAIGN_DEFAULT_YEAR };
       playChanged();
     } },
     el("option", { value: "" }, "MM"),
