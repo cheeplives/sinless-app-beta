@@ -4721,11 +4721,23 @@ function gunneryRollSpec(accuracy, bonuses = []) {
  * Fire, Reload and Aimed Fire all spend from the "Rigging" Exploit Actions a
  * jumped-in rig's cores grant before reaching for a Simple Action — a
  * rigger directs a mount through the same exploit pool the Rigging tab
- * already lists, not through a personal weapon's action economy. */
-function unitGunControls(table, unit, wi, wn, wr, isEnergy, ammoMods = null) {
+ * already lists, not through a personal weapon's action economy.
+ *
+ * `hotseat` adds the equipped VCR's Bonus Dice to every roll this mount makes
+ * (#87): jacked in, you are flying the thing, and the rig's rating is what that
+ * is worth. A mount on a linked-but-unseated drone rolls bare Gunnery — the
+ * controls render either way, the dice differ. */
+function unitGunControls(table, unit, wi, wn, wr, isEnergy, ammoMods = null,
+                         hotseat = false) {
   const ro = !!(activeTabObj() && activeTabObj().readonly);
   const st = unitGunState(table, unit, wi);
   const wrap = el("div", { class: "sh-fire" });
+  // Built once here rather than at each of the three call sites below, so the
+  // ordinary Fire, the Aimed Fire and the energy mount's shot can't disagree
+  // about whether the rig is helping.
+  const rigDice = hotseat ? hotseatBonusDice() : 0;
+  const rigBonus = rigDice
+    ? [{ label: `${(rigFlags().active_rig || "VCR")} hotseat`, dice: rigDice }] : [];
 
   if (isEnergy) {
     const per = parseInt(wr.Heat, 10) || 0;
@@ -4741,7 +4753,7 @@ function unitGunControls(table, unit, wi, wn, wr, isEnergy, ammoMods = null) {
     // of Heat (when the row rates one) the same way Fire spends a round.
     if (!ro) {
       const overheated = !!(max && cur() + per > max);
-      const rollSpec = gunneryRollSpec(wr.Accuracy);
+      const rollSpec = gunneryRollSpec(wr.Accuracy, rigBonus);
       const aimed = aimedFireButton(rollSpec, wn, "SS", {
         disabled: overheated,
         disabledTitle: "Not enough heat capacity left for another shot",
@@ -4779,7 +4791,7 @@ function unitGunControls(table, unit, wi, wn, wr, isEnergy, ammoMods = null) {
       `${loaded}/${maxAmmo} rds`));
     // Same skill+Accuracy math as a personal weapon's Fire button, just off
     // Gunnery instead of a Type-mapped skill — see gunneryRollSpec().
-    const bonuses = [];
+    const bonuses = [...rigBonus];
     if (md.dice) bonuses.push({ label: mode, dice: md.dice });
     const rollSpec = gunneryRollSpec(wr.Accuracy, bonuses);
     const rollable = rollSpec && !rollSpec.locked && (rollSpec.limitDice + rollSpec.bonus) > 0;
@@ -4797,9 +4809,12 @@ function unitGunControls(table, unit, wi, wn, wr, isEnergy, ammoMods = null) {
           if (rollable)
             openPoolRoller({ dice: rollSpec.limitDice, bonus: rollSpec.bonus,
               pool: rollSpec.pool, label: wn,
+              // rollSpec.bwhy already names every bonus in play (the mode and,
+              // when jacked in, the VCR), so the note attributes the dice
+              // instead of crediting the whole bonus to the firing mode.
               note: `${rollSpec.skill}: ${rollSpec.skillDice} skill`
                 + (rollSpec.acc ? ` + ${rollSpec.acc} Accuracy` : "")
-                + (rollSpec.bonus ? ` + ${rollSpec.bonus} bonus (${mode})` : "") });
+                + (rollSpec.bonus ? ` + ${rollSpec.bonus} bonus (${rollSpec.bwhy.join(", ")})` : "") });
           st.loaded = Math.max(0, loaded - md.ammo);
           playChanged();
         } }, "Fire"),
@@ -4830,6 +4845,58 @@ function unitGunControls(table, unit, wi, wn, wr, isEnergy, ammoMods = null) {
         a.Effect ? `${a.Item} — ${a.Effect}` : a.Item))));
   }
   return wrap;
+}
+
+/* One hotseated unit's guns, ready to fire, for the Overview's Drones on
+ * Station card (#87).
+ *
+ * A compact sibling of the Rigging tab's weapon row, not a second implementation
+ * of it: the same weapon lookup, the same unitLoadedAmmo, and the same
+ * unitGunControls off the same unitGunState — so a magazine emptied from the
+ * Overview is empty on the Rigging tab and vice versa. What it drops is the
+ * editing (sell the gun, fit a mod, rename the unit): those belong where you
+ * outfit the drone, not where you fly it.
+ *
+ * Returns an array of nodes so the caller can spread it; empty for an unarmed
+ * unit, which then simply shows its stat block. */
+function seatWeaponRows(seat) {
+  const cfg = RIG_UNIT_CFG[seat.table];
+  const weapons = seat.u.weapons || [];
+  if (!weapons.length) return [];
+  const findWeapon = wn => {
+    for (const [tk, nc] of cfg.weaponTables) {
+      const wr = DATA.tables[tk].find(x => x[nc] === wn);
+      if (wr) return wr;
+    }
+    return null;
+  };
+  const out = [];
+  weapons.forEach((w, wi) => {
+    const wn = sublistName(w);
+    const wr = findWeapon(wn);
+    if (!wr) return;
+    // Energy mounts run on Heat and carry no Modes/Ammo columns at all — the
+    // same test the Rigging tab makes.
+    const isEnergy = wr["Heat Limit"] !== undefined || wr.Heat !== undefined;
+    const uAmmo = isEnergy ? { row: null, name: "", mods: RULES.ammoStatMods(""), notes: [] }
+                           : unitLoadedAmmo(cfg.table, seat.u, wi, wn);
+    const base = { acc: wr.Accuracy || 0, damage: wr.Damage || "—", pen: wr.Pen || 0 };
+    const shot = uAmmo.row ? RULES.applyAmmoStats(base, uAmmo.mods) : base;
+    const bit = (label, key) => el("span",
+      (uAmmo.row && String(shot[key]) !== String(base[key]))
+        ? { class: "wpn-ammo-mod", title: `${uAmmo.name} loaded` } : {},
+      `${label} ${shot[key]}`);
+    out.push(el("div", { class: "sub", style: "margin:4px 0 4px 4px" },
+      el("b", {}, wn), " ",
+      bit("DMG", "damage"), " · ", bit("Acc", "acc"),
+      wr.Pen ? el("span", {}, " · ") : null, wr.Pen ? bit("Pen", "pen") : null,
+      unitGunControls(cfg.table, seat.u, wi, wn, wr, isEnergy,
+        uAmmo.row ? uAmmo.mods : null, true),
+      uAmmo.notes.length
+        ? el("div", { class: "sub wpn-ammo-note" },
+            `${uAmmo.name}: ${uAmmo.notes.join(" · ")}`) : null));
+  });
+  return out;
 }
 
 /* Firing state for a trait-mounted weapon (a Heavy Torso / No Head free mount).
@@ -5483,8 +5550,17 @@ function shOverview(body) {
   const stationCard = onStation.length
     ? (() => {
         const card = el("div", { class: "card sh-card" }, el("h3", {}, "Drones on Station"));
-        const seat = onStation.find(d => d.hotseat);
-        if (seat) {
+        // Every seat the rig can fly, not just the first (#87). A Master VCR is
+        // four cockpits and the player is in all of them.
+        const seats = onStation.filter(d => d.hotseat);
+        const cap = hotseatCapacity();
+        const rigDice = hotseatBonusDice();
+        if (seats.length)
+          card.append(el("p", { class: "hint" },
+            `${seats.length} of ${cap} core${cap === 1 ? "" : "s"} flying`
+            + (rigDice ? ` · every roll from a seat gains +${rigDice}d from the `
+                         + `${rigFlags().active_rig}` : "")));
+        seats.forEach(seat => {
           const cfg = RIG_UNIT_CFG[seat.table];
           const r = DATA.tables[seat.table].find(x => x[cfg.nameKey] === seat.u.name) || {};
           const { statMods } = unitAttachments(cfg, seat.u);
@@ -5508,10 +5584,14 @@ function shOverview(body) {
             bodyMax ? statLine("Damage",
               `${Math.min(toInt(st.physical), bodyMax)} phys · `
               + `${Math.min(toInt(st.integrity), bodyMax)} integrity`) : null,
-            (seat.u.weapons || []).length
-              ? statLine("Weapons", seat.u.weapons.map(sublistName).join(" · ")) : null,
           ].filter(Boolean));
-        }
+          // The guns, live. This used to be a comma-joined list of names, which
+          // told you what was bolted on and left you to walk to the Rigging tab
+          // to fire any of it — the one tab you are not on while flying. The
+          // controls are the same unitGunControls the Rigging tab builds, off
+          // the same unitGunState, so a magazine spent here is spent there.
+          card.append(...seatWeaponRows(seat));
+        });
         const riders = onStation
           .map(d => ({ d, effect: unitPassiveEffect(d.table, d.u) }))
           .filter(x => x.effect);
@@ -5521,10 +5601,10 @@ function shOverview(body) {
             el("span", { class: "sub", style: "white-space:nowrap" }, d.u.label || d.u.name),
             el("span", { style: "text-align:right;color:var(--manon)" }, effect))));
         }
-        if (!seat && !riders.length)
+        if (!seats.length && !riders.length)
           card.append(el("p", { class: "hint" },
             `${onStation.length} deployed · none carries a passive effect. Tick `
-            + "Hotseat on the Rigging tab to bring a unit's stats up here."));
+            + "Hotseat on the Rigging tab to bring a unit's stats and guns up here."));
         else if (riders.length)
           card.append(el("p", { class: "hint" }, "Applied at the table, not in the numbers above."));
         return card;
@@ -9274,24 +9354,72 @@ function shMinStrControl(entry, row) {
  * "owns a rig" and "has one equipped" are the same state in practice. */
 function hasVcrRig() { return allRigs().length > 0; }
 
-/* "Hotseat": the unit the player is currently piloting. One at a time — you
- * can't be in two cockpits — so ticking one clears the rest. Its stat block is
- * what the Overview puts above the character's own weapons. */
+/* The equipped VCR's stats, or null. `active_rig` is kept pointing at an owned
+ * rig by shRigging, so this is the rig the character is actually jacked in
+ * with — the one whose cores and bonus dice apply. */
+function activeRigStats() {
+  const rg = rigFlags();
+  const r = allRigs().find(x => x.name === rg.active_rig) || allRigs()[0];
+  return r ? RULES.rigStats(r, DATA.tables) : null;
+}
+
+/* How many units this character can hotseat at once: the equipped VCR's cores
+ * (Single 1, Double 2, Quad 4). No rig, no cockpit — 0.
+ *
+ * This replaced a hard one-at-a-time rule (#87). A Master VCR is four cores of
+ * hardware and the fiction is that you are flying four things; the old toggle
+ * cleared every other box on tick, so the fourth core bought nothing the first
+ * one didn't. */
+function hotseatCapacity() {
+  const st = activeRigStats();
+  return st ? st.coreCount : 0;
+}
+
+/* Bonus dice every roll made while hotseating gains, from the equipped VCR
+ * (Basic 2, Advanced 4, Master 6, plus anything a fitted mod adds). */
+function hotseatBonusDice() {
+  const st = activeRigStats();
+  return st ? st.bonusDice : 0;
+}
+
+function hotseatCount() {
+  const rg = rigFlags();
+  return Object.values(rg.hotseat).filter(Boolean).length;
+}
+
+/* Whether THIS unit is one of the seats the rig can actually fly. Asked through
+ * deployedUnits() rather than the raw flag so it agrees with the Overview about
+ * which seats survived a VCR downgrade — a truncated seat must not quietly keep
+ * handing out the rig's bonus dice on the Rigging tab. */
+function isHotseated(table, u) {
+  const key = unitStateKey(table, u);
+  return deployedUnits().some(d => d.hotseat && d.key === key);
+}
+
+/* "Hotseat": a unit the player is currently piloting. Capped at the equipped
+ * VCR's cores rather than one at a time — see hotseatCapacity(). Each seated
+ * unit's stat block and fire controls go to the Overview's Drones on Station
+ * card, because that is what the player is rolling this round. */
 function shHotseatToggle(key, u) {
   const rg = rigFlags();
   const on = !!rg.hotseat[key];
   const rigged = hasVcrRig();
-  return el("label", { class: "sub" + (rigged ? "" : " sh-disabled"),
+  const cap = hotseatCapacity();
+  // Only ticking ON can be refused; a seated unit can always be let go.
+  const atCap = rigged && !on && hotseatCount() >= cap;
+  const blocked = !rigged || atCap;
+  return el("label", { class: "sub" + (blocked ? " sh-disabled" : ""),
       style: "display:inline-flex;align-items:center;gap:6px;margin-top:4px",
-      title: rigged
-        ? `Piloting ${u.label || u.name} — its stats move to the Overview`
-        : "No VCR owned — nothing to jack into. Buy a rig on this tab first." },
+      title: !rigged
+        ? "No VCR owned — nothing to jack into. Buy a rig on this tab first."
+        : atCap
+          ? `All ${cap} core${cap === 1 ? "" : "s"} of the ${rg.active_rig} are flying `
+            + "something — let one go first, or fit a bigger VCR."
+          : `Piloting ${u.label || u.name} — its stats and guns move to the Overview` },
     el("input", { type: "checkbox", ...(on ? { checked: 1 } : {}),
-      ...(rigged ? {} : { disabled: "1" }),
+      ...(blocked ? { disabled: "1" } : {}),
       onchange: e => {
-        const want = e.target.checked;
-        for (const k of Object.keys(rg.hotseat)) rg.hotseat[k] = false;
-        rg.hotseat[key] = want;
+        rg.hotseat[key] = e.target.checked;
         playChanged();
         renderSheet();
       } }),
@@ -11838,9 +11966,10 @@ function shiftUnitStateDown(table, removedAt, newLength) {
  *   active  — deployed WITHOUT a link: it runs itself, costs no link, and its
  *             passive rider (a Shield Drone's dodge reroll, a Bug-Spy's
  *             Observation and Initiative dice) is on the character.
- *   hotseat — the one the player is currently piloting. Its stats belong on the
- *             Overview, above the character's own weapons, because that is what
- *             the player is rolling this round.
+ *   hotseat — a unit the player is currently piloting, capped at the equipped
+ *             VCR's cores (#87). Each seat's stats and fire controls belong on
+ *             the Overview, above the character's own weapons, because that is
+ *             what the player is rolling this round.
  *
  * A linked drone is deployed by definition, so it grants its rider too — the
  * Active box is what a drone running off-link needs to say the same thing.
@@ -11858,15 +11987,22 @@ function rigFlags() {
 function deployedUnits() {
   const rg = rigFlags();
   const out = [];
+  const rigged = hasVcrRig();
+  // Downgrading the VCR (sell the Master, fly a Basic) leaves more hotseat flags
+  // set than the new rig has cores. Truncated in list order rather than cleared,
+  // so the flags survive fitting the big rig again — the same "the excess simply
+  // does nothing" shape the Skillsoft/Chipjack cap uses.
+  let seatsLeft = rigged ? hotseatCapacity() : 0;
   [["drones", allDrones()], ["vehicles", allVehicles()]].forEach(([table, list]) => {
     list.forEach((u, i) => {
       const key = `${table}:${i}`;
       const linked = !!rg.linked[key], active = !!rg.active[key];
       // A hotseat flag left over from before the rig was sold reads as empty:
       // you can't be piloting anything without a VCR to jack in with.
-      if (linked || active)
-        out.push({ table, u, key, linked, active,
-          hotseat: !!rg.hotseat[key] && hasVcrRig() });
+      const wants = !!rg.hotseat[key] && rigged;
+      const hotseat = wants && seatsLeft > 0;
+      if (hotseat) seatsLeft--;
+      if (linked || active) out.push({ table, u, key, linked, active, hotseat });
     });
   });
   return out;
@@ -12221,8 +12357,14 @@ function shRigging(body) {
     body.append(el("div", { class: "card sh-card" },
       el("h3", {}, "Active drones & vehicles"),
       el("p", { class: "hint" },
-        "Anything on a VCR link or ticked Active. Hotseat marks the one you're "
-        + "piloting — its stats move to the Overview, above your own weapons."),
+        "Anything on a VCR link or ticked Active. "
+        + (hotseatCapacity()
+            ? `Hotseat marks the ones you're piloting — up to the ${rg.active_rig}'s `
+              + `${hotseatCapacity()} core${hotseatCapacity() === 1 ? "" : "s"}. `
+              + "Each seat's stats and guns move to the Overview, above your own weapons"
+              + (hotseatBonusDice() ? `, and its rolls gain +${hotseatBonusDice()}d.` : ".")
+            : "No VCR owned, so nothing can be hotseated — buy a rig above. "
+              + "A rig's cores are how many units you can pilot at once.")),
       unitLoadoutTable(activeUnits, "station")));
   }
 
@@ -12315,7 +12457,7 @@ function shRigging(body) {
         const uAmmo = isEnergy ? { row: null, name: "", mods: RULES.ammoStatMods(""), notes: [] }
                                : unitLoadedAmmo(cfg.table, u, wi, wn);
         const fireCtl = unitGunControls(cfg.table, u, wi, wn, wr, isEnergy,
-          uAmmo.row ? uAmmo.mods : null);
+          uAmmo.row ? uAmmo.mods : null, isHotseated(cfg.table, u));
         // The round adjusts the magazine before the ammo-mod doubles it: the
         // mount holds however many of THESE rounds, twice over.
         const uMag = uAmmo.row

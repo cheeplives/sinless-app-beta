@@ -2007,6 +2007,98 @@ path by which play could reach into the creation record.
 
 ---
 
+## Rigging: cores, seats and the guns on them
+
+**Section setup.** Both cases below run against this rigger, built on top of
+`kitchen-sink-final.json` in play mode. Run it once:
+
+```js
+(async () => { const p = CHAR.play.purchases, rg = CHAR.play.rigging; p.rigs.push({ name: "Master VCR", mods: [] }); rg.active_rig = "Master VCR"; [["Alpha","Mini Gun"],["Bravo","Autocannon"],["Charlie","Sentry Gun"],["Delta","Railgun"],["Echo","Recoilless Gun"]].forEach(([label, w]) => p.drones.push({ name: "Disc", label, weapons: [w], mods: [] })); for (let i = 0; i < 5; i++) rg.linked[`drones:${i}`] = true; for (let i = 0; i < 4; i++) rg.hotseat[`drones:${i}`] = true; CHAR.play.action_costs = true; await playChangedRecalc(); return { cap: hotseatCapacity(), dice: hotseatBonusDice(), deployed: deployedUnits().length }; })()
+```
+
+**Expected:** `{ "cap": 4, "dice": 6, "deployed": 5 }`
+
+Five armed Discs on the link, four of them seated. **Unit weapons are stored as
+bare name strings**, not `{name}` objects — the Rigging tab reads them raw, and
+an object there renders as `[object Object]` with no stats.
+
+### P06-066: Hotseat capacity is the VCR's cores, and a downgrade truncates it
+- **Type:** correctness
+- **Check:**
+
+      (() => { const rig = n => RULES.rigStats({ name: n, mods: [] }, DATA.tables); const seats = () => deployedUnits().filter(d => d.hotseat).map(d => d.u.label); const rg = CHAR.play.rigging; const use = n => { CHAR.play.purchases.rigs = [{ name: n, mods: [] }]; rg.active_rig = n; }; const out = { cores: DATA.tables.rigs.map(r => ({ rig: r["Rig Type"], cores: rig(r["Rig Type"]).cores, coreCount: rig(r["Rig Type"]).coreCount, bonusDice: rig(r["Rig Type"]).bonusDice })) }; out.master = { cap: hotseatCapacity(), dice: hotseatBonusDice(), seats: seats(), flags: hotseatCount() }; use("Advanced VCR"); out.advanced = { cap: hotseatCapacity(), dice: hotseatBonusDice(), seats: seats(), flags: hotseatCount() }; use("Basic VCR"); out.basic = { cap: hotseatCapacity(), dice: hotseatBonusDice(), seats: seats(), flags: hotseatCount() }; CHAR.play.purchases.rigs = []; rg.active_rig = ""; out.noRig = { cap: hotseatCapacity(), dice: hotseatBonusDice(), seats: seats(), flags: hotseatCount() }; use("Master VCR"); out.refit = { cap: hotseatCapacity(), seats: seats() }; return out; })()
+
+- **Expected:**
+
+      { "cores": [{ "rig": "Basic VCR",    "cores": "Single", "coreCount": 1, "bonusDice": 2 },
+                  { "rig": "Advanced VCR", "cores": "Double", "coreCount": 2, "bonusDice": 4 },
+                  { "rig": "Master VCR",   "cores": "Quad",   "coreCount": 4, "bonusDice": 6 }],
+        "master":   { "cap": 4, "dice": 6, "seats": ["Alpha","Bravo","Charlie","Delta"], "flags": 4 },
+        "advanced": { "cap": 2, "dice": 4, "seats": ["Alpha","Bravo"],                   "flags": 4 },
+        "basic":    { "cap": 1, "dice": 2, "seats": ["Alpha"],                           "flags": 4 },
+        "noRig":    { "cap": 0, "dice": 0, "seats": [],                                  "flags": 4 },
+        "refit":    { "cap": 4, "seats": ["Alpha","Bravo","Charlie","Delta"] } }
+
+- **Note:** #87, and a rules change: hotseat used to be strictly one at a time —
+  ticking any box cleared every other — so the three VCRs differed only in links
+  and dice, and a Master's four cores bought nothing a Basic's one didn't.
+
+  `flags` staying at 4 through every arm is the load-bearing part. A downgrade
+  **truncates** the seats in list order rather than clearing the flags, so
+  refitting the Master brings all four back (`refit`) instead of making the
+  player re-tick them. That is the same "the excess simply does nothing" shape
+  the Skillsoft/Chipjack cap uses (P06-064), and it is why `deployedUnits()` —
+  not the raw `rigging.hotseat` map — is the authority on who is actually
+  seated. Anything reading the raw flag would still be handing a truncated seat
+  the rig's bonus dice.
+- **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
+
+### P06-067: A seat's guns fire from the Overview, on Gunnery + the rig's dice
+- **Type:** correctness
+- **Steps:** re-run the section setup first if P06-066 left the rig swapped.
+  Stub `alert` per P00 §3 — the last arm reads one.
+- **Check:**
+
+      (() => { newRound(); window.__alerts = []; const close = () => document.querySelector(".sh-roller, .sh-popover")?._close?.(); const ov = () => { sheetTab = "overview"; renderSheet(); return [...document.querySelectorAll(".sh-card")].find(c => /Drones on Station/.test(c.querySelector("h3")?.textContent||"")); }; const out = {}; out.hint = ov().querySelector(".hint").textContent; out.seats = [...ov().querySelectorAll(".sh-h4")].map(h => h.textContent).filter(t => /hotseat/.test(t)); sheetTab = "rigging"; renderSheet(); out.fireDice = [...document.querySelectorAll(".sh-fire button")].filter(b => b.textContent === "Fire").map(b => (b.title.match(/loads (\d+)d6/)||[])[1]); const mag0 = ov().querySelector(".sh-fire-mag").textContent; const sel = ov().querySelector("select.sh-fire-sel"); sel.value = "FA"; sel.dispatchEvent(new Event("change", { bubbles: true })); [...ov().querySelectorAll("button")].find(b => b.textContent === "Fire").click(); close(); const after1 = { used: JSON.parse(JSON.stringify(CHAR.play.actions_used)), mag: ov().querySelector(".sh-fire-mag").textContent }; for (let i = 0; i < 2; i++) { [...ov().querySelectorAll("button")].find(b => b.textContent === "Fire").click(); close(); } const after3 = { used: JSON.parse(JSON.stringify(CHAR.play.actions_used)), mag: ov().querySelector(".sh-fire-mag").textContent }; [...ov().querySelectorAll("button")].find(b => b.textContent === "Fire").click(); close(); const refused = { alert: window.__alerts[0], mag: ov().querySelector(".sh-fire-mag").textContent }; sheetTab = "rigging"; renderSheet(); const riggingMag = document.querySelector(".sh-fire-mag").textContent; return { ...out, mag0, after1, after3, refused, riggingMag }; })()
+
+- **Expected:**
+
+      { "hint": "4 of 4 cores flying · every roll from a seat gains +6d from the Master VCR",
+        "seats": ["Alphahotseat", "Bravohotseat", "Charliehotseat", "Deltahotseat"],
+        "fireDice": ["11", "14", "12", "8"],
+        "mag0": "360/360 rds",
+        "after1": { "used": { "Rigging": 2 },              "mag": "340/360 rds" },
+        "after3": { "used": { "Rigging": 4, "simple": 2 }, "mag": "300/360 rds" },
+        "refused": { "alert": "Out of actions — Firing FA (Mini Gun) needs 2, you have 0 left (0 Rigging Exploit + 0 Simple).",
+                     "mag": "300/360 rds" },
+        "riggingMag": "300/360 rds" }
+
+- **Note:** #87. The Drones on Station card used to print a seat's weapons as a
+  comma-joined list of names — it told you what was bolted on and left you to
+  walk to the Rigging tab to fire any of it, the one tab you are not on while
+  flying.
+
+  `fireDice` is the case's centre. Gunnery is 4 and the mounts are Acc 1 / 4 / 2
+  / 4, so the seated three roll **11 / 14 / 12** — skill + Accuracy + the Master
+  VCR's 6 — while **Echo, linked but not seated, rolls 8**: skill + Accuracy and
+  nothing else. The rig's dice are a property of being jacked in, not of being
+  deployed. (Delta's Railgun is an energy mount and has no Fire button at all —
+  Heat plus Aimed Fire, the same split personal energy weapons use — which is
+  why four drones with Fire buttons cover five drones.)
+
+  `after1`/`after3` pin the action economy: FA is a Complex action, so 2 units a
+  burst, drawn from the **4 Rigging Exploit actions the Quad cores grant** before
+  spilling into Simple. `refused` proves the fourth burst is refused whole —
+  the magazine does not move, so a refusal never costs ammunition.
+
+  `riggingMag` is the anti-drift assertion. The Overview's controls are the same
+  `unitGunControls` off the same `unitGunState`, so 60 rounds spent from the
+  Overview are 60 rounds gone on the Rigging tab. Two independent magazines for
+  one gun would be the obvious way to build this wrong.
+- **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
+
+---
+
 ## Wrapping up
 
 Every case should PASS. P06-001, P06-005, P06-009, P06-010 and P06-011 were all

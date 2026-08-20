@@ -36,7 +36,7 @@ const BUNDLE = (typeof DATA_BUNDLE !== "undefined")
  * default fill claim this build made it: "unknown" is a fact worth keeping,
  * and a confidently wrong version is worse than none when you are working out
  * why an old file behaves oddly. */
-const APP_VERSION = "336";
+const APP_VERSION = "337";
 
 // ============================================================== game constants
 // The numeric knobs the engine reads; grouped by chargen step below.
@@ -4397,8 +4397,14 @@ function rigStats(rigEntry, data) {
     hardening += modHard;
     unitHardening += modHard;
   }
+  // `cores` is the data's word ("Single"/"Double"/"Quad"); `coreCount` is that
+  // as a number. Two callers need the number — the Rigging exploit actions the
+  // cores grant, and the hotseat capacity (#87) — and both were reaching for
+  // CORE_EXPLOIT_COUNT themselves, which is a rules.js-private map the sheet
+  // cannot see.
   return { row, links, hardening, unit_hardening: unitHardening, bonusDice,
-           cores: row.Cores || "", modSlots, modSlotsUsed };
+           cores: row.Cores || "", coreCount: CORE_EXPLOIT_COUNT[row.Cores] || 0,
+           modSlots, modSlotsUsed };
 }
 
 /* Same reasoning as priceDecking: a rig carrying more mods than it has slots is
