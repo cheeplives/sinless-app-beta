@@ -4847,6 +4847,36 @@ function unitGunControls(table, unit, wi, wn, wr, isEnergy, ammoMods = null,
   return wrap;
 }
 
+/* The fire controls for one of a unit's mounts, resolved from the unit and the
+ * weapon's index.
+ *
+ * Finding the weapon's row across the unit's two weapon tables, deciding whether
+ * it is an energy mount, and reading the loaded round are the same three
+ * questions at each of the three places a mount can be fired from — the Rigging
+ * tab's unit card, its on-station rollup, and the Overview's hotseat card — so
+ * they are answered once here rather than three times slightly differently.
+ *
+ * Returns { wr, isEnergy, ammo, controls }; `wr` is null for a weapon the data
+ * no longer knows, and `controls` is null for a mount with nothing to fire
+ * (Oil Slick, Smokescreen). */
+function unitFireControls(table, u, wi, wn, hotseat) {
+  const cfg = RIG_UNIT_CFG[table];
+  let wr = null;
+  for (const [tk, nc] of cfg.weaponTables) {
+    const found = DATA.tables[tk].find(x => x[nc] === wn);
+    if (found) { wr = found; break; }
+  }
+  if (!wr) return { wr: null, isEnergy: false, ammo: null, controls: null };
+  // Energy mounts run on Heat and carry no Modes/Ammo columns at all.
+  const isEnergy = wr["Heat Limit"] !== undefined || wr.Heat !== undefined;
+  const ammo = isEnergy
+    ? { row: null, name: "", mods: RULES.ammoStatMods(""), notes: [] }
+    : unitLoadedAmmo(table, u, wi, wn);
+  const controls = unitGunControls(table, u, wi, wn, wr, isEnergy,
+    ammo.row ? ammo.mods : null, hotseat);
+  return { wr, isEnergy, ammo, controls };
+}
+
 /* One hotseated unit's guns, ready to fire, for the Overview's Drones on
  * Station card (#87).
  *
@@ -4860,41 +4890,25 @@ function unitGunControls(table, unit, wi, wn, wr, isEnergy, ammoMods = null,
  * Returns an array of nodes so the caller can spread it; empty for an unarmed
  * unit, which then simply shows its stat block. */
 function seatWeaponRows(seat) {
-  const cfg = RIG_UNIT_CFG[seat.table];
-  const weapons = seat.u.weapons || [];
-  if (!weapons.length) return [];
-  const findWeapon = wn => {
-    for (const [tk, nc] of cfg.weaponTables) {
-      const wr = DATA.tables[tk].find(x => x[nc] === wn);
-      if (wr) return wr;
-    }
-    return null;
-  };
   const out = [];
-  weapons.forEach((w, wi) => {
+  (seat.u.weapons || []).forEach((w, wi) => {
     const wn = sublistName(w);
-    const wr = findWeapon(wn);
+    const { wr, ammo, controls } = unitFireControls(seat.table, seat.u, wi, wn, true);
     if (!wr) return;
-    // Energy mounts run on Heat and carry no Modes/Ammo columns at all — the
-    // same test the Rigging tab makes.
-    const isEnergy = wr["Heat Limit"] !== undefined || wr.Heat !== undefined;
-    const uAmmo = isEnergy ? { row: null, name: "", mods: RULES.ammoStatMods(""), notes: [] }
-                           : unitLoadedAmmo(cfg.table, seat.u, wi, wn);
     const base = { acc: wr.Accuracy || 0, damage: wr.Damage || "—", pen: wr.Pen || 0 };
-    const shot = uAmmo.row ? RULES.applyAmmoStats(base, uAmmo.mods) : base;
+    const shot = ammo.row ? RULES.applyAmmoStats(base, ammo.mods) : base;
     const bit = (label, key) => el("span",
-      (uAmmo.row && String(shot[key]) !== String(base[key]))
-        ? { class: "wpn-ammo-mod", title: `${uAmmo.name} loaded` } : {},
+      (ammo.row && String(shot[key]) !== String(base[key]))
+        ? { class: "wpn-ammo-mod", title: `${ammo.name} loaded` } : {},
       `${label} ${shot[key]}`);
     out.push(el("div", { class: "sub", style: "margin:4px 0 4px 4px" },
       el("b", {}, wn), " ",
       bit("DMG", "damage"), " · ", bit("Acc", "acc"),
       wr.Pen ? el("span", {}, " · ") : null, wr.Pen ? bit("Pen", "pen") : null,
-      unitGunControls(cfg.table, seat.u, wi, wn, wr, isEnergy,
-        uAmmo.row ? uAmmo.mods : null, true),
-      uAmmo.notes.length
+      controls,
+      ammo.notes.length
         ? el("div", { class: "sub wpn-ammo-note" },
-            `${uAmmo.name}: ${uAmmo.notes.join(" · ")}`) : null));
+            `${ammo.name}: ${ammo.notes.join(" · ")}`) : null));
   });
   return out;
 }
@@ -11902,7 +11916,10 @@ function unitAttachments(cfg, unit) {
     if (wr.Ammo) bits.push(`Ammo ${doubles ? scaleAmmo(wr.Ammo, 2) : wr.Ammo}${doubles ? " (×2)" : ""}`);
     const modBits = weaponMods[wi].map(x =>
       x.nm + ((x.mr && (x.mr.ModeEffect || x.mr.Effect)) ? ` (${x.mr.ModeEffect || x.mr.Effect})` : ""));
-    items.push({ name: wn, kind: "weapon", stats: bits.join(", "),
+    // `wi` rides along so a caller can reach this mount's firing state without
+    // re-deriving the index from the list position — the on-station rollup
+    // builds its Fire buttons off it (unitFireControls).
+    items.push({ name: wn, kind: "weapon", wi, stats: bits.join(", "),
       effect: wr.Effect || wr.ModeEffect || "", mods: modBits });
     tallyBody(wr.Effect); tallyBody(wr.ModeEffect);
     weaponMods[wi].forEach(x => x.mr && tallyBody(x.mr.ModeEffect || x.mr.Effect));
@@ -11983,11 +12000,18 @@ function rigFlags() {
 }
 
 /* Every unit currently on station, in Rigging-tab order. `onStation` is the
- * linked-or-active test the passive-bonus and summary lists both read. */
+ * linked-or-active test the passive-bonus and summary lists both read.
+ *
+ * The test itself comes from RULES.deployedUnitKeys so this list and the engine's
+ * drone bonuses cannot disagree about who is out there — the engine used to count
+ * a raw hotseat flag as deployment on its own, which granted a seated drone's
+ * rider in states this list refuses to show (no VCR owned, or the unit not on a
+ * link and not ticked Active). */
 function deployedUnits() {
   const rg = rigFlags();
   const out = [];
   const rigged = hasVcrRig();
+  const onStation = RULES.deployedUnitKeys(CHAR);
   // Downgrading the VCR (sell the Master, fly a Basic) leaves more hotseat flags
   // set than the new rig has cores. Truncated in list order rather than cleared,
   // so the flags survive fitting the big rig again — the same "the excess simply
@@ -12002,7 +12026,7 @@ function deployedUnits() {
       const wants = !!rg.hotseat[key] && rigged;
       const hotseat = wants && seatsLeft > 0;
       if (hotseat) seatsLeft--;
-      if (linked || active) out.push({ table, u, key, linked, active, hotseat });
+      if (onStation[key]) out.push({ table, u, key, linked, active, hotseat });
     });
   });
   return out;
@@ -12224,6 +12248,15 @@ function unitLoadoutTable(entries, mode = "inventory") {
       ? `Physical ${Math.min(toInt(dst.physical), body)} / ${body}`
         + ` · Integrity ${Math.min(toInt(dst.integrity), body)} / ${body}`
       : "";
+    const station = mode === "station";
+    const rg = station ? rigFlags() : null;
+    // On station, every mount gets its Fire / Reload / Aimed Fire controls right
+    // here. This rollup is the list of what is deployed, so it is where you look
+    // when you want to shoot with one of them — it listed the guns and left you
+    // to scroll down to the unit's own card to use them. Inventory mode (the
+    // Gear tab) gets none of it: a drone in a box has nothing to fire at.
+    const hotseated = station && rg.hotseat && !!deployedUnits()
+      .find(d => d.key === key && d.hotseat);
     const attachCell = items.length
       ? el("div", {}, ...items.map(it => el("div", { class: "sub", style: "margin:2px 0" },
           el("b", {}, it.name),
@@ -12233,10 +12266,11 @@ function unitLoadoutTable(entries, mode = "inventory") {
             `${it.stats ? " · " : " — "}${it.effect}`) : null,
           ...((it.mods && it.mods.length)
             ? [el("div", { style: "margin-left:14px;color:var(--manon)" }, "↳ " + it.mods.join(" · "))]
-            : []))))
+            : []),
+          (station && it.kind === "weapon")
+            ? unitFireControls(table, u, it.wi, it.name, hotseated).controls
+            : null)))
       : "—";
-    const station = mode === "station";
-    const rg = station ? rigFlags() : null;
     t.append(el("tr", {},
       el("td", {}, el("b", {}, u.label || u.name),
         u.label ? el("div", { class: "sub" }, u.name) : null,

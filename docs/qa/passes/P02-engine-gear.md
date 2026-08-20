@@ -700,17 +700,24 @@ actually testing.
   case from breaking every time one of these messages is reworded.
 - **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
 
-### P02-025: A deployed drone's cover counts as cover, and hotseat grants dice
+### P02-025: A deployed drone's cover counts as cover, and a hotseat flag isn't deployment
 - **Type:** correctness
 - **Steps:** Any finalized character. Gives it three drones with contrasting
-  effects and deploys them one at a time. Clears martial arts so the only cover
-  in play comes from the drone. Restores what it found.
+  effects and deploys them one at a time, the last one twice — once on a bare
+  hotseat flag with no VCR owned, once ticked Active. Clears martial arts so the
+  only cover in play comes from the drone. Restores what it found.
 - **Check:**
 
-      (async () => { const c = CHAR; const snap = JSON.stringify([c.drones, c.martial_arts, (c.play || {}).rigging, (c.play && c.play.kit) ? c.play.kit.drones : null, (c.play && c.play.kit) ? c.play.kit.martial_arts : null]); const drones = [{ name: "Shield-Wall Drone", carried: true, weapons: [], mods: [] }, { name: "Aerial Warden", carried: true, weapons: [], mods: [] }, { name: "Bug-Spy", carried: true, weapons: [], mods: [] }]; c.drones = JSON.parse(JSON.stringify(drones)); c.martial_arts = []; if (c.play && c.play.kit) { c.play.kit.drones = JSON.parse(JSON.stringify(drones)); c.play.kit.martial_arts = []; } const set = async rg => { c.play.rigging = { active_rig: "", linked: {}, active: {}, hotseat: {}, units: {}, ...rg }; await recalc(); return { cover: (CALC.combat.cover || {}).label || null, obs: CALC.skills.Observation.dice_bonus ?? null }; }; const out = { shieldWall: await set({ linked: { "drones:0": true } }), aerialWarden: await set({ linked: { "drones:1": true } }), bugSpyHotseat: await set({ hotseat: { "drones:2": true } }) }; const [d, ma, rg, kd, km] = JSON.parse(snap); c.drones = d; c.martial_arts = ma; if (c.play) c.play.rigging = rg; if (c.play && c.play.kit) { c.play.kit.drones = kd; c.play.kit.martial_arts = km; } await recalc(); return out; })()
+      (async () => { const c = CHAR; const snap = JSON.stringify([c.drones, c.martial_arts, (c.play || {}).rigging, (c.play && c.play.kit) ? c.play.kit.drones : null, (c.play && c.play.kit) ? c.play.kit.martial_arts : null]); const drones = [{ name: "Shield-Wall Drone", carried: true, weapons: [], mods: [] }, { name: "Aerial Warden", carried: true, weapons: [], mods: [] }, { name: "Bug-Spy", carried: true, weapons: [], mods: [] }]; c.drones = JSON.parse(JSON.stringify(drones)); c.martial_arts = []; if (c.play && c.play.kit) { c.play.kit.drones = JSON.parse(JSON.stringify(drones)); c.play.kit.martial_arts = []; } const set = async rg => { c.play.rigging = { active_rig: "", linked: {}, active: {}, hotseat: {}, units: {}, ...rg }; await recalc(); return { cover: (CALC.combat.cover || {}).label || null, obs: CALC.skills.Observation.dice_bonus ?? null, init: (CALC.initiative.notes || []).filter(n => /^Drones:/.test(n)) }; }; const out = { shieldWall: await set({ linked: { "drones:0": true } }), aerialWarden: await set({ linked: { "drones:1": true } }), seatedNoRig: await set({ hotseat: { "drones:2": true } }), activeAndSeated: await set({ active: { "drones:2": true }, hotseat: { "drones:2": true } }) }; const [d, ma, rg, kd, km] = JSON.parse(snap); c.drones = d; c.martial_arts = ma; if (c.play) c.play.rigging = rg; if (c.play && c.play.kit) { c.play.kit.drones = kd; c.play.kit.martial_arts = km; } await recalc(); return out; })()
 
-- **Expected:** `{ "shieldWall": { "cover": "High cover (−2d)", "obs": null }, "aerialWarden": { "cover": null, "obs": null }, "bugSpyHotseat": { "cover": null, "obs": 1 } }`
-- **Note:** Three separate rules in one fixture.
+- **Expected:**
+
+      { "shieldWall":      { "cover": "High cover (−2d)", "obs": null, "init": [] },
+        "aerialWarden":    { "cover": null,                "obs": null, "init": [] },
+        "seatedNoRig":     { "cover": null,                "obs": null, "init": [] },
+        "activeAndSeated": { "cover": null,                "obs": 1,    "init": ["Drones: +2d"] } }
+
+- **Note:** Four arms, three separate rules.
 
   A Shield-Wall Drone "Provides mobile High cover", which used to be a note
   printed beside the cover figure rather than part of it. It now feeds the same
@@ -722,11 +729,30 @@ actually testing.
   rigger usually isn't. `cover: null` is the assertion that a drone flying a
   block away doesn't hand its pilot a −2d.
 
-  `bugSpyHotseat` covers the deployment set. droneSkillDice counted linked and
-  active drones; droneCombatBonuses counted linked, active AND hotseat. The same
-  drone could therefore grant its Initiative dice but not its skill dice
-  depending on which box was ticked. Both now agree, so a hotseated Bug-Spy
-  gives its +1d Observation.
+  The two Bug-Spy arms cover the deployment set, and the ruling CHANGED here
+  (v338). Both engine functions used to count a raw `rigging.hotseat` flag as
+  deployment on its own, so `seatedNoRig` — a hotseat flag with `active_rig:
+  ""` and no VCR owned — used to grant the +1d Observation and the +2d
+  Initiative; its old expected value was `obs: 1`.
+
+  The sheet never agreed. The Hotseat toggle is rendered only on the on-station
+  list, it is disabled with no rig, and `deployedUnits()` truncates seats past
+  the active VCR's cores (P06-066). So the engine was paying out in a state the
+  UI will not let you reach and does not display. Hotseating means jacking in,
+  and that takes a rig.
+
+  Deployment is now linked-or-Active in both places, out of one shared
+  `RULES.deployedUnitKeys`, and hotseat is what it says on the tin: WHICH
+  deployed unit you are personally flying. `activeAndSeated` is the other half
+  of that — piloting a drone doesn't suppress its rider either, so the dice
+  arrive with the Active tick and don't move when the seat is taken.
+
+  `init` is in the read-out because of the older half of this case (#38):
+  droneSkillDice counted linked and active, droneCombatBonuses counted linked,
+  active AND hotseat, so one drone could grant its Initiative dice and not its
+  skill dice depending on which box was ticked. Both now read the same helper,
+  and asserting the two together is what stops them drifting apart a third
+  time.
 - **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
 
 ### P02-026: Max Ballistic is a per-piece threshold, not a cap on total armor

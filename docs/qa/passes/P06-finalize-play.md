@@ -2097,6 +2097,40 @@ an object there renders as `[object Object]` with no stats.
   one gun would be the obvious way to build this wrong.
 - **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
 
+### P06-068: The on-station rollup fires too, and the Gear tab does not
+- **Type:** correctness
+- **Steps:** re-run the section setup if a previous case left the rig swapped or
+  a magazine spent (`newRound()` alone will not refill one).
+- **Check:**
+
+      (() => { const rollup = () => { sheetTab = "rigging"; renderSheet(); return [...document.querySelectorAll(".sh-card")].find(c => /Active drones/.test(c.querySelector("h3")?.textContent||"")); }; const rows = [...rollup().querySelectorAll("tr")].slice(1).map(tr => { const fire = [...tr.cells[2].querySelectorAll("button")].find(b => b.textContent === "Fire"); return { unit: tr.cells[0].innerText.split("\n")[0], dice: fire ? +(fire.title.match(/loads (\d+)d6/)||[])[1] : null, buttons: [...tr.cells[2].querySelectorAll("button")].map(b => b.textContent).join("/") }; }); sheetTab = "gear"; renderSheet(); const gearFire = document.querySelectorAll("#sh-tabpanel .sh-fire").length; return { rows, gearFire }; })()
+
+- **Expected:**
+
+      { "rows": [{ "unit": "Alpha",   "dice": 11,   "buttons": "Fire/Reload/Aimed Fire" },
+                 { "unit": "Bravo",   "dice": 14,   "buttons": "Fire/Reload/Aimed Fire" },
+                 { "unit": "Charlie", "dice": 12,   "buttons": "Fire/Reload/Aimed Fire" },
+                 { "unit": "Delta",   "dice": null, "buttons": "−/+/Aimed Fire" },
+                 { "unit": "Echo",    "dice": 8,    "buttons": "Fire/Reload/Aimed Fire" }],
+        "gearFire": 0 }
+
+- **Note:** `unitLoadoutTable` is rendered twice from one definition — the
+  Rigging tab's **Active drones & vehicles** rollup (`mode: "station"`) and the
+  Gear tab's owned-units inventory (`mode: "inventory"`) — and only the first
+  gets fire controls. This is the mode split earning its keep: the rollup is the
+  list of what is deployed, so it is where you reach when you want to shoot with
+  one of them, while a drone sitting in the Gear tab's inventory has nothing to
+  fire at. `gearFire` at 0 is the assertion that the controls did not leak
+  across; a `.sh-fire` on the Gear tab means the `station` guard was dropped.
+
+  The `dice` column repeats P06-067's split in the other view — 11/14/12 seated,
+  **8 for the linked-but-unseated Echo** — because the rollup asks
+  `deployedUnits()` who is really seated rather than reading `rigging.hotseat`.
+  Reading the raw flag here would hand a seat truncated by a VCR downgrade
+  (P06-066) the rig's bonus dice anyway. Delta's `null` is the energy mount
+  again: Heat counter and Aimed Fire, no Fire button.
+- **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
+
 ---
 
 ## Wrapping up

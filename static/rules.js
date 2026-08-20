@@ -36,7 +36,7 @@ const BUNDLE = (typeof DATA_BUNDLE !== "undefined")
  * default fill claim this build made it: "unknown" is a fact worth keeping,
  * and a confidently wrong version is worse than none when you are working out
  * why an old file behaves oddly. */
-const APP_VERSION = "337";
+const APP_VERSION = "338";
 
 // ============================================================== game constants
 // The numeric knobs the engine reads; grouped by chargen step below.
@@ -3235,6 +3235,32 @@ const SKILL_ALIASES = {
   "Computer: Programming": ["Computer: Programming", "Programming"],
 };
 
+/* Which units are OUT THERE, keyed `drones:N` / `vehicles:N` — the same keys
+ * the sheet's play-state maps use, and the same answer its deployedUnits()
+ * gives. A drone grants its rider because it is deployed, not because of how
+ * it's being flown: riding a VCR link or ticked Active (the off-link flag — no
+ * rig, no link spent) both count, and a unit with both ticked counts once.
+ *
+ * The hotseat map is deliberately NOT a third way in. Hotseat marks the seat
+ * you are personally piloting, and it is a modifier on a unit that is already
+ * deployed: the toggle is only rendered on the on-station list, it needs an
+ * owned VCR to jack into, and it is capped by that rig's cores (#87). Reading
+ * the raw map handed a Bug-Spy's +1d Observation to a character who owns no rig
+ * at all — a state the sheet will not let you reach and does not display — and
+ * would have kept feeding a seat truncated by a VCR downgrade, which is exactly
+ * what P06-066 says the raw flag must never be trusted for.
+ *
+ * One helper because droneSkillDice and droneCombatBonuses drifted apart once
+ * already (#38): they have to agree on what "deployed" means.
+ */
+function deployedUnitKeys(character) {
+  const rigging = ((character.play || {}).rigging || {});
+  const deployed = {};
+  for (const map of [rigging.linked || {}, rigging.active || {}])
+    for (const [key, on] of Object.entries(map)) if (on) deployed[key] = true;
+  return deployed;
+}
+
 /**
  * Bonus skill DICE granted by active + linked drones (play mode). A linked
  * drone contributes the numeric bonus it lists per skill, e.g. the Bug-Spy's
@@ -3244,20 +3270,7 @@ const SKILL_ALIASES = {
  */
 function droneSkillDice(character, data) {
   const bonus = {};
-  const rigging = ((character.play || {}).rigging || {});
-  // A drone grants its rider because it's OUT THERE, not because of how it's
-  // being flown: riding a VCR link, running Active and being hotseated all
-  // count. (Active is the off-link flag — no rig, no link spent.) Counted once
-  // however many of the three are ticked.
-  //
-  // Hotseat was missing here while droneCombatBonuses had it, so the same drone
-  // could grant its Initiative dice and not its skill dice depending on which
-  // boxes were ticked — the two functions have to agree on what "deployed"
-  // means (#38).
-  const deployed = {};
-  for (const map of [rigging.linked || {}, rigging.active || {}, rigging.hotseat || {}]) {
-    for (const [key, on] of Object.entries(map)) if (on) deployed[key] = true;
-  }
+  const deployed = deployedUnitKeys(character);
   const drones = character.drones || [];
   const aliasesFor = skill => SKILL_ALIASES[skill] || [skill];
   const escape = s => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -3289,14 +3302,11 @@ function droneSkillDice(character, data) {
  * the drone that grants it, so the sheet can report them where they matter
  * instead of leaving them on the Rigging tab.
  *
- * Deployed is linked, Active OR the hotseat — a drone is out there or it isn't;
- * how it's being flown doesn't change what it does for you, and the one you're
- * personally piloting is the most deployed of all. */
+ * Deployed is linked or Active — a drone is out there or it isn't, and how it's
+ * being flown doesn't change what it does for you. See deployedUnitKeys for why
+ * the hotseat map isn't a third way in. */
 function droneCombatBonuses(character, data) {
-  const rigging = ((character.play || {}).rigging || {});
-  const deployed = {};
-  for (const map of [rigging.linked || {}, rigging.active || {}, rigging.hotseat || {}])
-    for (const [key, on] of Object.entries(map)) if (on) deployed[key] = true;
+  const deployed = deployedUnitKeys(character);
   const out = { initiative_dice: 0, dodge_notes: [], cover_notes: [],
                 cover_grants: [], vision_notes: [], other_notes: [] };
   for (const key of Object.keys(deployed)) {
@@ -6436,7 +6446,7 @@ return {
   BASE_RECOIL_CAPACITY, recoilStrengthBonus, recoilIgnoredForType, cybergunRecoil,
   recoilInPlay, noRecoilBonuses, actionRefHidden, weaponTypeIs,
   gearIsDose, gearMaxDoses, liveDoseRows,
-  rigStats, applyExtendedMagazine, meleeDamage, isStrengthDamage,
+  rigStats, deployedUnitKeys, applyExtendedMagazine, meleeDamage, isStrengthDamage,
   meleeDamageIsComputable, assignWeaponModSlots, bowRating,
   weaponBaseCost, weaponModCost, weaponModCostPercent,
   DEFAULT_HARDENING, hardeningOf,

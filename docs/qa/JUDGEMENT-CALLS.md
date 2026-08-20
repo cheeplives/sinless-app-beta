@@ -61,6 +61,10 @@ apply unconditionally, surfaced by the effect-text-review pass and not yet a
 live issue (no spell has either column populated today), but worth ruling on
 before one does.
 
+**JC-027 is RESOLVED in the same round it was raised** — the engine and the
+sheet disagreed about whether a hotseat flag is deployment; ruled a modifier on
+an already-deployed unit, applied in v338.
+
 ---
 
 ## JC-001: Skill specializations are free, uncapped and unprerequisited
@@ -712,3 +716,40 @@ Raised while implementing the rulings above, and ruled on in the same round.
   somewhere `gearSkillEffects`'s doc comment can point to. If B or C, every
   spell currently carrying a Skill Bonus or Skill Note needs to be re-audited
   against whatever "active" ends up meaning, which is a P02/P04 re-run.
+
+## JC-027: Hotseat counted as deployment in the engine and as a modifier in the UI
+- **Status:** RESOLVED
+- **Where:** `deployedUnitKeys` / `droneSkillDice` / `droneCombatBonuses`
+  (`static/rules.js`), `deployedUnits` / `shHotseatToggle` (`static/sheet.js`)
+- **Observed:** The engine treated `character.play.rigging.hotseat[key]` as a
+  third, independent way of being deployed, alongside `linked` and `active`,
+  with no check that the character owns a VCR. The sheet said the opposite in
+  three places: the Hotseat toggle is only rendered inside the on-station list
+  (so a unit must already be linked or Active to have one), it is disabled with
+  the title "No VCR owned — nothing to jack into" when `hasVcrRig()` is false,
+  and since v337 `deployedUnits()` truncates seats past the active rig's cores.
+  So a bare `hotseat` flag with `active_rig: ""` handed the character a deployed
+  drone's passive rider — a Bug-Spy's +1d Observation and +2d Initiative — in a
+  state the UI will not let you reach and does not display. Reachable through an
+  imported or hand-edited save, and through a save written before the seat cap
+  existed.
+- **Question:** Is a hotseat flag deployment on its own, or a modifier on a unit
+  that is already out there?
+- **Options:** A) A modifier — the engine drops `hotseat` from its deployment
+  set and counts linked-or-Active, matching the sheet. B) Deployment, but gated
+  on owning a rig — fixes the no-VCR case only, and still disagrees with the
+  sheet about a seat truncated by a VCR downgrade and about a seated unit that
+  is neither linked nor Active. C) Deployment as today, and the sheet is what
+  changes — hotseat becomes tickable off-station.
+- **Raised by:** P02-025, against P06-066's note that `deployedUnits()`, not the
+  raw `rigging.hotseat` map, is the authority on who is seated.
+- **RULING (owner only):** A. Hotseating means jacking in, and that takes a rig;
+  the seat says which deployed unit you are flying, not whether it is out there.
+- **Applied (v338):** Both engine functions now take their deployment set from
+  one shared `RULES.deployedUnitKeys(character)` — linked ∪ active, hotseat not
+  consulted — and `deployedUnits()` reads the same helper for its on-station
+  test, so the two cannot drift. Nothing reachable through the UI changes: a
+  hotseated unit is linked or Active by construction, and still grants its
+  rider. P02-025 gained a `seatedNoRig` arm (was `obs: 1`, now `obs: null`) and
+  an `init` read-out, so the skill-dice and Initiative halves that disagreed in
+  #38 are now asserted together.
