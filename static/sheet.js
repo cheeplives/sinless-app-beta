@@ -2610,7 +2610,7 @@ function sheetHeader() {
     el("div", { class: "sh-ident-top" },
       // The ☰ menu now lives on the workspace tab strip (renderWorkspaceBar),
       // so it's reachable from both chargen and play — not just here.
-      el("div", { class: "sh-name" }, CHAR.name || "Unnamed"),
+      namePlate("sh-name", CHAR.name || "Unnamed", { focusable: true }),
       sharingBadge()),
     CHAR.player ? el("div", { class: "sh-player" }, CHAR.player) : null,
     el("div", { class: "sh-tags" },
@@ -2797,7 +2797,9 @@ function sheetStickyBar() {
   // excluded and keep working).
   const compact = el("div", { class: "sh-compact", title: "Back to top",
     onclick: e => { if (!e.target.closest("button, [role=button]")) scrollSheetToTop(); } },
-    el("span", { class: "sh-compact-name" }, CHAR.name || "Unnamed"),
+    // Hover-only here (no tabindex): this strip's own click scrolls back to
+    // the top, and a focusable name inside it would fight that on a tap.
+    namePlate("sh-compact-name", CHAR.name || "Unnamed"),
     ...POOL_ORDER.map(compactPoolPill),
     compactKismetPill(),
     el("span", { class: "sh-cmeter" + (wound.dice < 0 ? " cond" : ""),
@@ -2817,6 +2819,36 @@ function sheetStickyBar() {
   // only once the header has scrolled out of view.
   return el("div", { class: "sh-stickybar" + (sheetStickyScrolled ? " scrolled" : "") },
     compact, actionsStrip(), nav);
+}
+
+/* The character's name, with their first image as a hover peek.
+ *
+ * The portrait is on the Notes tab, several tabs away from wherever you are
+ * mid-scene, and "what does this character look like" is a question that comes
+ * up constantly and deserves nothing heavier than a hover. Image #1 only —
+ * whichever the player put first is their portrait by convention, and a stack
+ * of gang logos unfurling off a name would be a menu, not a glance.
+ *
+ * `focusable` gives it a tab stop so keyboard and touch can reach it too
+ * (:focus-within opens the same float a hover does). Left off inside the
+ * compact strip, whose own click handler already means something.
+ *
+ * Renders as a plain element when there's no image, so a character without one
+ * is exactly what it was before. */
+function namePlate(cls, name, { focusable = false } = {}) {
+  const im = ((CHAR.play || {}).images || [])[0];
+  if (!im || !im.url) return el("div", { class: cls }, name);
+  return el("div", {
+    class: `${cls} has-portrait`,
+    title: im.caption || "",
+    ...(focusable ? { tabindex: "0" } : {}),
+  }, name,
+    // aria-hidden: the float is a duplicate of information the sheet already
+    // states in words, and an unlabelled image announced on every focus of the
+    // name would be noise.
+    el("span", { class: "sh-name-portrait", "aria-hidden": "true" },
+      el("img", { src: im.url, alt: "" }),
+      im.caption ? el("span", { class: "sh-name-portrait-cap" }, im.caption) : null));
 }
 
 /* One pool as a slim pill for the compact strip — same play-state math and
@@ -11995,17 +12027,21 @@ function shNotes(body) {
   if (lifespan) dossier.append(lifespan);
   // Two columns of two. Left is what the PLAYER writes — description above the
   // session notes, both freeform prose in the same voice, so they read as one
-  // column. Right is reference: the pictures, then the generated dossier under
-  // them. Dossier goes last because it is the least-read thing here and is often
-  // just the recoil line, so it fills a tail rather than stranding whitespace at
-  // the top of a column, which is what it did when it led.
+  // column. Right is reference: the generated dossier, then the pictures.
+  //
+  // Dossier used to sit under the images, on the theory that it is the
+  // least-read thing here and would otherwise strand whitespace at the top of a
+  // short column. Images are the tallest thing on the tab, so in practice they
+  // pushed it off the bottom of the screen — a card you have to scroll to find
+  // is worse than one that starts small, and the pictures are the half you can
+  // still recognise from a thumbnail's distance.
   //
   // Column WRAPPERS rather than a flat four-cell grid: at <=900px .sh-notes-top
   // collapses to one column, and wrappers keep the phone order description ->
-  // notes -> images -> dossier instead of splitting the two textareas apart.
+  // notes -> dossier -> images instead of splitting the two textareas apart.
   body.append(el("div", { class: "sh-notes-top" },
     el("div", { class: "sh-notes-col" }, descriptionCard(), notes),
-    el("div", { class: "sh-notes-col" }, imagesCard(), dossier)));
+    el("div", { class: "sh-notes-col" }, dossier, imagesCard())));
   const traits = heritageTraitsCard();
   if (traits) body.append(traits);
 }
