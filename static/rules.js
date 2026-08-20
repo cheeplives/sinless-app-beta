@@ -36,7 +36,7 @@ const BUNDLE = (typeof DATA_BUNDLE !== "undefined")
  * default fill claim this build made it: "unknown" is a fact worth keeping,
  * and a confidently wrong version is worse than none when you are working out
  * why an old file behaves oddly. */
-const APP_VERSION = "335";
+const APP_VERSION = "336";
 
 // ============================================================== game constants
 // The numeric knobs the engine reads; grouped by chargen step below.
@@ -2283,8 +2283,11 @@ function tallyAugments(character, data, warnings, errors, playErrors) {
       continue;
     }
     if (skillwireRating && level > skillwireRating) {
-      errors.push(`${row.Name} (${target}) needs Skillwires rating ${level} — `
-                  + `yours is ${skillwireRating}.`);
+      // bothWays, not errors: a Skillwires module can be the thing that leaves
+      // in play (or the soft the thing that arrives), and a rank your wires
+      // can't drive is no more legal at the table than it was at creation.
+      bothWays(`${row.Name} (${target}) needs Skillwires rating ${level} — `
+               + `yours is ${skillwireRating}.`);
     }
     if (entry.slotted === false) continue;
     slottedSkillsoftCount++;
@@ -2294,8 +2297,12 @@ function tallyAugments(character, data, warnings, errors, playErrors) {
     skillsoftLevels[target] = Math.max(skillsoftLevels[target] || 0, level);
   }
   if (slottedSkillsoftCount > chipjackCount) {
-    errors.push(`${slottedSkillsoftCount} Skillsoft(s) slotted but only `
-                + `${chipjackCount} Chipjack(s) installed.`);
+    // bothWays: this is the one augment cap you can break WITHOUT installing
+    // anything — sell a Chipjack in play and the softs that were legal a moment
+    // ago are over the line. Reported at creation only, it was invisible in the
+    // exact mode where it becomes reachable.
+    bothWays(`${slottedSkillsoftCount} Skillsoft(s) slotted but only `
+             + `${chipjackCount} Chipjack(s) installed.`);
   }
 
   const eyewareModCount = sumBy(owned, ([row, count]) =>

@@ -2739,6 +2739,62 @@ function sheetHeader() {
   return head;
 }
 
+/* The "Needs attention" list, as rows. Shared by the Overview card and the
+ * sticky-bar chip's popover so the two can never drift apart. */
+function validityRows() {
+  return [
+    ...CALC.errors.map(e => el("div", { class: "sh-advrow", style: "color:var(--bad)" }, "✕ " + e)),
+    ...CALC.warnings.map(w => el("div", { class: "sh-advrow", style: "color:var(--manon)" }, "⚠ " + w)),
+  ];
+}
+
+/* Rules problems, as a chip in the sticky bar (#88).
+ *
+ * "Needs attention" was an Overview card and nothing else, so the nine tabs
+ * where you actually break a rule — installing chrome past your Body, slotting
+ * a Skillsoft with no Chipjack, loading a deck over its MCP — said nothing at
+ * all. You found out by wandering back to Overview, which is exactly the tab
+ * you are not on while doing any of that.
+ *
+ * A chip rather than a copy of the card: this band renders on every tab and is
+ * held to a height budget (see .sh-actions-strip), and a count plus a severity
+ * colour is the part you need at a glance. The sentences are one click away in
+ * the popover, the same split Move, Armor, Initiative and Dodge already use.
+ *
+ * Absent entirely for a clean character — the usual case — so the strip is
+ * unchanged for anyone with nothing wrong. */
+function validityChip() {
+  const errs = CALC.errors.length, warns = CALC.warnings.length;
+  if (!errs && !warns) return null;
+  // An error outranks any number of warnings: one illegal thing makes the
+  // character illegal, where warnings are advice you may have chosen to take.
+  const bits = [errs ? `✕ ${errs}` : null, warns ? `⚠ ${warns}` : null].filter(Boolean);
+  return el("button", {
+    class: "sh-validity-chip" + (errs ? " bad" : " warn"),
+    type: "button",
+    title: (errs
+      ? `${errs} rules error${errs > 1 ? "s" : ""}${warns ? ` and ${warns} warning${warns > 1 ? "s" : ""}` : ""}`
+      : `${warns} warning${warns > 1 ? "s" : ""}`)
+      + (errs + warns > 1 ? " — click to read them" : " — click to read it"),
+    "aria-label": `Needs attention: ${errs} errors, ${warns} warnings`,
+    onclick: openValidityPopover,
+  }, el("span", { class: "k" }, "Attention"), " ", el("b", {}, bits.join(" ")));
+}
+
+function openValidityPopover() {
+  openAnchoredPopover({
+    kind: "validity", anchorSel: ".sh-validity-chip", label: "Needs attention",
+    build: (refresh, close) => [
+      popoverHead("◈ Needs attention", close),
+      // Recomputed from CALC on every build, so fixing something in a tab
+      // behind the box and re-opening it shows the shorter list.
+      ...(validityRows().length
+        ? validityRows()
+        : [el("div", { class: "sh-roller-hint" }, "Nothing outstanding.")]),
+    ],
+  });
+}
+
 /* Sticky bar under the header: the tab strip (always visible) plus a compact
  * summary strip (name, pool pills, ZP, cash) that appears only once the full
  * header has scrolled out of view — so play-mode essentials stay reachable
@@ -5305,8 +5361,7 @@ function shOverview(body) {
   if (CALC.errors.length || CALC.warnings.length) {
     const list = el("div", { class: "card sh-card sh-validity" },
       el("h3", {}, "Needs attention"),
-      ...CALC.errors.map(e => el("div", { class: "sh-advrow", style: "color:var(--bad)" }, "✕ " + e)),
-      ...CALC.warnings.map(w => el("div", { class: "sh-advrow", style: "color:var(--manon)" }, "⚠ " + w)));
+      ...validityRows());
     body.append(list);
   }
 
@@ -6583,7 +6638,10 @@ function actionsStrip() {
       ro ? null : counterBtn("↻ New Round", newRound, "good"),
       el("button", { class: "sh-strip-toggle", title: "Show the action counters",
         onclick: toggle }, "▸ Actions"),
-      el("span", { class: "sh-apill-summary" }, summary));
+      el("span", { class: "sh-apill-summary" }, summary),
+      // Rides the strip folded as well as open: a rules violation does not stop
+      // mattering because you tidied the action counters away.
+      validityChip());
   }
 
   const strip = el("div", { class: "sh-actions-strip" },
@@ -6616,6 +6674,10 @@ function actionsStrip() {
       ro ? null : miniCounter("", () => left,
         v => { used[r.key] = r.total - v; }, 0, r.total, false)));
   }
+  // Last, so it lands at the far right of the row (margin-left:auto) and the
+  // action pills keep the reading order they had.
+  const chip = validityChip();
+  if (chip) strip.append(chip);
   return strip;
 }
 

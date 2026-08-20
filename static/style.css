@@ -869,6 +869,17 @@ label.opt input{margin-top:3px}
 .sh-strip-toggle{background:none;border:none;color:var(--dim);cursor:pointer;
   font-family:var(--disp);font-size:11px;letter-spacing:.06em;padding:0}
 .sh-strip-toggle:hover{color:var(--text)}
+/* Rules problems, live on every tab (#88). Same pill shape as .sh-apill beside
+   it; margin-left:auto parks it at the far right like .sh-cmeter.cash does on
+   the compact row, so it never pushes the action counters around. */
+.sh-validity-chip{display:inline-flex;align-items:center;gap:5px;margin-left:auto;
+  font-family:var(--mono);font-size:12px;border-radius:14px;padding:2px 10px;
+  background:var(--panel-2);border:1px solid var(--line);cursor:pointer}
+.sh-validity-chip .k{font-family:var(--disp);font-size:10px;letter-spacing:.1em;
+  text-transform:uppercase}
+.sh-validity-chip.bad{color:var(--bad);border-color:var(--bad)}
+.sh-validity-chip.warn{color:var(--manon);border-color:var(--manon-dim)}
+.sh-validity-chip:hover{background:var(--panel)}
 .sh-apill{display:inline-flex;align-items:center;gap:5px;font-family:var(--mono);font-size:12px;
   border:1px solid var(--line);border-radius:14px;padding:2px 4px 2px 9px;background:var(--panel-2)}
 .sh-apill .k{font-family:var(--disp);font-size:10px;letter-spacing:.1em;
@@ -1883,7 +1894,7 @@ tr.sh-modslots-row td{padding-top:0;padding-bottom:10px;border-bottom:1px solid 
      gap). Each already sits in a row held open to 32px by a neighbouring
      .mini-btn, so the floor costs no extra height anywhere. */
   .btn,.btn-add,.counter,.sh-init-roll,.gear-submenu button,
-  .sh-complex-btn,.sh-strip-toggle{min-height:32px}
+  .sh-complex-btn,.sh-strip-toggle,.sh-validity-chip{min-height:32px}
   .btn.small,.sh-fire .btn.small{padding:7px 12px;font-size:12px}
   .chip .chip-btn{min-width:30px;min-height:30px;padding:0 6px}
   /* Reorder arrows are two stacked 11px targets; give them the pair's height. */

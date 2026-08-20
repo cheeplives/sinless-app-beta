@@ -51,11 +51,13 @@ assuming a clean slate.
 - **Note:** The reduced set is *what is installed in your body, and what is in
   your wallet*: augment conflicts and tiers, the Synthetic Bioware ban, augment
   requirements, Body Index over Body, a martial art above Unarmed Combat, an
-  overdrawn `play.cash`, and the three worn-armor warnings. The overdraw is
+  overdrawn `play.cash`, the Skillsoft/Chipjack and Skillsoft/Skillwires caps
+  (added v336 — see P06-064), and the three worn-armor warnings. The overdraw is
   measured against `play.cash`, **not** the creation budget. Overloaded mounts
   and the magic/Amp OFFLINE state are deliberately excluded — the sheet has
   dedicated read-outs for both. The play Overview renders whatever survives in a
-  **Needs attention** card, which is absent entirely for a clean character.
+  **Needs attention** card, and since v336 the sticky bar carries an **Attention**
+  chip on all ten tabs (P06-065). Both are absent entirely for a clean character.
 - **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
 
 ### P06-002: The same character un-finalized reports both problems
@@ -1933,6 +1935,74 @@ path by which play could reach into the creation record.
   already been spent. `entries` is still 1 and `lifetime` still 34 — nothing was
   half-undone. A version that reversed the ammunition and the lifestyle month and
   then stalled on the Kismet would leave the sheet in a state no one asked for.
+- **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
+
+---
+
+## Rules problems are visible from every tab
+
+### P06-064: The Skillsoft/Chipjack cap survives Finalize, and the excess grants nothing
+- **Type:** correctness
+- **Steps:** load `kitchen-sink-final.json`. The check builds two copies and
+  mutates neither the loaded character nor each other.
+- **Check:**
+
+      (() => { const base = JSON.parse(JSON.stringify(CHAR)); const strip = a => a.name !== "Chipjack" && !a.name.startsWith("Skillsoft") && !a.name.startsWith("Skillwires"); const build = jacks => { const c = JSON.parse(JSON.stringify(base)); c.play.kit.augments = [...c.play.kit.augments.filter(strip), { name: "Chipjack", count: jacks }, { name: "Skillwires 3", count: 1 }, { name: "Skillsoft 2", count: 1, target: "Archery" }, { name: "Skillsoft 2", count: 1, target: "Biotech" }]; return RULES.calculate(c); }; const one = build(1), two = build(2); return { overCap: { errors: one.errors, Archery: one.skills.Archery.final, Biotech: one.skills.Biotech.final }, legal: { errors: two.errors, Archery: two.skills.Archery.final, Biotech: two.skills.Biotech.final } }; })()
+
+- **Expected:**
+
+      { "overCap": { "errors": ["2 Skillsoft(s) slotted but only 1 Chipjack(s) installed."],
+                     "Archery": 2, "Biotech": 0 },
+        "legal":   { "errors": [], "Archery": 2, "Biotech": 2 } }
+
+- **Note:** Two failures were fixed together in v336 and this case pins both.
+  **The cap now grants nothing past the limit** — before, an over-cap Skillsoft
+  still handed out its ranks and the engine merely logged a string, so `Biotech`
+  would read 2 in the `overCap` arm. **And the error is now `bothWays`** rather
+  than `errors.push`, so it survives Finalize: this is the one augment cap you
+  can break *without installing anything* — sell a Chipjack in play and softs
+  that were legal a moment ago are over the line. Reported at creation only, it
+  was invisible in the exact mode where it becomes reachable.
+
+  `Archery` holds at 2 in both arms: the cap truncates in list order, so the
+  first slotted soft keeps its bonus and only the excess is dropped. The
+  Skillsoft/Skillwires rating error moved to `bothWays` in the same change, for
+  the same reason (a Skillwires module can be the thing that leaves).
+- **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
+
+### P06-065: The Attention chip rides the sticky bar on all ten tabs
+- **Type:** UX
+- **Steps:** load `kitchen-sink-final.json` and enter play mode. Mutates `CHAR`
+  — reload the fixture afterwards.
+- **Check:**
+
+      (() => { const strip = a => a.name !== "Chipjack" && !a.name.startsWith("Skillsoft") && !a.name.startsWith("Skillwires"); CHAR.play.kit.augments = [...CHAR.play.kit.augments.filter(strip), { name: "Chipjack", count: 1 }, { name: "Skillwires 3", count: 1 }, { name: "Skillsoft 2", count: 1, target: "Archery" }, { name: "Skillsoft 2", count: 1, target: "Biotech" }]; CALC = RULES.calculate(CHAR); const tabs = {}; for (const [id] of sheetTabList()) { sheetTab = id; renderSheet(); const c = document.querySelector(".sh-validity-chip"); tabs[id] = { chip: c ? c.textContent : null, inStickyBar: !!(c && c.closest(".sh-stickybar")), card: !!document.querySelector(".sh-validity") }; } sheetTab = "augments"; renderSheet(); document.querySelector(".sh-validity-chip").click(); const box = document.querySelector('.sh-popover[data-popover="validity"]'); const pop = { role: box.getAttribute("role"), label: box.getAttribute("aria-label"), focusInside: box.contains(document.activeElement), rows: [...box.querySelectorAll(".sh-advrow")].map(r => r.textContent) }; document.querySelector(".sh-validity-chip").click(); const toggledShut = !document.querySelector('.sh-popover[data-popover="validity"]'); return { distinctChips: [...new Set(Object.values(tabs).map(t => t.chip))], everyTabSticky: Object.values(tabs).every(t => t.inStickyBar), cardTabs: Object.entries(tabs).filter(([, t]) => t.card).map(([id]) => id), pop, toggledShut }; })()
+
+- **Expected:**
+
+      { "distinctChips": ["Attention ✕ 1"],
+        "everyTabSticky": true,
+        "cardTabs": ["overview"],
+        "pop": { "role": "dialog", "label": "Needs attention", "focusInside": true,
+                 "rows": ["✕ 2 Skillsoft(s) slotted but only 1 Chipjack(s) installed."] },
+        "toggledShut": true }
+
+- **Note:** #88. "Needs attention" was an Overview card and nothing else, so the
+  nine tabs where you actually break a rule — installing chrome past your Body,
+  slotting a Skillsoft with no Chipjack, loading a deck over its MCP — said
+  nothing at all. `cardTabs` is still `["overview"]` on purpose: the chip is a
+  count and a severity colour, the card is the sentences, and the chip's popover
+  carries the same rows from the same `validityRows()` so the two cannot drift.
+
+  `everyTabSticky` is the load-bearing assertion. The chip rides
+  `.sh-actions-strip` inside `.sh-stickybar`, which is live from the first render
+  and does *not* wait for `.scrolled` the way `.sh-compact` does — a violation
+  you can only see after scrolling would be the same bug in a smaller form. It
+  also rides the strip folded (`actionsStripCollapsed = true`), because a rules
+  violation doesn't stop mattering because you tidied the counters away.
+
+  Absent entirely for a clean character: reload the fixture without the augment
+  mutation and `document.querySelector(".sh-validity-chip")` is `null`.
 - **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
 
 ---
