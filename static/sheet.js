@@ -10481,8 +10481,10 @@ function shMagic(body) {
  * spent, came off the wrong machine. ownedDecks() is the list the Decking tab
  * itself picks from, so the two can't disagree. */
 function activeDeckName() {
+  const decking = (CHAR.play || {}).decking || {};
+  if (decking.jacked_out) return "";        // owned and carried, just not running
   const owned = ownedDecks().map(e => e.ref);
-  const chosen = ((CHAR.play || {}).decking || {}).active_deck;
+  const chosen = decking.active_deck;
   return owned.some(d => d.name === chosen) ? chosen : ((owned[0] || {}).name || "");
 }
 function activeDeckRow() {
@@ -10658,9 +10660,12 @@ function shDecking(body) {
   const dk = CHAR.play.decking;
   const deckEntries = ownedDecks();
   const decks = deckEntries.map(e => e.ref);
+  // The remembered choice is normalised even while jacked out, so jacking back
+  // in returns to the deck you were on rather than to whichever is first.
   if (decks.length && !decks.some(d => d.name === dk.active_deck))
     dk.active_deck = decks[0].name;
-  const active = DATA.tables.decks.find(x => x.Name === dk.active_deck);
+  const jackedOut = !!dk.jacked_out;
+  const active = jackedOut ? null : DATA.tables.decks.find(x => x.Name === dk.active_deck);
 
   // Decks, deck mods, programs and hacking levels are not physical kit — the
   // small-heritage surcharge never applies (surchargeFor("deck") → 1).
@@ -10672,7 +10677,7 @@ function shDecking(body) {
   deckEntries.forEach((en, di) => {
     const { ref: d, arr: deckArr, i: deckIndex, inPlay, category } = en;
     const r = DATA.tables.decks.find(x => x.Name === d.name) || {};
-    const isActive = d.name === dk.active_deck;
+    const isActive = !jackedOut && d.name === dk.active_deck;
     const modSub = sublistOf(en, "mods");
     const deckModCost = name => Math.round(
       (+(DATA.tables.deck_mods.find(m => m["Deck Mod"] === name) || {}).Cost || 0) * mult);
@@ -10702,10 +10707,27 @@ function shDecking(body) {
               ` MCP ${r.MCP} · Hardening ${deckHardeningBit(d, r)} · Threads ${r.Threads} · Core ${r.Core} · I/O ${r.IO}`
               // Range is per-deck because the mods that change it are per-deck.
               + ` · Range ${RULES.deckHackRange(d, DATA.tables)} m`)),
-          isActive ? el("span", { class: "chip ok" }, "Active")
-            : counterBtn("Set Active", () => {
-                dk.active_deck = d.name; dk.loaded = []; playChanged();
-              })),
+          // Jacking out is its own state, not "sell it" and not "leave it at
+          // home": the deck is still owned, still carried, still contributing
+          // its own ZR — it just isn't running, so its cores grant no Decking
+          // exploit actions, its threads hold nothing and it has no MCP to
+          // spend. What is loaded is REMEMBERED across a jack out, since the
+          // threads are the same ones when you jack back into the same deck.
+          isActive
+            ? el("span", { style: "display:inline-flex;gap:6px;align-items:center" },
+                el("span", { class: "chip ok" }, "Active"),
+                counterBtn("Jack out", () => {
+                  dk.jacked_out = true; playChangedRecalc();
+                }))
+            : counterBtn(jackedOut && d.name === dk.active_deck ? "Jack in" : "Set Active",
+                () => {
+                  // Only a real change of deck empties the threads — jacking
+                  // back into the one you left keeps what was on them.
+                  if (dk.active_deck !== d.name) dk.loaded = [];
+                  dk.active_deck = d.name;
+                  dk.jacked_out = false;
+                  playChangedRecalc();
+                })),
         el("div", { class: "sh-unit-add" }, el("b", {}, "Mods"), modEditor)),
       el("button", { class: "row-del", title: "Sell / remove deck",
         onclick: async () => {
@@ -10720,6 +10742,12 @@ function shDecking(body) {
         } }, "✕")));
   });
   if (!decks.length) deckCard.append(el("p", { class: "hint" }, "No decks owned."));
+  else if (jackedOut) deckCard.append(el("p", { class: "hint" },
+    "Jacked out — nothing is running. The decks above are still owned and still "
+    + "carried (they keep contributing their Zoetic Rating), but no cores grant "
+    + "Decking exploit actions, no threads are available and there are no MCP "
+    + `dice to spend. Jack back into ${dk.active_deck || "a deck"} to pick up `
+    + "where you left off."));
 
   // buy a new cyberdeck in play
   const deckGroups = [{ label: "Cyberdecks", items: DATA.tables.decks.map(x => ({
@@ -10803,8 +10831,12 @@ function shDecking(body) {
         mcpMax
           ? counterBtn("↻", () => { refreshMcpDice(); playChanged(); }, "good")
           : null,
-        el("span", { class: "chip" + (dk.loaded.length > threads ? " neg" : "") },
-          `Loaded ${dk.loaded.length} / ${threads}`),
+        // Jacked out there are no threads, but what was loaded is remembered —
+        // so the chip counts it without the over-capacity red, which would be
+        // reporting a problem the player doesn't have.
+        el("span", { class: "chip" + (!jackedOut && dk.loaded.length > threads ? " neg" : "") },
+          jackedOut ? `Loaded ${dk.loaded.length} · jacked out`
+                    : `Loaded ${dk.loaded.length} / ${threads}`),
         // Bulk counterpart to the per-program Unload below, parked on the
         // thread count because that is the number it zeroes. Hidden rather
         // than disabled with nothing loaded: an empty deck has nothing to
@@ -10877,6 +10909,7 @@ function shDecking(body) {
     const loadCell = loadable
       ? counterBtn(loaded ? "Unload" : "Load", () => {
           if (loaded) dk.loaded = dk.loaded.filter(n => n !== name);
+          else if (jackedOut) { alert("No deck is running — jack into one to load a program onto its threads."); return; }
           else if (dk.loaded.length >= threads) { alert("All threads are in use — unload something first."); return; }
           else dk.loaded.push(name);
           playChanged();

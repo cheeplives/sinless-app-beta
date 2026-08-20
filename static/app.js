@@ -2675,17 +2675,33 @@ function vehicleConditionSelect(it, onChange) {
 /* Returns null when there's nothing to equip. Callers must NOT hand that
  * straight to Element.append(), which stringifies a non-Node argument and
  * renders the literal word "null" on the page — use appendIf. */
-function equippedSelect({ owned, get, set, title, hint, carriedOf }) {
+/* `none`, when given, adds an explicit "nothing equipped" option: {label, get,
+   set}. It is a stored flag of its own rather than an empty selection, because
+   an empty choice already means "never chose" and has to keep resolving to the
+   first owned item — see RULES.equippedDeckName. While it is set, the select
+   shows that option and the implied-default write below is skipped, so the
+   remembered choice survives to be jacked back into. */
+function equippedSelect({ owned, get, set, title, hint, carriedOf, none }) {
   if (!owned.length) return null;
+  // A value no item name can collide with; the flag, not this string, is
+  // what gets stored.
+  const NONE = "__none__";
   const names = owned.map(o => o.name);
+  const isNone = !!(none && none.get());
   const current = names.includes(get()) ? get() : names[0];
-  if (get() !== current) set(current);          // persist the implied default
-  const sel = el("select", { onchange: e => { set(e.target.value); refresh(); } },
+  if (!isNone && get() !== current) set(current);   // persist the implied default
+  const sel = el("select", { onchange: e => {
+      const picked = e.target.value === NONE;
+      if (none) none.set(picked);
+      if (!picked) set(e.target.value);
+      refresh();
+    } },
     ...owned.map(o => el("option", { value: o.name },
-      o.name + (carriedOf && carriedOf(o) === false ? " (not carried)" : ""))));
-  sel.value = current;
+      o.name + (carriedOf && carriedOf(o) === false ? " (not carried)" : ""))),
+    none ? el("option", { value: NONE }, none.label) : null);
+  sel.value = isNone ? NONE : current;
   const entry = owned.find(o => o.name === current);
-  const notCarried = carriedOf && entry && carriedOf(entry) === false;
+  const notCarried = !isNone && carriedOf && entry && carriedOf(entry) === false;
   return el("div", { class: "card", style: "max-width:520px" },
     el("h3", {}, title),
     el("p", { class: "hint" }, hint),
@@ -2711,10 +2727,15 @@ function activeDeckSelect() {
     owned: CHAR.decks,
     get: () => decking.active_deck, set: v => { decking.active_deck = v; },
     title: "Equipped deck",
-    hint: "The deck you're running. Only this one contributes its Zoetic Rating and "
-      + "its Decking exploit actions, and only its threads are available; the rest "
-      + "are just owned. Carry as many as you like — one runs at a time.",
+    hint: "The deck you're running. Only this one contributes its Decking exploit "
+      + "actions, and only its threads are available; the rest are just owned. "
+      + "Carry as many as you like — one runs at a time, or none at all.",
     carriedOf: d => d.carried,
+    // Owning a deck and running one are different things: a deck you're jacked
+    // out of is still carried and still needs no Hacking program to sit there.
+    none: { label: "— none (jacked out) —",
+      get: () => !!decking.jacked_out,
+      set: v => { decking.jacked_out = v; } },
   });
 }
 

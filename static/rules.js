@@ -763,7 +763,14 @@ function rigUnitHardening(character, data) {
  * owned entry for characters that never made a choice. */
 function equippedDeckName(character) {
   const decks = (character || {}).decks || [];
-  const chosen = (((character || {}).play || {}).decking || {}).active_deck;
+  const decking = ((character || {}).play || {}).decking || {};
+  // Jacked out: a deck the character owns and carries, but isn't running. The
+  // fallback below is what makes this a stored flag rather than an empty
+  // `active_deck` — "" already means "never chose", and both of those have to
+  // keep resolving to the first owned deck or every character who never opened
+  // the Decking tab would silently stop running theirs.
+  if (decking.jacked_out) return "";
+  const chosen = decking.active_deck;
   return decks.some(d => d.name === chosen) ? chosen : ((decks[0] || {}).name || "");
 }
 
@@ -1080,7 +1087,10 @@ function defaultCharacter() {
         vehicles: [],
         hacking_levels: 0,   // legacy, folded into the granted Hacking program
       },
-      decking: { active_deck: "", loaded: [] },
+      // jacked_out: the deck is owned and carried but not running (see
+      // equippedDeckName). Distinct from an empty active_deck, which means
+      // "never chose" and resolves to the first owned deck.
+      decking: { active_deck: "", loaded: [], jacked_out: false },
       rigging: { active_rig: "", units: {} },
     },
   };
@@ -4628,9 +4638,11 @@ function deriveExploitActions(character, data, magicType, augments, amp) {
     actions.push({ kind: "Move", count: 1, source: name });
   }
 
-  // --- Decking: the active deck's cores (Single 1 … Quad 4).
-  const deck = activeGearRow(character.decks,
-    ((character.play || {}).decking || {}).active_deck, data.decks, "Name");
+  // --- Decking: the active deck's cores (Single 1 … Quad 4). Through
+  // equippedDeckName rather than activeGearRow directly, so a jacked-out
+  // decker's cores stop granting exploit actions — the deck isn't running.
+  const deckName = equippedDeckName(character);
+  const deck = deckName ? findRow(data.decks, "Name", deckName) : null;
   if (deck) {
     const n = CORE_EXPLOIT_COUNT[deck.Core] || 0;
     if (n) actions.push({ kind: "Decking", count: n,

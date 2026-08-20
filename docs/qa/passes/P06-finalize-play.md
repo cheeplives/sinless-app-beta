@@ -1719,6 +1719,57 @@ path by which play could reach into the creation record.
   a read-only shared tab gets the chips without the counter.
 - **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
 
+### P06-059: A deck can be jacked out — still owned, still carried, not running
+- **Type:** correctness
+- **Steps:** load `decker-two-decks.json` (Fujitsu Edge active, two programs
+  loaded) and enter play mode. Stub `alert`/`confirm` per P00 §3.
+- **Check:**
+
+      (async () => { sheetTab = "decking"; renderSheet(); const snap = () => ({ equipped: RULES.equippedDeckName(CHAR), mcp: mcpDiceMax(), deckingExploits: (((CALC.combat || {}).exploit_actions) || []).filter(a => a.kind === "Decking").map(a => a.count)[0] || 0, gearZr: CALC.zoetics.gear_zr, loaded: CHAR.play.decking.loaded.length, allCarried: ownedDecks().every(e => e.ref.carried !== false), owned: ownedDecks().length, errors: CALC.errors.length }); const jackedIn = snap(); [...document.querySelectorAll("button")].find(b => b.textContent.trim() === "Jack out").click(); await new Promise(r => setTimeout(r, 300)); const jackedOut = snap(); const chip = [...document.querySelectorAll(".chip")].map(c => c.textContent).find(t => /^Loaded/.test(t)); [...document.querySelectorAll("button")].find(b => b.textContent.trim() === "Unload All").click(); await new Promise(r => setTimeout(r, 200)); window.__alerts = []; [...document.querySelectorAll("button")].find(b => b.textContent.trim() === "Load").click(); const refused = { alert: window.__alerts[0] || null, loaded: CHAR.play.decking.loaded.length }; sheetTab = "overview"; renderSheet(); const runningSummaryLines = document.querySelectorAll(".sh-running .sh-fold-sum").length; sheetTab = "decking"; renderSheet(); [...document.querySelectorAll("button")].find(b => b.textContent.trim() === "Jack in").click(); await new Promise(r => setTimeout(r, 300)); const backIn = snap(); return { jackedIn, jackedOut, chip, refused, runningSummaryLines, backIn }; })()
+
+- **Expected:**
+
+      { "jackedIn":  { "equipped": "Fujitsu Edge", "mcp": 8, "deckingExploits": 3,
+                       "gearZr": 3, "loaded": 2, "allCarried": true, "owned": 2, "errors": 0 },
+        "jackedOut": { "equipped": "",             "mcp": 0, "deckingExploits": 0,
+                       "gearZr": 3, "loaded": 2, "allCarried": true, "owned": 2, "errors": 0 },
+        "chip": "Loaded 2 · jacked out",
+        "refused": { "alert": "No deck is running — jack into one to load a program onto its threads.",
+                     "loaded": 0 },
+        "runningSummaryLines": 1,
+        "backIn": { "equipped": "Fujitsu Edge", "mcp": 8, "deckingExploits": 3,
+                    "gearZr": 3, "loaded": 0, "allCarried": true, "owned": 2, "errors": 0 } }
+
+- **Note:** Jacking out is a third state, distinct from the two that already
+  existed: selling the deck (gone) and un-ticking carried (left at home). The
+  line the expected values draw is which numbers move and which do not.
+
+  **Move:** `equipped` empties, so the deck's cores grant no Decking exploit
+  actions and there is no MCP reserve to spend; the Running Now card drops its
+  deck line (`runningSummaryLines` back to 1); the threads stop accepting
+  programs, with a refusal that says why rather than the "all threads are in
+  use" message meant for a full deck.
+
+  **Do not move:** `owned` and `allCarried` — the decks are still on the
+  character — and `gearZr` stays 3, because gear ZR counts every CARRIED deck,
+  not the running one. A jacked-out decker who suddenly got lighter would mean
+  the flag had been wired to the wrong list.
+
+  `loaded` is 2 in BOTH the jacked-in and jacked-out snapshots on purpose: the
+  threads are remembered across a jack out, since they are the same threads when
+  you jack back into the same deck (the chip says `jacked out` rather than
+  showing a red over-capacity `2 / 0`). Only a real change of deck empties them
+  — `backIn.loaded` is 0 here only because the case unloads them itself to test
+  the refusal.
+
+  The flag is stored (`play.decking.jacked_out`) rather than encoded as an empty
+  `active_deck`, because "" already means "never chose" and must keep resolving
+  to the first owned deck — otherwise every character who never opened this tab
+  would silently stop running theirs. A save written before the flag existed
+  therefore keeps running its deck, and the remembered choice survives the trip
+  out and back.
+- **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
+
 ---
 
 ## Wrapping up
