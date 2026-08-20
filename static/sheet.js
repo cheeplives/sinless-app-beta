@@ -7800,10 +7800,13 @@ function promptTimePasses(from, to) {
         + "advance, and the month can be undone afterwards."),
       el("div", { class: "sh-cal-block" },
         el("div", { class: "sh-cal-legend" }, "Missions taken"), missions),
-      el("div", { class: "sh-cal-block" },
-        el("div", { class: "sh-cal-legend" }, "Sector actions taken"), sectors),
+      // Directly under the box that feeds it: the rows ARE the mission lines,
+      // so a block of sector actions in between reads as if the awards belonged
+      // to those instead.
       el("div", { class: "sh-cal-block" },
         el("div", { class: "sh-cal-legend" }, "Awards, by mission"), awardRows),
+      el("div", { class: "sh-cal-block" },
+        el("div", { class: "sh-cal-legend" }, "Sector actions taken"), sectors),
       lsBlock, ammoBlock,
       lifespan != null
         ? el("p", { class: "hint sh-cal-lifespan" },
