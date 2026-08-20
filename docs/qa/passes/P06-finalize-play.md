@@ -1772,6 +1772,44 @@ path by which play could reach into the creation record.
   out and back: `backIn` returns to Fujitsu Edge without being re-picked.
 - **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
 
+### P06-060: Running a program says which dice it already took
+- **Type:** correctness
+- **Steps:** load `decker-two-decks.json` and enter play mode. Stub
+  `alert`/`confirm` per P00 §3.
+- **Check:**
+
+      (async () => { const r = DATA.tables.programs.find(x => x.Name === "Analysis Locus 1"); const read = () => { const p = document.querySelector(".sh-roller"); return { poolRow: p.querySelector(".sh-roller-poolrow").innerText.split("\n").pop(), select: p.querySelector(".sh-roller-pool").value }; }; CHAR.play.mcp_dice = 8; CHAR.play.pool_used = {}; renderSheet(); runProgram("Analysis Locus 1", r); await new Promise(x => setTimeout(x, 200)); const mcpPays = { ...read(), mcpLeft: mcpDiceLeft(), focusLeft: poolState("Focus").remaining }; document.querySelector(".sh-roller-close").click(); CHAR.play.mcp_dice = 1; CHAR.play.pool_used = {}; renderSheet(); runProgram("Analysis Locus 1", r); await new Promise(x => setTimeout(x, 200)); const focusPays = { ...read(), mcpLeft: mcpDiceLeft(), focusLeft: poolState("Focus").remaining, focusUsed: CHAR.play.pool_used.Focus }; document.querySelector(".sh-roller-close").click(); openPoolRoller({ dice: 5, label: "QA plain roll", note: "no caller settled anything" }); await new Promise(x => setTimeout(x, 150)); const plainRoll = read(); document.querySelector(".sh-roller-close").click(); return { mcpPays, focusPays, plainRoll }; })()
+
+- **Expected:**
+
+      { "mcpPays":   { "poolRow": "already paid: 4 MCP", "select": "",
+                       "mcpLeft": 4, "focusLeft": 9 },
+        "focusPays": { "poolRow": "already paid: 1 MCP + 3 Focus", "select": "",
+                       "mcpLeft": 0, "focusLeft": 6, "focusUsed": 3 },
+        "plainRoll": { "poolRow": "no pool spent", "select": "" } }
+
+- **Note:** Reported as "Run isn't charging the Focus pool — it defaults to no
+  Pool". The charge was landing all along (`focusPays` proves it: Focus 9 → 6
+  and `pool_used.Focus` 3); what was wrong was the roller *saying so*. #79
+  settles both resources BEFORE opening the roller — it has to, because the
+  roller bills exactly one pool and a run drains two in a fixed order — and it
+  therefore opens pool-less, so the pool row read **"no pool spent"** two lines
+  above a note reading "paid 1 MCP + 3 Focus". The sheet was contradicting
+  itself about the player's own dice, and the reading that stuck was the one in
+  the bigger control.
+
+  So the roller now takes a `prepaid` string and states it. The three cases are
+  the three things that can be true: MCP alone covered it (Focus untouched at
+  9), MCP ran out and Focus paid the rest, and a plain roll opened afterwards —
+  which must read "no pool spent" again, because `prepaid` is written on every
+  open and never inherited. A `plainRoll.poolRow` still claiming "already paid"
+  is that leak.
+
+  `select` stays `""` in all three: the row explains, it does not silently pick
+  a pool. Picking one there would spend the same dice a second time, which is
+  what the option's own tooltip now warns.
+- **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
+
 ---
 
 ## Wrapping up

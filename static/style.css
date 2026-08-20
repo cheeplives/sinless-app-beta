@@ -1567,6 +1567,9 @@ tr.sh-modslots-row td{padding-top:0;padding-bottom:10px;border-bottom:1px solid 
 .sh-roller-poolrow{display:grid;gap:4px;margin-bottom:8px}
 .sh-roller-poolrow select{width:100%;min-width:0}
 .sh-roller-poolrow .sub{font-family:var(--mono);font-size:11px}
+/* "already paid: 1 MCP + 3 Focus" — a statement about dice that have moved, so
+   it carries the accent rather than the dim grey of "nothing happened". */
+.sh-roller-poolrow .sh-roller-prepaid{color:var(--mcp)}
 /* free dice adder — same stepper furniture as the count, one size down */
 .sh-roller-bonusrow{display:flex;align-items:center;gap:6px;margin-bottom:8px}
 .sh-roller-bonusrow .sub{font-size:11px}

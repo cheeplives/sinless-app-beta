@@ -1799,7 +1799,11 @@ const rollerD6 = () => 1 + Math.floor(Math.random() * 6);
  * them over one at a time rather than opening two panels (#59). */
 const rollerState = { open: false, count: 6, dice: [], bonus: 0, bonusDice: 0,
                       bonusAdded: 0, mode: "free", pool: "", spent: null, penalty: 0,
-                      penaltyLabel: "Wound", queue: [], seq: null };
+                      penaltyLabel: "Wound", queue: [], seq: null,
+                      // What the CALLER already took before opening the roller
+                      // (a program run settles MCP and Focus up front), as
+                      // prose. Not a pool: it has already moved.
+                      prepaid: null };
 /* Every die in the roll that costs no pool, before penalties. */
 const rollerFreeDice = () => (rollerState.bonusDice || 0) + (rollerState.bonusAdded || 0);
 
@@ -1876,7 +1880,8 @@ function sheetInitiative() {
  * plain roll opened after a queued one starts clean rather than inheriting a
  * stale queue or somebody else's penalty label. */
 function openPoolRoller({ dice, bonus = 0, label, note, pool,
-                          extraPenalty = 0, penaltyLabel = null, queue = null, seq = null }) {
+                          extraPenalty = 0, penaltyLabel = null, queue = null, seq = null,
+                          prepaid = null }) {
   const wound = woundPenalty().size;
   const extra = Math.max(0, +extraPenalty || 0);
   Object.assign(rollerState, {
@@ -1891,6 +1896,9 @@ function openPoolRoller({ dice, bonus = 0, label, note, pool,
     // A test rolled off a skill knows which pool it draws from; keep the last
     // choice when the caller doesn't say.
     pool: pool !== undefined ? (pool || "") : rollerState.pool,
+    // Always written, never inherited: a plain roll opened after a program run
+    // must not still claim the program's dice were paid for.
+    prepaid: prepaid || null,
     // Wounds are a standing condition, not a situational modifier, so the
     // roller takes them off every test without being asked (issue #30).
     penalty: wound + extra,
@@ -2085,9 +2093,12 @@ function rollerOverlay() {
   // one, so it isn't offered there.
   if (!isInit) {
     const sel = el("select", { class: "sh-roller-pool",
-      title: "Rolling spends this many dice from this pool (bonus dice are free)",
+      title: st.prepaid
+        ? `Already paid: ${st.prepaid}. Picking a pool here would spend those `
+          + "dice a SECOND time — leave it on “No pool” unless you mean to."
+        : "Rolling spends this many dice from this pool (bonus dice are free)",
       onchange: e => { st.pool = e.target.value; rollerRefresh(); } },
-      el("option", { value: "" }, "No pool"),
+      el("option", { value: "" }, st.prepaid ? "No pool (already paid)" : "No pool"),
       ...POOL_ORDER.map(p => {
         const ps = poolState(p);
         return el("option", { value: p }, `${p} ${ps.remaining}/${ps.max}`);
@@ -2095,10 +2106,17 @@ function rollerOverlay() {
     sel.value = st.pool || "";
     const eff = rollerEffective();
     const freeDice = rollerFreeDice();
+    // "no pool spent" is true of the ROLL and false of the test when the caller
+    // settled up first: a program run takes its MCP and its Focus before the
+    // roller ever opens (see runProgram), and this row saying nothing was spent
+    // — two lines above a note reading "paid 1 MCP + 3 Focus" — is the sheet
+    // contradicting itself about the player's own dice.
     panel.append(el("div", { class: "sh-roller-poolrow" }, sel,
-      el("span", { class: "sub" }, st.pool
-        ? `−${eff.limit}d on roll${eff.bonus ? ` (${eff.bonus} bonus free)` : ""}`
-        : "no pool spent")));
+      el("span", { class: "sub" + (!st.pool && st.prepaid ? " sh-roller-prepaid" : "") },
+        st.pool
+          ? `−${eff.limit}d on roll${eff.bonus ? ` (${eff.bonus} bonus free)` : ""}`
+          : st.prepaid ? `already paid: ${st.prepaid}`
+          : "no pool spent")));
     // Wounds come off before anything else is decided, so they're stated here
     // rather than left for the player to subtract (issue #30). Cancelling bonus
     // dice first is the combat sequence's own order.
@@ -10653,6 +10671,10 @@ function runProgram(name, row) {
     note: `${spec.skill}: ${spec.skillDice} skill + ${spec.rating} rating`
       + (spec.bonusDice ? ` + ${spec.bonusDice} bonus` : "")
       + (paidBits.length ? ` · paid ${paidBits.join(" + ")}` : " · nothing to pay with"),
+    // The roller opens pool-less because the cost is already settled above;
+    // this is what says so on the pool row, which otherwise reads "no pool
+    // spent" over a Focus pool that just went down.
+    prepaid: paidBits.length ? paidBits.join(" + ") : null,
   });
   playChanged();
 }
