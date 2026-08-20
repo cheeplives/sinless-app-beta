@@ -3588,7 +3588,7 @@ function openRunningPopover() {
           el("div", { class: "sh-popover-sub" }, "Deck"),
           el("div", { class: "sh-fx-dice" },
             el("span", {}, el("b", {}, deck.name), el("span", { class: "sub" }, " jacked in")),
-            el("span", { class: "chip" + (deck.left ? " ok" : " neg"),
+            el("span", { class: "chip " + (deck.left ? "mcp" : "neg"),
               title: "MCP dice — spent before the Focus pool when you run a program, "
                 + "and back in full each round." },
               `MCP dice ${deck.left} / ${deck.max}`),
@@ -3598,7 +3598,7 @@ function openRunningPopover() {
             // would leave it showing the old count) — hence `refresh`.
             ro || !deck.max ? null
               : miniCounter("", mcpDiceLeft,
-                  v => { CHAR.play.mcp_dice = v; refresh(); }, 0, deck.max),
+                  v => { CHAR.play.mcp_dice = v; refresh(); }, 0, deck.max, false, "mcp"),
             ro || !deck.max ? null
               : counterBtn("↻", () => { refreshMcpDice(); playChanged(); refresh(); }, "good"),
             el("span", { class: "chip" + (deck.loaded.length > deck.threads ? " neg" : "") },
@@ -6685,7 +6685,9 @@ function spendMeleeAttack() {
  * Round and the loadout's auto-spend keep touching the same number) — two
  * numbers stepping in opposite directions next to each other reads as a
  * bug, so don't print the second one. */
-function miniCounter(label, get, set, min = 0, max = 9999, showValue = true) {
+/* `cls` tints the pill for a counter that belongs to something already
+   coloured — the MCP chip next to it — so the two read as one control. */
+function miniCounter(label, get, set, min = 0, max = 9999, showValue = true, cls = "") {
   const clamp = n => Math.max(min, Math.min(max, n));
   const val = showValue
     ? el("b", { title: "Click to type a value", style: "cursor:text" }, String(get()))
@@ -6715,7 +6717,7 @@ function miniCounter(label, get, set, min = 0, max = 9999, showValue = true) {
       else if (e.key === "Escape") commit(false);
     });
   });
-  return el("span", { class: "sh-mini" },
+  return el("span", { class: "sh-mini" + (cls ? ` ${cls}` : "") },
     el("span", { class: "lbl" }, label),
     el("button", { class: "mini-btn", onclick: () => { set(clamp(get() - 1)); playChanged(); } }, "−"),
     val,
@@ -10811,19 +10813,18 @@ function shDecking(body) {
       el("h3", {}, "Programs"),
       el("span", { style: "display:inline-flex;gap:6px;align-items:center" },
         mcpMax
-          ? el("span", { class: "chip" + (mcpLeft ? " ok" : " neg"),
+          ? el("span", { class: "chip " + (mcpLeft ? "mcp" : "neg"),
               title: `MCP dice from ${dk.active_deck} — spent before the Focus `
                 + "pool when you run a program. Refresh each round." },
               `MCP dice ${mcpLeft} / ${mcpMax}`)
           : null,
-        // −/+ beside the chip, the same pair Beast dice carry: a program run
-        // outside the sheet's own Run button still spends cycles, and a table
-        // ruling can hand them back. Click the number to type one.
+        // −/+ beside the chip, the same bare pair the action pills carry: a
+        // program run outside the sheet's own Run button still spends cycles,
+        // and a table ruling can hand them back. No number of its own — the
+        // chip is already showing it, one gap away.
         mcpMax
-          // "" as the label: the chip beside it already reads "MCP dice", and a
-          // counter carrying its own copy would say it twice.
           ? miniCounter("", mcpDiceLeft,
-              v => { CHAR.play.mcp_dice = v; }, 0, mcpMax)
+              v => { CHAR.play.mcp_dice = v; }, 0, mcpMax, false, "mcp")
           : null,
         mcpMax
           ? counterBtn("↻", () => { refreshMcpDice(); playChanged(); }, "good")

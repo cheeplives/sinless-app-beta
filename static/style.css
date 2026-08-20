@@ -387,6 +387,13 @@ h2 .chip{margin-left:10px}
 .chip.magic{color:var(--manon)}
 .chip.neg{color:var(--bad);border-color:var(--bad)}
 .chip.ok{color:var(--ok)}
+/* MCP dice and the −/+ pill that adjusts them, so the pair reads as one
+   control rather than a coloured chip beside a grey stepper. The buttons keep
+   --dim's weight until hover, one step down from the number they change. */
+.chip.mcp{color:var(--mcp);border-color:var(--mcp)}
+.sh-mini.mcp{border-color:var(--mcp)}
+.sh-mini.mcp .mini-btn{color:var(--mcp);opacity:.75}
+.sh-mini.mcp .mini-btn:hover{opacity:1;color:var(--mcp)}
 
 table{border-collapse:collapse;width:100%;font-size:13px}
 /* Wide tables scroll inside their own box rather than pushing the page sideways
@@ -543,6 +550,15 @@ label.opt input{margin-top:3px}
      data-scheme (like the other four pool colours above) -- Kismet means the
      same thing whichever accent the player has chosen. */
   --pool-kismet:#c9d94a;
+  /* MCP dice — the deck's own cycles, spent before the Focus pool when a
+     program runs. They wore --ok, which is the same green as every "this is
+     fine" chip on the sheet, so the one resource a decker watches read as
+     ordinary reassurance. A cyan (~190°) has nothing next to it on either
+     screen it appears on (the Decking tab and the Running Now popover, where
+     the neighbours are --ok green, --bad red and --manon violet), and sitting
+     one step off Focus blue (~212°) is the right family resemblance: MCP pays
+     first, Focus pays the rest. Scheme-independent, like the pool colours. */
+  --mcp:#35d6ee;
   /* Attribute identity colours. Four of the six borrow the pool they hand their
      FULL value to in computePools (rules.js): Strength→Brawn, Reaction→Finesse,
      Intelligence→Focus, Willpower→Resolve. The other two genuinely don't have
@@ -568,6 +584,7 @@ label.opt input{margin-top:3px}
   --pool-focus:#1868c9;
   --pool-resolve:#6d3fd1;
   --pool-kismet:#7d8f1c;   /* same lime hue as dark mode, deepened for white */
+  --mcp:#0a7f96;           /* same cyan hue, deepened for white */
   /* The four pool-borrowed attribute colours follow their pool automatically;
      only the two independent hues need deepening for a white background. */
   --attr-bod:#0e7d80;

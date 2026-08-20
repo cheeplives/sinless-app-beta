@@ -1685,7 +1685,7 @@ path by which play could reach into the creation record.
                     "loaded": ["Analysis Locus 1"] },
           "staleEngineAnswer": "MasterDeck",
           "line": "🖧 Shingo Activa · MCP 2/5 · 1 loaded: Analysis Locus 1" },
-        "deckGroup": "DECK | Shingo Activa jacked in | MCP dice 2 / 5 | − | 2 | + | ↻ | Loaded 1 / 5 | Analysis Locus 1",
+        "deckGroup": "DECK | Shingo Activa jacked in | MCP dice 2 / 5 | − | + | ↻ | Loaded 1 / 5 | Analysis Locus 1",
         "afterPlus": { "stored": 3, "chip": "MCP dice 3 / 5" },
         "mundane": { "info": null, "summaryLines": 1 } }
 
@@ -1711,7 +1711,9 @@ path by which play could reach into the creation record.
 
   `afterPlus` is the counter: MCP is adjustable from the popover as well as the
   Decking tab, because a program run away from the sheet's own Run button still
-  spends cycles. It has to prove the popover REDREW — it lives on document.body,
+  spends cycles. The pill is bare −/+ with no number between them, the same
+  shape the action pills use — the chip one gap away is already showing the
+  figure, and printing it twice side by side invites the two to disagree. It has to prove the popover REDREW — it lives on document.body,
   so `playChanged`'s re-render of `#sheet` leaves it showing the old count
   unless the setter calls the popover's own `refresh`. A stale `"MCP dice 2 / 5"`
   in `afterPlus.chip` against a `stored` of 3 is that bug. The face carries no
