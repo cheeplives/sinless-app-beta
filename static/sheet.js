@@ -3590,8 +3590,17 @@ function openRunningPopover() {
             el("span", {}, el("b", {}, deck.name), el("span", { class: "sub" }, " jacked in")),
             el("span", { class: "chip" + (deck.left ? " ok" : " neg"),
               title: "MCP dice — spent before the Focus pool when you run a program, "
-                + "and back in full each round. Adjusted on the Decking tab." },
+                + "and back in full each round." },
               `MCP dice ${deck.left} / ${deck.max}`),
+            // Adjustable from here as well as the Decking tab: this band is
+            // what's on screen mid-run, and the popover has to redraw itself
+            // (it lives on document.body, so playChanged's re-render of #sheet
+            // would leave it showing the old count) — hence `refresh`.
+            ro || !deck.max ? null
+              : miniCounter("", mcpDiceLeft,
+                  v => { CHAR.play.mcp_dice = v; refresh(); }, 0, deck.max),
+            ro || !deck.max ? null
+              : counterBtn("↻", () => { refreshMcpDice(); playChanged(); refresh(); }, "good"),
             el("span", { class: "chip" + (deck.loaded.length > deck.threads ? " neg" : "") },
               threadChip)),
           deck.loaded.length
@@ -10781,6 +10790,15 @@ function shDecking(body) {
               title: `MCP dice from ${dk.active_deck} — spent before the Focus `
                 + "pool when you run a program. Refresh each round." },
               `MCP dice ${mcpLeft} / ${mcpMax}`)
+          : null,
+        // −/+ beside the chip, the same pair Beast dice carry: a program run
+        // outside the sheet's own Run button still spends cycles, and a table
+        // ruling can hand them back. Click the number to type one.
+        mcpMax
+          // "" as the label: the chip beside it already reads "MCP dice", and a
+          // counter carrying its own copy would say it twice.
+          ? miniCounter("", mcpDiceLeft,
+              v => { CHAR.play.mcp_dice = v; }, 0, mcpMax)
           : null,
         mcpMax
           ? counterBtn("↻", () => { refreshMcpDice(); playChanged(); }, "good")

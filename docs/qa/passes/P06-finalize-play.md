@@ -1675,8 +1675,7 @@ path by which play could reach into the creation record.
   isn't toggled shut by this one's click.
 - **Check:**
 
-      (async () => { document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); await new Promise(r => setTimeout(r, 60)); const c = RULES.defaultCharacter(); c.name = "QA MCP Box"; c.priorities = { heritage: 2, magic: 0, attributes: 3, skills: 2, resources: 3 }; c.heritage.type = "Human"; c.decks = [{ name: "MasterDeck", mods: [], hacking: "Hacking 2" }]; c.programs = ["Analysis Locus 1"]; c.hacking_rating = 2; c.finalized = true; c.lifestyles = [{ name: "Squatter", months: 1 }]; await openCharacter(c); sheetTab = "overview"; renderSheet(); const lineOf = () => [...document.querySelectorAll(".sh-running .sh-fold-sum")].map(d => d.textContent).at(-1); const chargen = { deck: runningDeckInfo().name, mcp: runningDeckInfo().max, line: lineOf() }; CHAR.play.purchases.decks.push({ name: "Shingo Activa", mods: [], hacking: "Hacking 2" }); CHAR.play.decking.active_deck = "Shingo Activa"; CHAR.play.decking.loaded = ["Analysis Locus 1"]; CHAR.play.mcp_dice = 2; await playChangedRecalc(); renderSheet(); const boughtInPlay = { info: runningDeckInfo(), staleEngineAnswer: RULES.equippedDeckName(CHAR), line: lineOf() }; document.querySelector(".sh-running").click(); await new Promise(r => setTimeout(r, 200)); const txt = document.querySelector(".sh-popover").innerText.split("\n"); const deckLines = txt.slice(txt.indexOf("DECK")); document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); const mundane = (() => { CHAR.play.purchases.decks.length = 0; CHAR.decks = []; CHAR.play.kit.decks = []; renderSheet(); return { info: runningDeckInfo(), summaryLines: document.querySelectorAll(".sh-running .sh-fold-sum").length }; })(); await closeTabByName("QA MCP Box"); return { chargen, boughtInPlay, deckLines, mundane }; })()
-
+      (async () => { document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); await new Promise(r => setTimeout(r, 60)); const c = RULES.defaultCharacter(); c.name = "QA MCP Box"; c.priorities = { heritage: 2, magic: 0, attributes: 3, skills: 2, resources: 3 }; c.heritage.type = "Human"; c.decks = [{ name: "MasterDeck", mods: [], hacking: "Hacking 2" }]; c.programs = ["Analysis Locus 1"]; c.hacking_rating = 2; c.finalized = true; c.lifestyles = [{ name: "Squatter", months: 1 }]; await openCharacter(c); sheetTab = "overview"; renderSheet(); const lineOf = () => [...document.querySelectorAll(".sh-running .sh-fold-sum")].map(d => d.textContent).at(-1); const chargen = { deck: runningDeckInfo().name, mcp: runningDeckInfo().max, line: lineOf() }; CHAR.play.purchases.decks.push({ name: "Shingo Activa", mods: [], hacking: "Hacking 2" }); CHAR.play.decking.active_deck = "Shingo Activa"; CHAR.play.decking.loaded = ["Analysis Locus 1"]; CHAR.play.mcp_dice = 2; await playChangedRecalc(); renderSheet(); const boughtInPlay = { info: runningDeckInfo(), staleEngineAnswer: RULES.equippedDeckName(CHAR), line: lineOf() }; document.querySelector(".sh-running").click(); await new Promise(r => setTimeout(r, 200)); const pop = document.querySelector(".sh-popover"); const deckGroup = pop.innerText.split("\n").slice(pop.innerText.split("\n").indexOf("DECK")).join(" | "); const mini = [...pop.querySelectorAll(".sh-mini")][0]; mini.querySelectorAll(".mini-btn")[1].click(); await new Promise(r => setTimeout(r, 140)); const afterPlus = { stored: CHAR.play.mcp_dice, chip: document.querySelector(".sh-popover").innerText.split("\n").find(l => /^MCP dice/.test(l)) }; document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); const mundane = (() => { CHAR.play.purchases.decks.length = 0; CHAR.decks = []; CHAR.play.kit.decks = []; renderSheet(); return { info: runningDeckInfo(), summaryLines: document.querySelectorAll(".sh-running .sh-fold-sum").length }; })(); await closeTabByName("QA MCP Box"); return { chargen, boughtInPlay, deckGroup, afterPlus, mundane }; })()
 - **Expected:**
 
       { "chargen": { "deck": "MasterDeck", "mcp": 3,
@@ -1686,8 +1685,8 @@ path by which play could reach into the creation record.
                     "loaded": ["Analysis Locus 1"] },
           "staleEngineAnswer": "MasterDeck",
           "line": "🖧 Shingo Activa · MCP 2/5 · 1 loaded: Analysis Locus 1" },
-        "deckLines": ["DECK", "Shingo Activa jacked in", "MCP dice 2 / 5",
-                      "Loaded 1 / 5", "Analysis Locus 1"],
+        "deckGroup": "DECK | Shingo Activa jacked in | MCP dice 2 / 5 | − | 2 | + | ↻ | Loaded 1 / 5 | Analysis Locus 1",
+        "afterPlus": { "stored": 3, "chip": "MCP dice 3 / 5" },
         "mundane": { "info": null, "summaryLines": 1 } }
 
 - **Note:** `staleEngineAnswer` is the load-bearing field, and it is expected to
@@ -1704,11 +1703,20 @@ path by which play could reach into the creation record.
   `boughtInPlay.info.max` ever equals `chargen.mcp`, the CHAR-vs-folded mistake
   is back.
 
-  The rest is the Running Now deck line itself: it is a SEPARATE summary line,
-  never folded into the effect bits, because a jacked-in deck is not a
-  switched-on effect and must not make the card read "warn" or raise its count.
-  `mundane.summaryLines` is 1 — a character with no deck sees no deck line at
-  all, which is most characters.
+  The rest is the Running Now deck group itself. The line on the card's face is
+  a SEPARATE summary line, never folded into the effect bits, because a
+  jacked-in deck is not a switched-on effect and must not make the card read
+  "warn" or raise its count. `mundane.summaryLines` is 1 — a character with no
+  deck sees no deck line at all, which is most characters.
+
+  `afterPlus` is the counter: MCP is adjustable from the popover as well as the
+  Decking tab, because a program run away from the sheet's own Run button still
+  spends cycles. It has to prove the popover REDREW — it lives on document.body,
+  so `playChanged`'s re-render of `#sheet` leaves it showing the old count
+  unless the setter calls the popover's own `refresh`. A stale `"MCP dice 2 / 5"`
+  in `afterPlus.chip` against a `stored` of 3 is that bug. The face carries no
+  controls at all (touch targets inflate the header — see runningNowPanel), and
+  a read-only shared tab gets the chips without the counter.
 - **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
 
 ---
