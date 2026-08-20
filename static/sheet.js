@@ -5541,9 +5541,12 @@ function shOverview(body) {
   running.classList.add("sh-col-break");
   const cond = conditionCard();
   cond.classList.add("sh-col-break");
+  // Drones on Station follows Running Now directly: what is deployed and what
+  // it is doing for you is the same question as what else is running, and
+  // leaving it to the flow parked it in whichever column had a gap.
   body.append(el("div", { class: "sh-ov-grid" },
-    ...[poolCard, running, actions, cond,
-        infCard, stationCard, maCard].filter(Boolean)));
+    ...[poolCard, running, stationCard, actions, cond,
+        infCard, maCard].filter(Boolean)));
 
   /* The Heritage Traits card used to sit here, on the grounds that a Bat's
    * Echolocation shouldn't be buried on the Notes tab. It isn't buried any
