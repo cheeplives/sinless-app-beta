@@ -158,20 +158,36 @@ def extract_homebrew_config(text):
 
     Regex-scraped rather than executed (no Node here). Structure assumed:
         const HOMEBREW_CONFIG = {
-          table: { label: "...", nameKey: "...", fields: [ { key: "..." }, ...
+          tab: { label: "...", nameKey: "...", fields: [ { key: "..." }, ...
         };
+
+    A tab may be a VIEW of another table rather than a table of its own
+    ("ammo" is misc_gear filtered by Class), declared as `table: "misc_gear"`
+    between label and nameKey. Such a tab is folded into the table it stores
+    into -- its fields join that table's, and it is not a table name of its own
+    -- so every check downstream still reasons in data.js tables.
     """
     block = re.search(r"const HOMEBREW_CONFIG = \{(.*?)\n\};", text, re.S)
     if not block:
         return None
     body = block.group(1)
-    name_keys = dict(re.findall(
-        r'\n  (\w+):\s*\{\s*label:\s*"[^"]*",\s*nameKey:\s*"([^"]+)"', body))
-    # Split on the same table-entry boundary to attribute field keys per table.
+    entries = re.findall(
+        r'\n  (\w+):\s*\{\s*label:\s*"[^"]*",\s*(?:table:\s*"(\w+)",\s*)?nameKey:\s*"([^"]+)"',
+        body)
+    # Split on the same tab-entry boundary to attribute field keys per tab.
     parts = re.split(r"\n  (\w+):\s*\{", body)
     fields = {parts[i]: re.findall(r'\{\s*key:\s*"([^"]+)"', parts[i + 1])
               for i in range(1, len(parts) - 1, 2)}
-    return {t: (k, fields.get(t, [])) for t, k in name_keys.items()}
+    out = {}
+    for tab, table, name_key in entries:
+        table = table or tab
+        have_key, have_fields = out.get(table, (name_key, []))
+        merged = list(have_fields)
+        for col in fields.get(tab, []):
+            if col not in merged:
+                merged.append(col)
+        out[table] = (have_key, merged)
+    return out
 
 
 def extract_findrow_pairs(text):

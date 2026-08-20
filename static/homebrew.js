@@ -40,7 +40,8 @@ function hbOnline() {
 }
 
 /* ---- per-table editor config ------------------------------------------ */
-/* The 16 homebrew-eligible data.js tables and the columns the editor exposes.
+/* The 17 homebrew-eligible data.js tables and the columns the editor exposes,
+ * as 18 tabs -- Ammo and Gear are two views of misc_gear (see isAmmoRow).
  * Field flags: ta = textarea, select = fixed choices (app logic gates on the
  * value), datalist = suggestions but free-form allowed, hint = placeholder.
  *
@@ -52,6 +53,16 @@ function hbOnline() {
  * same thing in the browser against the merged tables. A column the editor
  * omits can't be authored AND is stripped from imported packs, which is how a
  * custom row ends up quietly behaving unlike the core row it was modelled on. */
+/* Ammunition has no table of its own -- a round is a misc_gear row whose Class
+ * starts with "Ammo" -- so its tab is a VIEW of misc_gear: `table` names the
+ * array its rows are stored in and `rowFilter` says which of that array's rows
+ * belong to the tab. The Gear tab carries the complementary filter, so every
+ * gear row shows up under exactly one of the two and retyping a row's Class as
+ * Ammo moves it between them. Anything that touches STORED rows (merging,
+ * counting, importing, exporting) iterates tables via hbStoredTables(), never
+ * tabs, or a shared table would be processed once per tab. */
+const isAmmoRow = row => String((row || {}).Class || "").startsWith("Ammo");
+
 const HOMEBREW_CONFIG = {
   /* Animals a summoning spell can turn into something else — Create Darkenbeast
      and Bound Servant both pick from this list. A statblock rather than gear:
@@ -121,7 +132,7 @@ const HOMEBREW_CONFIG = {
     { key: "Skill Bonus", hint: "flat dice folded into the rating, e.g. \u201cFascination +1\u201d \u2014 comma-separate several" },
     { key: "Skill Note", hint: "situational text shown beside the skill, e.g. \u201cShadow: reroll 1s/2s in urban environments\u201d \u2014 pipe-separate several" },
   ]},
-  misc_gear: { label: "Gear", nameKey: "Item", fields: [
+  misc_gear: { label: "Gear", nameKey: "Item", rowFilter: row => !isAmmoRow(row), fields: [
     { key: "Move", hint: "metres added to (or, negative, taken off) ground movement while this is worn/carried/installed — e.g. “-1”" },
     { key: "AltMove", hint: "a whole extra way of getting around, in metres — pair with MoveMode" },
     { key: "MoveMode", datalist: () => hbDistinct("augments", "MoveMode"),
@@ -149,6 +160,37 @@ const HOMEBREW_CONFIG = {
     { key: "Notes", ta: true, hint: "restrictions or usage notes (e.g. which guns take this ammo)" },
     { key: "Skill Bonus", hint: "flat dice folded into the rating, e.g. \u201cFascination +1\u201d \u2014 comma-separate several" },
     { key: "Skill Note", hint: "situational text shown beside the skill, e.g. \u201cShadow: reroll 1s/2s in urban environments\u201d \u2014 pipe-separate several" },
+  ]},
+  /* Ammunition. Stored in misc_gear (see isAmmoRow above), but authored on its
+     own tab with only the columns a round actually uses, because the thing that
+     makes a homebrew round work -- the mod syntax in Effect -- is invisible on
+     the general Gear form.
+
+     What a round DOES is prose in Effect, parsed by RULES.ammoStatMods: the
+     four shot stats (Acc/Damage/Pen/Barrier) move the shot, and the row stats
+     (Mag/Recoil/Hardening/Conceal/Weight/ZR/Rarity) move the weapon it is
+     loaded into, so a round can reach everything a weapon mod can. A clause
+     that isn't a stat adjustment is kept verbatim as a note under the weapon,
+     which is how "Starts fires." and "Range = S." still work. */
+  ammo: { label: "Ammo", table: "misc_gear", nameKey: "Item",
+    rowFilter: row => isAmmoRow(row), fields: [
+    { key: "Item" },
+    { key: "Class", select: () => ["Ammo", "Ammo (Projectile)"],
+      optionLabel: v => v === "Ammo (Projectile)"
+        ? "Ammo (Projectile) — arrows and bolts; bows only"
+        : "Ammo — conventional rounds; anything but a bow" },
+    { key: "Cost", hint: "number — the price of a full load" },
+    { key: "Rarity", hint: "number" },
+    { key: "Weight", hint: "number — blank for conventional rounds" },
+    { key: "Effect", ta: true,
+      hint: "what it does, one clause per sentence. Stat clauses are applied: "
+        + "“Acc +2. Damage +3. Pen = 1. Barrier +1. Mag -5. Recoil +1. "
+        + "Hardening +2. Conceal -1. Weight +1. ZR +1. Rarity +1. Modes = SS, DT.” "
+        + "Either order reads (“+2 Acc”), “=” sets instead of adjusting, and "
+        + "“Modes +BF” / “Modes -FA” add or bar a firing mode. Anything else is "
+        + "shown as a note under the weapon" },
+    { key: "Notes", ta: true,
+      hint: "which guns take it, and any rule the numbers don't carry" },
   ]},
   augments: { label: "Augments", nameKey: "Name", fields: [
     { key: "Name", hint: "end with a number (“Reflex Booster 2”) for rank logic" },
@@ -436,6 +478,7 @@ const HOMEBREW_REQUIRED = {
   speaker_spirits: ["Element", "Cost"],
   spells: ["School", "Drain", "Cost"],
   misc_gear: ["Class", "Cost"],
+  ammo: ["Class", "Cost"],
   augments: ["Type", "ZR", "BI", "Cost"],
   weapons: ["Type", "Cost", "Damage"],
   armor: ["Slot", "Cost", "Ballistic", "Impact"],
@@ -449,6 +492,47 @@ const HOMEBREW_REQUIRED = {
   vehicle_mods: ["Cost", "Weight"],
   drone_mods: ["Cost", "Weight"],
 };
+
+/** The data.js table a tab's rows are stored in (its own key unless it is a
+ *  view of another table). */
+function hbTableKey(tabKey) {
+  return (HOMEBREW_CONFIG[tabKey] || {}).table || tabKey;
+}
+
+/** A pack's rows for one TAB, each with its index in the stored array -- the
+ *  index is what edit and delete work on, so a filtered view still writes to
+ *  the right row. */
+function hbTabRows(pack, tabKey) {
+  const cfg = HOMEBREW_CONFIG[tabKey] || {};
+  const all = (pack && pack.data && pack.data[hbTableKey(tabKey)]) || [];
+  return all.map((row, i) => ({ row, i }))
+    .filter(e => !cfg.rowFilter || cfg.rowFilter(e.row));
+}
+
+/** The stored tables behind the tabs: table -> {nameKey, fields}, with the
+ *  fields of every tab that shares the table unioned, since an imported row
+ *  keeps whatever column any of those tabs can author. */
+function hbStoredTables() {
+  const out = new Map();
+  for (const [key, cfg] of Object.entries(HOMEBREW_CONFIG)) {
+    const table = hbTableKey(key);
+    const prev = out.get(table);
+    if (!prev) { out.set(table, { nameKey: cfg.nameKey, fields: [...cfg.fields] }); continue; }
+    for (const f of cfg.fields)
+      if (!prev.fields.some(x => x.key === f.key)) prev.fields.push(f);
+  }
+  return out;
+}
+
+/** Which tab a stored row belongs to — for naming the row's kind when the
+ *  editor talks about a table it doesn't have open. */
+function hbTabForRow(table, row) {
+  const keys = Object.keys(HOMEBREW_CONFIG).filter(k => hbTableKey(k) === table);
+  return keys.find(k => {
+    const f = HOMEBREW_CONFIG[k].rowFilter;
+    return f && f(row);
+  }) || keys[0] || table;
+}
 
 /** Required columns of `tableKey` that `row` leaves blank. */
 function hbMissingColumns(tableKey, row) {
@@ -492,19 +576,19 @@ function mergeCustomContent() {
     ...HB_PACKS.map(p => ({ pack: p, readOnly: false })),
     ...subscribedPacks().map(p => ({ pack: p, readOnly: true })),
   ];
-  for (const key of Object.keys(HOMEBREW_CONFIG)) {
+  for (const [key, spec] of hbStoredTables()) {
     const table = DATA_BUNDLE.tables[key];
     if (!table) continue;
     for (let i = table.length - 1; i >= 0; i--)
       if (table[i].Custom === "Y") table.splice(i, 1);
-    const nameKey = HOMEBREW_CONFIG[key].nameKey;
+    const nameKey = spec.nameKey;
     const taken = new Set(table.map(r => String(r[nameKey] || "").trim().toLowerCase()));
     for (const src of sources) {
       for (const row of (src.pack.data && src.pack.data[key]) || []) {
         const nm = String(row[nameKey] || "").trim().toLowerCase();
         if (!nm) continue;
         if (taken.has(nm)) {
-          HB_COLLISIONS.push({ table: key, name: row[nameKey],
+          HB_COLLISIONS.push({ table: hbTabForRow(key, row), name: row[nameKey],
             pack: src.pack.name || "", owner: src.pack.owner || "" });
           continue;
         }
@@ -614,7 +698,9 @@ function hbRowSummary(cfg, row) {
 
 function packItemCount(pack) {
   if (!pack || !pack.data) return 0;
-  return Object.keys(HOMEBREW_CONFIG).reduce((n, k) => n + ((pack.data[k] || []).length), 0);
+  let n = 0;
+  for (const table of hbStoredTables().keys()) n += (pack.data[table] || []).length;
+  return n;
 }
 
 function renderHomebrew() {
@@ -627,7 +713,10 @@ function renderHomebrew() {
 function renderHomebrewEditor(root) {
   const cfg = HOMEBREW_CONFIG[hbTable];
   const pack = activePack();
-  const rows = pack ? pack.data[hbTable] : [];
+  // `store` is the array rows live in; `rows` is this tab's view of it, each
+  // entry carrying its index in `store` so edits land on the right row.
+  const store = pack ? pack.data[hbTableKey(hbTable)] : [];
+  const rows = pack ? hbTabRows(pack, hbTable) : [];
 
   const importInput = el("input", {
     type: "file", accept: ".json,application/json", hidden: "1",
@@ -699,7 +788,7 @@ function renderHomebrewEditor(root) {
       el("button", {
         class: "hb-tab" + (key === hbTable ? " active" : ""),
         onclick: () => { hbTable = key; hbEditIndex = null; renderHomebrew(); },
-      }, `${c.label}${(pack.data[key] || []).length ? ` (${pack.data[key].length})` : ""}`))));
+      }, `${c.label}${hbTabRows(pack, key).length ? ` (${hbTabRows(pack, key).length})` : ""}`))));
 
   /* ---- this pack's rows for the active table --------------------------- */
   const list = el("div", { class: "card" }, el("h3", {}, `${pack.name} — ${cfg.label}`));
@@ -707,7 +796,7 @@ function renderHomebrewEditor(root) {
     list.append(el("p", { class: "hint" }, `No ${cfg.label.toLowerCase()} in this pack yet — add one below.`));
   } else {
     const t = el("table");
-    rows.forEach((row, i) => {
+    rows.forEach(({ row, i }) => {
       const missing = hbMissingColumns(hbTable, row);
       t.append(el("tr", {},
         el("td", {}, el("b", {}, row[cfg.nameKey] || "(unnamed)"),
@@ -722,7 +811,7 @@ function renderHomebrewEditor(root) {
             onclick: () => {
               const name = row[cfg.nameKey] || "(unnamed)";
               if (!confirm(`Delete ${name}? Characters that own it keep the name but lose its stats.`)) return;
-              rows.splice(i, 1);
+              store.splice(i, 1);
               if (hbEditIndex === i) hbEditIndex = null;
               hbSave(); renderHomebrew();
             } }, "✕"))));
@@ -732,7 +821,7 @@ function renderHomebrewEditor(root) {
   root.append(list);
 
   /* ---- add / edit form (writes into the active pack) ------------------- */
-  const editing = hbEditIndex != null ? rows[hbEditIndex] : null;
+  const editing = hbEditIndex != null ? store[hbEditIndex] : null;
   const form = el("div", { class: "card" },
     el("h3", {}, editing ? `Edit: ${editing[cfg.nameKey] || "(unnamed)"}` : `Add ${cfg.label.replace(/s$/, "")}`));
   const inputs = {};
@@ -769,10 +858,12 @@ function renderHomebrewEditor(root) {
         const name = row[cfg.nameKey];
         if (!name) { alert(`${cfg.nameKey} is required.`); return; }
         // Collide against core + other packs + other rows in THIS pack.
-        const taken = new Set(DATA_BUNDLE.tables[hbTable]
+        const taken = new Set(DATA_BUNDLE.tables[hbTableKey(hbTable)]
           .filter(r => !(r.Custom === "Y" && r.PackId === pack.id))
           .map(r => String(r[cfg.nameKey] || "").trim().toLowerCase()));
-        rows.forEach((r, i) => { if (i !== hbEditIndex) taken.add(String(r[cfg.nameKey] || "").trim().toLowerCase()); });
+        // The whole stored table, not just this tab's view of it: a round and a
+        // piece of gear share the misc_gear namespace and can't share a name.
+        store.forEach((r, i) => { if (i !== hbEditIndex) taken.add(String(r[cfg.nameKey] || "").trim().toLowerCase()); });
         if (taken.has(name.toLowerCase())) {
           alert(`A ${cfg.label.replace(/s$/, "").toLowerCase()} named “${name}” already exists in the core data or another pack.`);
           return;
@@ -785,7 +876,7 @@ function renderHomebrewEditor(root) {
           + "Blank numbers read as 0 and blank categories as none, so it will "
           + "cost nothing and do nothing in those respects.\n\nAdd it anyway?"))
           return;
-        if (editing) rows[hbEditIndex] = row; else rows.push(row);
+        if (editing) store[hbEditIndex] = row; else store.push(row);
         hbEditIndex = null;
         hbSave(); renderHomebrew();
       } }, editing ? "Save Changes" : "Add"),
@@ -832,7 +923,8 @@ function renderHomebrewEditor(root) {
   }
 
   /* ---- built-in reference ---------------------------------------------- */
-  const builtins = DATA_BUNDLE.tables[hbTable].filter(r => r.Custom !== "Y");
+  const builtins = DATA_BUNDLE.tables[hbTableKey(hbTable)]
+    .filter(r => r.Custom !== "Y" && (!cfg.rowFilter || cfg.rowFilter(r)));
   const refTable = el("table");
   for (const row of builtins)
     refTable.append(el("tr", {}, el("td", {}, el("b", {}, row[cfg.nameKey] || ""),
@@ -903,8 +995,8 @@ async function viewSharedPack(id) {
   if (!p) return;
   if (!full) { p._preview = "Pack is no longer available."; renderHomebrew(); return; }
   const names = [];
-  for (const [key, cfg] of Object.entries(HOMEBREW_CONFIG))
-    for (const row of full.data[key] || []) names.push(row[cfg.nameKey]);
+  for (const [key, spec] of hbStoredTables())
+    for (const row of full.data[key] || []) names.push(row[spec.nameKey]);
   p._preview = names.length ? "Contains: " + names.join(", ") : "(empty pack)";
   renderHomebrew();
 }
@@ -928,14 +1020,14 @@ async function importSharedPack(meta) {
  * columns and skipping names already present anywhere (core/packs/subs). */
 function mergePackData(target, src) {
   let imported = 0; const skipped = [];
-  for (const [key, cfg] of Object.entries(HOMEBREW_CONFIG)) {
+  for (const [key, spec] of hbStoredTables()) {
     if (!Array.isArray(src[key])) continue;
-    const taken = new Set(DATA_BUNDLE.tables[key].map(r => String(r[cfg.nameKey] || "").trim().toLowerCase()));
+    const taken = new Set(DATA_BUNDLE.tables[key].map(r => String(r[spec.nameKey] || "").trim().toLowerCase()));
     for (const raw of src[key]) {
       if (!raw || typeof raw !== "object") continue;
-      const row = {}; for (const f of cfg.fields) row[f.key] = String(raw[f.key] ?? "").trim();
+      const row = {}; for (const f of spec.fields) row[f.key] = String(raw[f.key] ?? "").trim();
       row.Custom = "Y";
-      const name = row[cfg.nameKey];
+      const name = row[spec.nameKey];
       if (!name) continue;
       if (taken.has(name.toLowerCase())) { skipped.push(name); continue; }
       taken.add(name.toLowerCase());
@@ -961,7 +1053,7 @@ function exportActivePack() {
 /* Import a JSON pack file into the active pack (creating one if needed). */
 async function importHomebrewFile(parsed) {
   const known = parsed && typeof parsed === "object" && !Array.isArray(parsed)
-    && Object.keys(HOMEBREW_CONFIG).some(k => Array.isArray(parsed[k]));
+    && [...hbStoredTables().keys()].some(k => Array.isArray(parsed[k]));
   if (!known) { alert("That file doesn't look like a Sinless homebrew pack."); return; }
   let target = activePack();
   if (!target) { await hbCreatePack(String(parsed.name || "Imported")); target = activePack(); }

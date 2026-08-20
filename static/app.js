@@ -2229,8 +2229,14 @@ function barrierBit(row, value) {
 function concealBit(row, calcRow) {
   const c = (calcRow || {}).Conceal ?? (row || {}).Conceal ?? 0;
   const mod = (calcRow || {}).conceal_mod || 0;
-  return `${c || 0}${mod ? ` (+${mod} mods)` : ""}`;
+  // A loaded round can move Conceal too (#86), and it can move it DOWN, so the
+  // sign is written rather than assumed -- "(+2 mods)" but "(-1 ammo)". The
+  // label names whatever sources contributed.
+  const label = (calcRow || {}).conceal_mod_label || "mods";
+  return `${c || 0}${mod ? ` (${signed(mod)} ${label})` : ""}`;
 }
+/** "+2" / "-1" -- an adjustment printed with its sign either way. */
+function signed(n) { return `${n > 0 ? "+" : ""}${n}`; }
 /* Recoil capacity for one gun: the shooter's own capacity plus whatever is
    bolted to this weapon, or "Ignored" when Gun-Kata rank 3 covers the type.
    Blank for melee, thrown and anything the engine didn't rate — there is no
@@ -2246,7 +2252,7 @@ function recoilBit(calcRow) {
   // A cybergun labels its own contribution "implanted" rather than "mods" —
   // it isn't bolted on, it's the arm the gun is built into.
   const label = c.recoil_mod_label || "mods";
-  return ` · Recoil ${c.Recoil}${c.recoil_mod ? ` (+${c.recoil_mod} ${label})` : ""}`;
+  return ` · Recoil ${c.Recoil}${c.recoil_mod ? ` (${signed(c.recoil_mod)} ${label})` : ""}`;
 }
 /* Everything a weapon carries that isn't a number: the mods built into it at
    the factory and, for a sealed weapon, the fact that it can't be reloaded.

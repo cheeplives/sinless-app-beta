@@ -210,7 +210,7 @@ actually testing.
 
       RULES.ammoStatMods(DATA.tables.misc_gear.find(r => r.Item === "AP").Effect)
 
-- **Expected:** `{ "acc": 0, "damage": 0, "pen": 2, "bar": 1, "set": {}, "notes": [] }`
+- **Expected:** `{ "acc": 0, "damage": 0, "pen": 2, "bar": 1, "mag": 0, "recoil": 0, "hardening": 0, "conceal": 0, "weight": 0, "zr": 0, "rarity": 0, "set": {}, "modes": null, "notes": [] }`
 - **Note:** Reads the **real row**, not a hand-written string — this is
   load-bearing. Every multi-clause ammo in the data separates its clauses with
   a period ("Pen +2. Barrier +1."), not a comma, and this case used to pass a
@@ -244,7 +244,7 @@ actually testing.
 
       RULES.ammoStatMods(DATA.tables.misc_gear.find(r => r.Item === "Buckshot").Effect)
 
-- **Expected:** `{ "acc": 2, "damage": 3, "pen": 0, "bar": 0, "set": { "pen": 1 }, "notes": ["Range = S"] }`
+- **Expected:** `{ "acc": 2, "damage": 3, "pen": 0, "bar": 0, "mag": 0, "recoil": 0, "hardening": 0, "conceal": 0, "weight": 0, "zr": 0, "rarity": 0, "set": { "pen": 1 }, "modes": null, "notes": ["Range = S"] }`
 - **Note:** Buckshot's Effect is `"+2 Accuracy. +3 Damage. Pen = 1. Range = S."`
   — four clauses, three shapes (`+d Stat`, `Stat = d`, and a fourth that has no
   recognised stat at all). `Pen = 1` is a SET, not a `+1` delta — it wins over
@@ -275,6 +275,51 @@ actually testing.
   gate the mid-fight reload confirm" signal onto a separate `cybergun: true`
   flag, so the two jobs `Type` used to do at once no longer collide. See
   `../findings/2026-08-19-P02.md`.
+- **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
+
+### P02-010d: A round moves the weapon's row stats, and only the ones it rates
+- **Type:** correctness
+- **Check:**
+
+      (() => { const W = n => DATA.tables.weapons.find(w => w.Weapon === n); const m = RULES.ammoStatMods("Mag -10. Recoil +2. Conceal -1. Hardening +1."); const rifle = RULES.applyAmmoToRow({ Recoil: 3 }, W("Kalishnikov A-80"), m); const katana = RULES.applyAmmoToRow({}, W("Katana"), m); return { rifleMag: rifle.Ammo, rifleRecoil: rifle.Recoil, rifleLabel: rifle.recoil_mod_label, rifleConceal: rifle.Conceal, rifleHardening: rifle.Hardening, taserMag: RULES.applyAmmoToRow({}, W("Ares TAG-1 Taser"), m).Ammo, katanaGotAMagazine: "Ammo" in katana, katanaGotRecoil: "Recoil" in katana, missileMag: RULES.applyAmmoToRow({ Ammo: "1 missile" }, {}, RULES.ammoStatMods("Mag +40.")).Ammo }; })()
+
+- **Expected:** `{ "rifleMag": "20", "rifleRecoil": "5", "rifleLabel": "ammo", "rifleConceal": "2", "rifleHardening": "6", "taserMag": "0", "katanaGotAMagazine": false, "katanaGotRecoil": false, "missileMag": "1 missile" }`
+- **Note:** Issue #86 widened ammunition from the four shot stats to everything
+  a weapon MOD can reach. The three guards in one case: a stat the weapon
+  doesn't rate is **not invented** (a Katana gets neither a magazine nor a
+  Recoil rating), a rating stated as prose is **left alone** (a missile rack
+  holds `"1 missile"`, not 41), and nothing goes **below zero** (a 2-round taser
+  with `Mag -10` holds 0 — the round doesn't fit — rather than −8). `Recoil`
+  and `Conceal` already print a `(+N mods)` annotation, so the round's share
+  joins it under the label `ammo` rather than moving the number silently.
+- **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
+
+### P02-010e: A round can bar or add a firing mode
+- **Type:** correctness
+- **Check:**
+
+      (() => { const kal = DATA.tables.weapons.find(w => w.Weapon === "Kalishnikov A-80"); const base = RULES.weaponFiringModes(kal); const m = s => RULES.ammoStatMods(s); return { base, noFA: RULES.ammoFiringModes(base, m("Modes -FA.")), onlySS: RULES.ammoFiringModes(base, m("Modes = SS.")), addBF: RULES.ammoFiringModes(["SS"], m("Modes +BF.")), prose: RULES.ammoFiringModes(base, m("Modes - see the notes.")) }; })()
+
+- **Expected:** `{ "base": ["SS", "DT", "BF", "FA"], "noFA": ["SS", "DT", "BF"], "onlySS": ["SS"], "addBF": ["SS", "BF"], "prose": ["SS", "DT", "BF", "FA"] }`
+- **Note:** The mode clause is pulled out of the Effect text *before* the clause
+  split, because a mode list contains the very commas that split clauses —
+  `"Modes = SS, DT"` would otherwise arrive as `Modes = SS` plus a stray `DT`.
+  `prose` is the guard on the other side: text that merely fits the shape is
+  validated through `parseFiringMode`, fails, and stays a note, so a round whose
+  Effect says "Modes - see the notes" does not silently strip the gun's modes.
+- **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
+
+### P02-010f: Silvered Ammo is a plain, expensive round
+- **Type:** correctness
+- **Check:**
+
+      (() => { const s = DATA.tables.misc_gear.find(r => r.Item === "Silvered Ammo"); const bow = DATA.tables.weapons.find(w => w.Type === "Projectile"); return { Class: s.Class, Cost: s.Cost, Rarity: s.Rarity, Effect: s.Effect, notes: RULES.ammoStatMods(s.Effect).notes, fitsRifle: RULES.ammoFitsWeapon(s, DATA.tables.weapons.find(w => w.Weapon === "Kalishnikov A-80")), fitsBow: RULES.ammoFitsWeapon(s, bow) }; })()
+
+- **Expected:** `{ "Class": "Ammo", "Cost": "2000", "Rarity": "3", "Effect": "", "notes": [], "fitsRifle": true, "fitsBow": false }`
+- **Note:** Added with #86. It states no effect at all, which is the point — it
+  buys the fiction, not a stat. Unlisted in `AMMO_FITS`, so it chambers in any
+  conventional gun; the projectile/firearm split (P02-016) still keeps it out of
+  a bow.
 - **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
 
 ### P02-011: Barrier reaches CALC.weapons

@@ -4381,7 +4381,10 @@ function reloadAllWeapons() {
     const r = DATA.tables.weapons.find(x => x.Weapon === w.name) || {};
     if (RULES.weaponIsOneshot(r)) return;
     const calcRow = calcRowFor(w, entries);
-    const maxAmmo = Math.max(0, parseInt(calcRow.Ammo ?? r.Ammo, 10) || 0);
+    // The loaded round can resize the magazine, and a bulk reload must fill
+    // the magazine the hand card shows rather than the unloaded one (#86).
+    const ammoRow = RULES.applyAmmoToRow(calcRow, r, loadedAmmoFor(w, r).mods);
+    const maxAmmo = Math.max(0, parseInt(ammoRow.Ammo ?? r.Ammo, 10) || 0);
     if (!maxAmmo) return;
     const loaded = w.loaded == null ? maxAmmo
       : Math.max(0, Math.min(Math.floor(+w.loaded) || 0, maxAmmo));
@@ -4543,7 +4546,7 @@ function gunneryRollSpec(accuracy, bonuses = []) {
  * jumped-in rig's cores grant before reaching for a Simple Action — a
  * rigger directs a mount through the same exploit pool the Rigging tab
  * already lists, not through a personal weapon's action economy. */
-function unitGunControls(table, unit, wi, wn, wr, isEnergy) {
+function unitGunControls(table, unit, wi, wn, wr, isEnergy, ammoMods = null) {
   const ro = !!(activeTabObj() && activeTabObj().readonly);
   const st = unitGunState(table, unit, wi);
   const wrap = el("div", { class: "sh-fire" });
@@ -4573,7 +4576,7 @@ function unitGunControls(table, unit, wi, wn, wr, isEnergy) {
     return wrap;
   }
 
-  const modes = RULES.weaponFiringModes(wr);
+  const modes = RULES.ammoFiringModes(RULES.weaponFiringModes(wr), ammoMods);
   if (!modes.length) return null;                  // Oil Slick / Smokescreen
   const mode = modes.includes(st.mode) ? st.mode : modes[0];
   const md = RULES.firingMode(mode);
@@ -4588,7 +4591,10 @@ function unitGunControls(table, unit, wi, wn, wr, isEnergy) {
     : el("span", { class: "sh-fire-mode", title: md.name }, mode));
 
   // "1 missile" and the like aren't counts, so those mounts get no magazine.
-  const maxAmmo = /^\s*\d+\s*$/.test(String(wr.Ammo || "")) ? parseInt(wr.Ammo, 10) : 0;
+  // The loaded round may resize it, the same as on a personal weapon (#86).
+  const magRaw = ammoMods
+    ? (RULES.applyAmmoToRow({ Ammo: wr.Ammo }, wr, ammoMods).Ammo ?? wr.Ammo) : wr.Ammo;
+  const maxAmmo = /^\s*\d+\s*$/.test(String(magRaw || "")) ? parseInt(magRaw, 10) : 0;
   if (maxAmmo) {
     const loaded = st.loaded == null ? maxAmmo
       : Math.max(0, Math.min(Math.floor(+st.loaded) || 0, maxAmmo));
@@ -5540,10 +5546,19 @@ function shOverview(body) {
         const ammo = loadedAmmoFor(cg.src, cgRow);
         const base = { acc: g.Acc, damage: g.Dmg, pen: g.Pen, bar: g.Bar ?? "" };
         const shot = RULES.applyAmmoStats(base, ammo.mods);
-        const cgModes = RULES.weaponFiringModes(g);
+        // An implanted gun takes no weapon mods, so the loaded round is the
+        // only thing that moves its magazine, Hardening or modes (#86). The
+        // adjusted magazine is written back onto cgRow, which is the row the
+        // fire controls read their round count from.
+        const cgAmmoRow = ammo.row
+          ? RULES.applyAmmoToRow({ Ammo: g.Ammo, Hardening: RULES.hardeningOf(g) }, g, ammo.mods)
+          : { Ammo: g.Ammo, Hardening: RULES.hardeningOf(g) };
+        cgRow.Ammo = cgAmmoRow.Ammo;
+        const cgModes = RULES.ammoFiringModes(RULES.weaponFiringModes(g),
+          ammo.row ? ammo.mods : null);
         const cgMode = cgModes.includes(cg.src.mode) ? cg.src.mode : (cgModes[0] || "");
         const cgMd = cgMode ? RULES.firingMode(cgMode) : { dice: 0, ammo: 0 };
-        const cgMag = Math.max(0, parseInt(g.Ammo, 10) || 0);
+        const cgMag = Math.max(0, parseInt(cgAmmoRow.Ammo, 10) || 0);
         // Cybergun Types are prose ("Palm Pistol", "Forearm SMG"), which the
         // same test reads — a Shotgun cybergun is correctly left out.
         const cgKataOffered = gunKataRank() >= 2 && cgMag > 0 && cgModes.length > 0
@@ -5560,20 +5575,29 @@ function shOverview(body) {
           (ammo.row && String(shot[key]) !== String(base[key]))
             ? { class: "wpn-ammo-mod", title: `${ammo.name} ammo` } : {},
           `${label} ${shot[key]}`);
+        // Same marking for the stats that live on the row rather than the shot.
+        const bitOf = (label, shown, was) => el("span",
+          String(shown) !== String(was)
+            ? { class: "wpn-ammo-mod", title: `${ammo.name} ammo` } : {},
+          `${label} ${shown}`);
         // Braced against the arm it's built into, so its recoil rating is
         // its own (doubled) figure rather than the character's bare one.
         // Passed as the calcRow so the Fire button's recoil check reads the
         // same number the stat line prints.
-        const cgRecoil = RULES.cybergunRecoil(g, CALC.combat);
+        const cgRecoil = ammo.row
+          ? RULES.applyAmmoToRow(RULES.cybergunRecoil(g, CALC.combat), g, ammo.mods)
+          : RULES.cybergunRecoil(g, CALC.combat);
         gt.append(el("tr", {},
           el("td", {}, el("b", {}, cg.name + " (smart)")),
           el("td", { class: "sub" },
             "Cybergun", weaponSkillDice(cg.name, "Cybergun", shot.acc, cgBonuses),
             " · ", bit("Acc", "acc"), " · ", bit("DMG", "damage"), " · ", bit("Pen", "pen"),
             base.bar ? " · " : null, base.bar ? bit("Barrier", "bar") : null,
-            ` · Mag ${g.Ammo}`
-            + ` · Hardening ${RULES.hardeningOf(g)}`
-            + recoilBit(cgRecoil),
+            " · ",
+            bitOf("Mag", cgAmmoRow.Ammo, g.Ammo),
+            " · ",
+            bitOf("Hardening", cgAmmoRow.Hardening, RULES.hardeningOf(g)),
+            recoilBit(cgRecoil),
             el("div", { class: "sub wpn-mods" }, "Implanted — configured on the Augments tab"),
             ammo.notes.length
               ? el("div", { class: "sub wpn-ammo-note" }, `${ammo.name}: ${ammo.notes.join(" · ")}`) : null),
@@ -5606,6 +5630,9 @@ function shOverview(body) {
         const mBase = w ? { acc: w.Accuracy || 0, damage: w.Damage || "—",
                             pen: w.Pen || 0, bar: String(w.Bar ?? "") } : null;
         const mShot = (mBase && mAmmo.row) ? RULES.applyAmmoStats(mBase, mAmmo.mods) : mBase;
+        // Conceal and weight are the only row stats this line prints, but a
+        // round that states either moves them here too (#86).
+        const mRow = (w && mAmmo.row) ? RULES.applyAmmoToRow({}, w, mAmmo.mods) : (w || {});
         const mBit = (label, key) => el("span",
           (mAmmo.row && String(mShot[key]) !== String(mBase[key]))
             ? { class: "wpn-ammo-mod", title: `${mAmmo.name} loaded` } : {},
@@ -5615,7 +5642,7 @@ function shOverview(body) {
              " · ", mBit("Acc", "acc"), " · ", mBit("DMG", "damage"),
              " · ", mBit("Pen", "pen"),
              mBase.bar ? " · " : "", mBase.bar ? mBit("Barrier", "bar") : "",
-             ` · Conceal ${w.Conceal || 0} · wt ${w.Weight || 0}`,
+             ` · Conceal ${mRow.Conceal ?? w.Conceal ?? 0} · wt ${mRow.Weight ?? w.Weight ?? 0}`,
              mAmmo.notes.length
                ? el("div", { class: "sub wpn-ammo-note" },
                    `${mAmmo.name}: ${mAmmo.notes.join(" · ")}`) : null]
@@ -5866,9 +5893,6 @@ function shOverview(body) {
             ...(held.mods || [])];
           if (held.upgr1 && r.Upgr1_Eff) modNames.push("Upgrade 1");
           if (held.upgr2 && r.Upgr2_Eff) modNames.push("Upgrade 2");
-          const modes = RULES.weaponFiringModes(r);
-          const mode = modes.includes(held.mode) ? held.mode : (modes[0] || "");
-          const md = mode ? RULES.firingMode(mode) : { dice: 0, ammo: 0, name: "" };
           const baseAcc = calcRow.Accuracy ?? r.Accuracy ?? 0;
           // Thrown weapons skip the melee damage pass, so a Knife would print
           // "½ Str" rather than the number it resolves to.
@@ -5889,7 +5913,18 @@ function shOverview(body) {
                             bar: String(gren.row.Bar ?? "") || "—" }
                         : { ...base })
             : (ammo.row ? RULES.applyAmmoStats(base, ammo.mods) : { ...base });
-          const magSize = Math.max(0, parseInt(calcRow.Ammo ?? r.Ammo, 10) || 0);
+          // Everything the round moves that isn't a shot stat -- the magazine
+          // it feeds, the recoil it kicks, its Hardening/Conceal/Weight/ZR/
+          // Rarity -- lands on a copy of the priced row, so the stat line, the
+          // Fire button and the Reload button all read the same figures (#86).
+          // The firing modes come after it for the same reason: a round can
+          // bar full auto, or add a mode the gun alone doesn't offer.
+          const ammoRow = ammo.row ? RULES.applyAmmoToRow(calcRow, r, ammo.mods) : calcRow;
+          const modes = RULES.ammoFiringModes(RULES.weaponFiringModes(r),
+            ammo.row ? ammo.mods : null);
+          const mode = modes.includes(held.mode) ? held.mode : (modes[0] || "");
+          const md = mode ? RULES.firingMode(mode) : { dice: 0, ammo: 0, name: "" };
+          const magSize = Math.max(0, parseInt(ammoRow.Ammo ?? r.Ammo, 10) || 0);
           const kataOffered = gunKataRank() >= 2 && magSize > 0 && modes.length > 0
             && gunKataFitsWeapon(r);
           const kataOn = kataOffered && !!held.kata;
@@ -5913,15 +5948,16 @@ function shOverview(body) {
           // at all and must stay that way, or every unarmed card would grow
           // a phantom "Recoil 1"). See RULES.weaponHands / the plan's Recoil
           // section for the four traps this threads.
-          const braced = RULES.weaponHands(r) === 1 && calcRow.Recoil != null
+          const braced = RULES.weaponHands(r) === 1 && ammoRow.Recoil != null
             && Array.from({ length: handCountEff }, (_, j) => j)
                  .some(j => j !== i && !slotFilled(j));
           const effRow = braced ? {
-            ...calcRow,
-            Recoil: toInt(calcRow.Recoil) + 1,
-            recoil_mod: toInt(calcRow.recoil_mod) + 1,
-            recoil_mod_label: calcRow.recoil_mod ? "mods + free hand" : "free hand",
-          } : calcRow;
+            ...ammoRow,
+            Recoil: toInt(ammoRow.Recoil) + 1,
+            recoil_mod: toInt(ammoRow.recoil_mod) + 1,
+            recoil_mod_label: ammoRow.recoil_mod
+              ? `${ammoRow.recoil_mod_label || "mods"} + free hand` : "free hand",
+          } : ammoRow;
           // Twin Fire candidacy for this hand (#59). gunKataFitsWeapon is the
           // file's established "one-handed pistol or SMG" test — reused, not
           // reimplemented. A gun with no magazine or no firing mode (a
@@ -5935,6 +5971,18 @@ function shOverview(body) {
               effRow, modes, mode, bonuses,
               cost: md.ammo + (kataOn ? 1 : 0), loaded: loadedNow, maxAmmo: magSize };
           }
+          // The row stats get the same treatment the shot stats do: the value
+          // shown is the one with the round in it, marked when the round is
+          // what changed it. Conceal and Recoil carry their own "(+N ammo)"
+          // annotation through concealBit/recoilBit instead.
+          const rowBit = (label, shown, was) => el("span",
+            String(shown) !== String(was)
+              ? { class: "wpn-ammo-mod", title: `${munName} loaded` } : {},
+            `${label} ${shown}`);
+          const hardOf = row => RULES.hardeningOf(
+            String((row || {}).Hardening ?? "").trim() !== "" ? row : r);
+          const magShown = ammoRow.Ammo ?? r.Ammo ?? "";
+          const rarityShown = String((ammoRow.Rarity ?? r.Rarity) || "");
           tile.append(el("div", { class: "sub" },
             `${r.Type || ""}`,
             weaponSkillDice(held.name, r.Type, shot.acc, bonuses, r.Reach),
@@ -5943,12 +5991,19 @@ function shOverview(body) {
             r.Type === "Melee" ? `Reach ${r.Reach || 0}` : statBit("Acc", "acc"),
             " · ", statBit("DMG", "damage"), " · ", statBit("Pen", "pen"),
             base.bar ? " · " : null, base.bar ? statBit("Barrier", "bar") : null,
-            ` · Conceal ${concealBit(r, calcRow)} · ZR ${r.ZR || 0} · Weight ${r.Weight || 0}`
-            + ((calcRow.Ammo ?? r.Ammo) ? ` · Mag ${calcRow.Ammo ?? r.Ammo}` : "")
-            + ` · Hardening ${RULES.hardeningOf(r)}`
-            + recoilBit(effRow)
-            + (r.Rarity && r.Rarity !== "-" ? ` · Rarity ${r.Rarity}` : "")
-            + (RULES.weaponIsOneshot(r) ? ` · ${RULES.ONESHOT_NOTE}` : "")));
+            ` · Conceal ${concealBit(r, effRow)} · `,
+            rowBit("ZR", (ammoRow.ZR ?? r.ZR) || 0, (calcRow.ZR ?? r.ZR) || 0),
+            " · ",
+            rowBit("Weight", (ammoRow.Weight ?? r.Weight) || 0,
+              (calcRow.Weight ?? r.Weight) || 0),
+            magShown ? " · " : null,
+            magShown ? rowBit("Mag", magShown, calcRow.Ammo ?? r.Ammo ?? "") : null,
+            " · ", rowBit("Hardening", hardOf(ammoRow), hardOf(calcRow)),
+            recoilBit(effRow),
+            rarityShown && rarityShown !== "-" ? " · " : null,
+            rarityShown && rarityShown !== "-"
+              ? rowBit("Rarity", rarityShown, String((calcRow.Rarity ?? r.Rarity) || "")) : null,
+            RULES.weaponIsOneshot(r) ? ` · ${RULES.ONESHOT_NOTE}` : ""));
           if (modNames.length)
             tile.append(el("div", { class: "sub wpn-mods" }, "Mods: " + modNames.join(" · ")));
           if (munNotes.length)
@@ -11453,7 +11508,6 @@ function shRigging(body) {
       const weaponRows = u.weapons.map((wn, wi) => {
         const wr = findWeapon(wn) || {};
         const doubles = weaponModIdx[wi].some(mi => modDoublesAmmo(findMod(modName(u.mods[mi]))));
-        const ammo = wr.Ammo ? (doubles ? `${scaleAmmo(wr.Ammo, 2)} (×2)` : wr.Ammo) : "";
         const effect = wr.Effect || wr.ModeEffect || "";
         const modChips = weaponModIdx[wi].map(mi => {
           const nm = modName(u.mods[mi]);
@@ -11471,10 +11525,19 @@ function shRigging(body) {
         }) : null;
         // Energy mounts run on Heat and carry no Modes/Ammo columns at all.
         const isEnergy = wr["Heat Limit"] !== undefined || wr.Heat !== undefined;
-        const fireCtl = unitGunControls(cfg.table, u, wi, wn, wr, isEnergy);
-        // The loaded round shifts what the mount actually puts downrange.
+        // The loaded round shifts what the mount actually puts downrange --
+        // resolved before the fire controls, which need it for the magazine
+        // and the firing modes it leaves the mount (#86).
         const uAmmo = isEnergy ? { row: null, name: "", mods: RULES.ammoStatMods(""), notes: [] }
                                : unitLoadedAmmo(cfg.table, u, wi, wn);
+        const fireCtl = unitGunControls(cfg.table, u, wi, wn, wr, isEnergy,
+          uAmmo.row ? uAmmo.mods : null);
+        // The round adjusts the magazine before the ammo-mod doubles it: the
+        // mount holds however many of THESE rounds, twice over.
+        const uMag = uAmmo.row
+          ? (RULES.applyAmmoToRow({ Ammo: wr.Ammo }, wr, uAmmo.mods).Ammo ?? wr.Ammo)
+          : wr.Ammo;
+        const ammo = uMag ? (doubles ? `${scaleAmmo(uMag, 2)} (×2)` : uMag) : "";
         const uBase = { acc: wr.Accuracy || 0, damage: wr.Damage || "—", pen: wr.Pen || 0 };
         const uShot = uAmmo.row ? RULES.applyAmmoStats(uBase, uAmmo.mods) : uBase;
         const uBit = (label, key) => el("span",

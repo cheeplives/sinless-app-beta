@@ -2859,31 +2859,75 @@ function weaponFiringModes(row) {
  * "[,.]" fixes every multi-clause ammo in the data at once -- AP, Flechette,
  * Buckshot, HEI, AP/Razor, Subsonic loads, Tracer Rounds -- not just the one
  * that got noticed. */
+/* The numbers a round can move. The four the weapon line always shows -- Acc,
+ * Damage, Pen, Barrier -- land on the shot itself; the rest (magazine size,
+ * Recoil, Hardening, Conceal, Weight, ZR, Rarity) land on the weapon's row,
+ * so a homebrew round can reach everything a weapon MOD can reach (#86).
+ * Several spellings map to one key because the columns and the prose disagree:
+ * the column is "Bar" but the text says "Barrier", the column is "Ammo" but
+ * the stat line says "Mag". */
 const AMMO_STAT_KEYS = {
   acc: "acc", accuracy: "acc",
   dmg: "damage", damage: "damage",
   pen: "pen", penetration: "pen",
   bar: "bar", barrier: "bar",
+  mag: "mag", magazine: "mag", ammo: "mag", capacity: "mag",
+  recoil: "recoil",
+  hard: "hardening", hardening: "hardening",
+  conceal: "conceal", concealability: "conceal", concealment: "conceal",
+  weight: "weight", wt: "weight",
+  zr: "zr",
+  rarity: "rarity",
 };
+/* Which weapon column each of the row-level stats writes to. Anything not
+ * listed here is a shot stat and is applied by applyAmmoStats instead. */
+const AMMO_STAT_COLUMNS = {
+  mag: "Ammo", recoil: "Recoil", hardening: "Hardening",
+  conceal: "Conceal", weight: "Weight", zr: "ZR", rarity: "Rarity",
+};
+
+/* Firing modes a round changes: "Modes = SS, DT" (all this gun can fire with
+ * these loaded), "Modes -FA" (can't be walked out on full auto), "Modes +BF".
+ * Pulled out of the effect text BEFORE the clause split below, because a mode
+ * list contains the very commas that split clauses -- "Modes = SS, DT" would
+ * otherwise arrive as "Modes = SS" and a stray "DT". Tokens are validated
+ * through parseFiringMode, so prose that happens to fit the shape ("Modes -
+ * see the notes") is left alone and falls through to the notes as before. */
+const AMMO_MODES_RE =
+  /\bmodes?\s*(=|\+|-)\s*([A-Za-z]{2}(?:\s*\(\d+\))?(?:\s*,\s*[A-Za-z]{2}(?:\s*\(\d+\))?)*)/gi;
+
 function ammoStatMods(effectText) {
-  const out = { acc: 0, damage: 0, pen: 0, bar: 0, set: {}, notes: [] };
+  const out = { acc: 0, damage: 0, pen: 0, bar: 0, mag: 0, recoil: 0, hardening: 0,
+                conceal: 0, weight: 0, zr: 0, rarity: 0, set: {}, modes: null, notes: [] };
   const statOf = w => AMMO_STAT_KEYS[String(w || "").toLowerCase()];
-  for (const rawPart of String(effectText || "").split(/[,.]\s*/)) {
+  const text = String(effectText || "").replace(AMMO_MODES_RE, (whole, op, list) => {
+    const keys = list.split(",").map(t => t.trim().toUpperCase()).filter(t => parseFiringMode(t));
+    if (!keys.length) return whole;                 // not modes after all -- keep the prose
+    const m = out.modes || (out.modes = { set: null, add: [], remove: [] });
+    if (op === "=") m.set = keys;
+    else if (op === "+") m.add.push(...keys);
+    else m.remove.push(...keys);
+    return " ";
+  });
+  // Split on clause punctuation, but not on the dot INSIDE a number: the data
+  // separates clauses with ". " and a decimal never has a space after the point,
+  // so a comma or a period that isn't between two digits ends a clause.
+  for (const rawPart of text.split(/(?<!\d)[,.]\s*|[,.](?!\d)\s*/)) {
     const part = rawPart.trim();
     if (!part) continue;
     let m;
     // "Pen = 0" / "Pen = 1" -- an absolute value, not a delta. Trailing prose is
     // kept as a note ("Pen = 1 Range = S" carries the Range half through).
-    if ((m = /^([A-Za-z]+)\s*=\s*(-?\d+)\s*(.*)$/.exec(part)) && statOf(m[1])) {
+    if ((m = /^([A-Za-z]+)\s*=\s*(-?\d+(?:\.\d+)?)\s*(.*)$/.exec(part)) && statOf(m[1])) {
       out.set[statOf(m[1])] = +m[2];
       if (m[3].trim()) out.notes.push(m[3].trim());
       continue;
     }
     // "Pen +1" or "+3 Dmg"
-    if (((m = /^([A-Za-z]+)\s*([+-]\d+)$/.exec(part)) && statOf(m[1]))) {
+    if (((m = /^([A-Za-z]+)\s*([+-]\d+(?:\.\d+)?)$/.exec(part)) && statOf(m[1]))) {
       out[statOf(m[1])] += +m[2]; continue;
     }
-    if (((m = /^([+-]\d+)\s*([A-Za-z]+)$/.exec(part)) && statOf(m[2]))) {
+    if (((m = /^([+-]\d+(?:\.\d+)?)\s*([A-Za-z]+)$/.exec(part)) && statOf(m[2]))) {
       out[statOf(m[2])] += +m[1]; continue;
     }
     out.notes.push(part);
@@ -2895,21 +2939,87 @@ function ammoStatMods(effectText) {
  *  Damage is often stated as a number with prose attached ("20 Stun",
  *  "10+fire"), so the adjustment lands on the leading number and the rest is
  *  carried through untouched -- Flashbang + Flechette is "21 Stun", not "21".
- *  Values with no leading number at all ("By Grenade", "By Missile", "½ Str",
+ *  Values with no leading number at all ("By Grenade", "By Missile", "1/2 Str",
  *  "Tgt Brawn Test (4)", "-") describe damage some other way and are left
- *  exactly as they are. */
+ *  exactly as they are.
+ *
+ *  Every key the caller passes in is resolved, so a caller that wants only the
+ *  four shot stats passes four, and one that also wants the magazine passes
+ *  `mag` too and gets it back adjusted. */
 function applyAmmoStats(base, mods) {
   const one = (key, raw) => {
     if (mods.set[key] != null) return mods.set[key];
     const d = mods[key] || 0;
     if (!d) return raw;                              // nothing to apply
     const s = String(raw).trim();
-    const m = /^(-?\d+)(.*)$/.exec(s);
+    const m = /^(-?\d+(?:\.\d+)?)(.*)$/.exec(s);
     if (!m) return raw;                              // no leading number
-    return `${parseInt(m[1], 10) + d}${m[2]}`;
+    return `${round2(parseFloat(m[1]) + d)}${m[2]}`;
   };
-  return { acc: one("acc", base.acc), damage: one("damage", base.damage),
-           pen: one("pen", base.pen), bar: one("bar", base.bar) };
+  const out = {};
+  for (const key of Object.keys(base || {})) out[key] = one(key, base[key]);
+  return out;
+}
+
+/** Fold a round's row-level stats into a weapon's calc row and hand back a
+ *  copy -- the pricing pass owns the row it produced and nothing here may
+ *  write to it. `base` is the weapon's data row, read for a column the calc
+ *  row doesn't carry (Hardening, ZR and Rarity never reach a priced row).
+ *
+ *  A column the weapon doesn't rate at all is left alone rather than invented:
+ *  a Katana has no magazine and no Recoil, and a round that says "Mag +5" must
+ *  not give it one. Hardening is the exception -- every weapon has one, blank
+ *  meaning the default -- so a delta resolves that default first.
+ *
+ *  Recoil and Conceal already print "(+N mods)", so the ammo's share joins
+ *  that annotation instead of silently moving the number. */
+const AMMO_NUMERIC_RE = /^\s*-?\d+(\.\d+)?\s*$/;
+function applyAmmoToRow(row, base, mods) {
+  const out = { ...(row || {}) };
+  if (!mods) return out;
+  const label = (cur, add) => (cur ? `${cur} + ${add}` : add);
+  for (const [stat, col] of Object.entries(AMMO_STAT_COLUMNS)) {
+    const setTo = mods.set[stat];
+    const delta = mods[stat] || 0;
+    if (setTo == null && !delta) continue;
+    let cur = (out[col] != null && String(out[col]).trim() !== "")
+      ? out[col] : ((base || {})[col] ?? "");
+    if (stat === "hardening" && String(cur).trim() === "") cur = hardeningOf(base || {});
+    if (String(cur).trim() === "") continue;          // unrated -- not this weapon's stat
+    // A rating stated as prose isn't a number to adjust: a missile rack holds
+    // "1 missile", and adding 40 to that is meaningless. Left exactly as it is,
+    // the same call applyExtendedMagazine makes about the same column.
+    if (!AMMO_NUMERIC_RE.test(String(cur))) continue;
+    // None of these ratings mean anything below zero -- a round that takes 10
+    // off a 2-round taser leaves a magazine of 0 (it doesn't fit), not -8.
+    // Arrow weights are fractional (0.05), so the arithmetic keeps decimals and
+    // only the display rounding drops them.
+    const next = Math.max(0, setTo != null ? setTo : asNumber(cur) + delta);
+    out[col] = String(Number.isInteger(next) ? next : round2(next));
+    if (stat === "recoil") {
+      out.recoil_mod = (toInt(out.recoil_mod) || 0) + (setTo != null ? 0 : delta);
+      out.recoil_mod_label = label(out.recoil_mod_label, "ammo");
+    }
+    if (stat === "conceal") {
+      out.conceal_mod = (toInt(out.conceal_mod) || 0) + (setTo != null ? 0 : delta);
+      out.conceal_mod_label = label(out.conceal_mod_label, "ammo");
+    }
+  }
+  return out;
+}
+
+/** The firing modes a gun offers with this round loaded, cheapest first -- the
+ *  same order weaponFiringModes returns, since this replaces its answer. A
+ *  round that removes every mode leaves the gun unfirable, which is the honest
+ *  reading of a round that bars the only mode the gun has. */
+function ammoFiringModes(modes, mods) {
+  const m = mods && mods.modes;
+  if (!m) return modes;
+  const up = t => String(t).toUpperCase();
+  let out = (m.set ? m.set : modes).slice();
+  if (m.remove.length) out = out.filter(k => !m.remove.some(r => up(r) === up(k)));
+  for (const k of m.add) if (!out.some(x => up(x) === up(k))) out.push(k);
+  return out.sort((a, b) => firingMode(a).ammo - firingMode(b).ammo);
 }
 
 /* ---- ammo compatibility -----------------------------------------------------
@@ -6290,7 +6400,8 @@ return {
   specTerms, specTermMatchesWeapon, classifySpecTerms, weaponSpecAdjust,
   FIRING_MODES, weaponFiringModes, firingMode, parseFiringMode,
   ammoFitsUnitWeapon,
-  ammoStatMods, applyAmmoStats, ammoFitsWeapon, AMMO_FITS,
+  ammoStatMods, applyAmmoStats, applyAmmoToRow, ammoFiringModes,
+  ammoFitsWeapon, AMMO_FITS,
   HOUSE_RULE_DEFS, houseRule, setHouseRule, currencyName, currencySymbol,
   recoilIgnoredForWeapon,
   programSkill, isEWProgram, hackActionSkill, programNeedsThread,

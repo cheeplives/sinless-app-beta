@@ -22,7 +22,10 @@ is not optional, and a leftover QA pack will confuse every later pass.
 
       (() => ({ packs: HB_PACKS.length, subs: HB_SUBS.length, collisions: HB_COLLISIONS.length, customWeapons: DATA.tables.weapons.filter(w => w.Custom === "Y").length, tables: Object.keys(HOMEBREW_CONFIG).length }))()
 
-- **Expected:** on a clean install, `{ "packs": 0, "subs": 0, "collisions": 0, "customWeapons": 0, "tables": 16 }`
+- **Expected:** on a clean install, `{ "packs": 0, "subs": 0, "collisions": 0, "customWeapons": 0, "tables": 18 }`
+- **Note:** `tables` counts editor TABS, which is one more than the 17
+  homebrew-eligible data.js tables: Ammo and Gear are two views of
+  `misc_gear` (P09-014).
 - **Note:** If `packs` is non-zero you have real homebrew here. Record the
   starting numbers and compare against them rather than against zero.
 - **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
@@ -286,6 +289,38 @@ is not optional, and a leftover QA pack will confuse every later pass.
   This case cleans up after itself: it pops the three rows it pushed. If it
   throws part-way, `Muscle Replacement QA` will not be caught by the cleanup
   block's `/^QA /` filter — the query below names it explicitly.
+- **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
+
+### P09-014: The Ammo tab is a filtered view of misc_gear, not a table of its own
+- **Type:** correctness
+- **Check:**
+
+      (() => ({ tabs: Object.keys(HOMEBREW_CONFIG).length, storedTables: [...hbStoredTables().keys()].length, ammoTabStoresInto: hbTableKey("ammo"), gearTabStoresInto: hbTableKey("misc_gear"), ammoRowsShown: DATA.tables.misc_gear.filter(r => HOMEBREW_CONFIG.ammo.rowFilter(r)).length, gearRowsShown: DATA.tables.misc_gear.filter(r => HOMEBREW_CONFIG.misc_gear.rowFilter(r)).length, total: DATA.tables.misc_gear.length }))()
+
+- **Expected:** on a clean install, `{ "tabs": 18, "storedTables": 17, "ammoTabStoresInto": "misc_gear", "gearTabStoresInto": "misc_gear", "ammoRowsShown": 29, "gearRowsShown": 43, "total": 72 }`
+- **Note:** Ammunition is `misc_gear` with an `Ammo` Class (#86), so its tab
+  declares `table: "misc_gear"` and a `rowFilter`; the Gear tab carries the
+  complementary filter. The two counts must **sum to the whole table** — if they
+  don't, a row is either hidden from both tabs (unauthorable) or shown in both
+  (editable from two places, with two indices into one array). Everything that
+  touches stored rows iterates `hbStoredTables()` rather than the tabs, which is
+  what keeps `packItemCount`, the merge and the importer from processing
+  `misc_gear` twice.
+- **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
+
+### P09-015: A round authored on the Ammo tab stores, merges and loads
+- **Type:** correctness
+- **Check:**
+
+      (async () => { await hbCreatePack("QA Ammo"); const pack = activePack(); pack.data.misc_gear.push({ Item: "QA Silvered Hollowpoint", Class: "Ammo", Cost: "3000", Rarity: "4", Effect: "Damage +2. Pen -1. Mag -2. Modes -FA. Blessed by somebody.", Notes: "QA authored.", Custom: "Y" }); pack.data.misc_gear.push({ Item: "QA Widget", Class: "Tools", Cost: "50", Custom: "Y" }); hbSave(); const p = activePack(); return { ammoTab: hbTabRows(p, "ammo").map(e => e.row.Item), ammoTabIndices: hbTabRows(p, "ammo").map(e => e.i), gearTab: hbTabRows(p, "misc_gear").map(e => e.row.Item), packCount: packItemCount(p), merged: DATA.tables.misc_gear.filter(r => r.Custom === "Y").map(r => r.Item), mods: RULES.ammoStatMods(DATA.tables.misc_gear.find(r => r.Item === "QA Silvered Hollowpoint").Effect).notes }; })()
+
+- **Expected:** `{ "ammoTab": ["QA Silvered Hollowpoint"], "ammoTabIndices": [0], "gearTab": ["QA Widget"], "packCount": 2, "merged": ["QA Silvered Hollowpoint", "QA Widget"], "mods": ["Blessed by somebody"] }`
+- **Note:** `ammoTabIndices` is the load-bearing half: the tab shows a filtered
+  list but Edit and Delete write to the index in the **stored** array, so a pack
+  holding both kinds must still edit the right row. `packCount` is 2, not 4 —
+  proof the shared table isn't counted once per tab.
+- **Cleanup:** run the pass's cleanup block below, or
+  `hbDeletePack(HB_PACKS.find(p => p.name === "QA Ammo"))`.
 - **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
 
 ---

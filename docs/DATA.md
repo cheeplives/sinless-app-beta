@@ -11,7 +11,7 @@ catalogue of every table, and the gotchas that bite people editing it.
 > | Where | What |
 > |---|---|
 > | `HOMEBREW_CONFIG` — `static/homebrew.js` | `nameKey` per homebrew-eligible table |
-> | `NAME_KEYS` — `tools/promote_homebrew.py` | the same 16 tables, for promotion |
+> | `NAME_KEYS` — `tools/promote_homebrew.py` | the same 17 tables, for promotion |
 > | `findRow(data.X, "Col")` — `static/rules.js` | per-lookup literals |
 > | the catalogue below | all 36 tables |
 >
@@ -216,12 +216,18 @@ call graphs.
 | `weapon_mods` | 18 | `Modification` | Weapon mods by `Slot` | rules, app, sheet, homebrew |
 | `weapons` | 110 | `Weapon` | Weapons by `Type`; `Accuracy`, `Damage`, `Pen`, `Bar`, `Hands` | rules, app, sheet, homebrew |
 
-16 of these are **homebrew-eligible** (users can add rows, and packs can be
-promoted): `rituals`, `spells`, `speaker_spirits`, `misc_gear`, `augments`,
-`weapons`, `armor`, `vehicles`, `drones`, `weapon_mods`,
+17 of these are **homebrew-eligible** (users can add rows, and packs can be
+promoted): `animals`, `rituals`, `spells`, `speaker_spirits`, `misc_gear`,
+`augments`, `weapons`, `armor`, `vehicles`, `drones`, `weapon_mods`,
 `vehicle_ballistic_weapons`, `vehicle_energy_weapons`,
 `drone_ballistic_weapons`, `drone_energy_weapons`, `vehicle_mods`,
 `drone_mods`. The rest are core rules data, editable only here.
+
+The editor shows **18 tabs** for those 17 tables: ammunition has no table of
+its own — a round is a `misc_gear` row whose `Class` starts with `Ammo` — so
+the Ammo tab and the Gear tab are two filtered views of `misc_gear`, declared
+with `table:` + `rowFilter` in `HOMEBREW_CONFIG`. Rows still store, merge,
+export and promote as `misc_gear`; only the editor splits them.
 
 ### Per-table quirks
 
