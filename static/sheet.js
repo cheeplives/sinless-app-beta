@@ -13594,27 +13594,17 @@ function shRigging(body) {
           await playChangedRecalc();
         } }, "✕")));
   });
-  if (rigs.length)
-    rigCard.append(el("p", { class: "hint" },
-      `Active VCR links ${linkedCount()} / ${linkLimit} units.`));
-  else
-    rigCard.append(el("p", { class: "hint" }, "No rigs owned — drones are piloted unlinked."));
-  // On-station summary: everything riding a VCR link OR running Active.
-  // Link keys index the joined list, the same one unitStateKey uses.
-  //
-  // Rendered FIRST, ahead of the VCR card (#87): this is the one card touched
-  // mid-scene — what's deployed, what's seated, what to fire — and it used to
-  // sit below a card you consult once a session. Renders only when something
-  // is actually deployed, so a rigger who hasn't launched anything still
-  // opens on the VCR card, which is the right screen for them.
-  const activeUnits = deployedUnits();
-  if (activeUnits.length) {
+  // Deployment summary + what the toggles below mean, right under the VCR
+  // card and before the drones/vehicles are listed -- this used to live atop
+  // its own "Active drones & vehicles" rollup table, but that table duplicated
+  // the per-unit cards below it for no reason once Hotseat moved onto them
+  // directly (#94). The prose survives; only the second table is gone.
+  if (rigs.length) {
     const cores = hotseatCapacity();
-    const seated = activeUnits.filter(d => d.hotseat).length;
-    body.append(el("div", { class: "card sh-card" },
-      el("h3", {}, "Active drones & vehicles"),
+    const seated = deployedUnits().filter(d => d.hotseat).length;
+    rigCard.append(
       el("p", { class: "hint" },
-        `${activeUnits.length} deployed`
+        `${deployedUnits().length} deployed`
         + (cores ? ` · ${seated} of ${cores} core${cores === 1 ? "" : "s"} flying` : "")
         + (activeRig ? ` · ${linkedCount()} of ${linkLimit} VCR link${linkLimit === 1 ? "" : "s"} used` : "")),
       el("p", { class: "hint" },
@@ -13626,8 +13616,9 @@ function shRigging(body) {
               + (hotseatBonusDice() ? `, and its rolls gain +${hotseatBonusDice()}d.` : ".")
             : "No VCR owned, so nothing can be hotseated — buy a rig from the "
               + "Buy button at the top of this tab. "
-              + "A rig's cores are how many units you can pilot at once.")),
-      unitLoadoutTable(activeUnits, "station")));
+              + "A rig's cores are how many units you can pilot at once.")));
+  } else {
+    rigCard.append(el("p", { class: "hint" }, "No rigs owned — drones are piloted unlinked."));
   }
   body.append(rigCard);
 
@@ -13666,7 +13657,30 @@ function shRigging(body) {
     // phone, or a single owned unit stretching to fill it) -- no media query.
     const grid = el("div", { class: "sh-unit-grid" });
     if (!collapsed) card.append(grid);
-    entries.forEach((en, i) => {
+    // Hotseat first, Linked second, Active last, everything stored/undeployed
+    // after that (#94) -- so the units actually in play float to the top of a
+    // list that can otherwise run long. A linked unit counts as deployed even
+    // though only drones ever carry a separate Active flag, so a linked
+    // vehicle still outranks an off-link Active drone rather than falling to
+    // the bottom for lacking a flag it was never going to have.
+    //
+    // Sorted by DISPLAY position only -- `i` stays the true index into
+    // `entries` (and therefore into `calcArr` and every `${cfg.table}:${i}`
+    // play-state key) no matter where a unit lands on screen, the same way
+    // unitStateKey() reads it everywhere else.
+    const dep = deployedUnits();
+    const tierOf = i => {
+      const d = dep.find(x => x.key === `${cfg.table}:${i}`);
+      if (!d) return 3;
+      if (d.hotseat) return 0;
+      if (d.linked) return 1;
+      if (d.active) return 2;
+      return 3;
+    };
+    const order = entries.map((en, i) => i)
+      .sort((a, b) => tierOf(a) - tierOf(b) || a - b);
+    order.forEach(i => {
+      const en = entries[i];
       if (collapsed) return;   // buying below still needs `entries`/`i` intact
       const { arr: unitArr, i: localIndex, inPlay, category } = en;
       // The unit is play's own copy, so reads and writes are the same object.
@@ -13705,6 +13719,12 @@ function shRigging(body) {
             renderSheet();
           } }),
         el("span", {}, "Active")) : null;
+      // Hotseat rides with the unit itself now, not a separate rollup (#94) --
+      // shown once the unit is actually linked, since jacking in is what
+      // "linked to the VCR" means. Off-link Active drones ran themselves
+      // before and still do: shHotseatToggle's own gate (no VCR, no core left)
+      // still applies underneath this.
+      const hotseatToggle = isLinked ? shHotseatToggle(key, u) : null;
 
       // Outfitting (weapons, mods, rename, chassis condition, repair) moved
       // behind this button and into the Modify dialog (#87) — it's consulted
@@ -13723,12 +13743,27 @@ function shRigging(body) {
       const { items: fittedItems } = unitAttachments(cfg, u);
       const weaponItems = fittedItems.filter(it => it.kind === "weapon");
       const modItems = fittedItems.filter(it => it.kind !== "weapon");
+      // Whether THIS unit is on station at all (linked or active) and, if so,
+      // whether it's the one actually being flown -- read off the same `dep`
+      // the sort above already built, so the two can't disagree about who's
+      // deployed. Fire/Reload/Aimed Fire render for any on-station mount
+      // (#94: this replaces the deleted "Active drones & vehicles" rollup,
+      // which is where these controls used to live for a merely-Linked unit
+      // that wasn't Hotseated -- losing that card must not also lose the only
+      // way to fire its guns). `hotseatedNow` only changes whether the VCR's
+      // bonus dice apply, same as unitGunControls always meant it.
+      const dStatus = dep.find(x => x.key === key);
+      const onStation = !!dStatus;
+      const hotseatedNow = !!(dStatus && dStatus.hotseat);
       const loadoutLine = it => el("div", { class: "sub", style: "margin:2px 0" },
         el("b", {}, it.name), it.stats ? ` — ${it.stats}` : "",
         it.effect ? el("span", { style: "color:var(--manon)" },
           `${it.stats ? " · " : " — "}${it.effect}`) : null,
         (it.mods && it.mods.length)
           ? el("div", { style: "margin-left:14px;color:var(--manon)" }, "↳ " + it.mods.join(" · "))
+          : null,
+        (onStation && it.kind === "weapon")
+          ? unitFireControls(cfg.table, u, it.wi, it.name, hotseatedNow).controls
           : null);
       const loadoutSummary = el("div", { class: "sh-unit-loadout" },
         weaponItems.length ? el("div", {}, ...weaponItems.map(loadoutLine)) : null,
@@ -13829,9 +13864,11 @@ function shRigging(body) {
           loadoutSummary,
           // Deploy toggles on one row: Link and Active are the two ways a unit
           // gets on station, and reading them takes one glance rather than two.
+          // Hotseat joins them once linked, rather than sitting on a separate
+          // rollup card (#94).
           (activeRig || activeToggle)
             ? el("div", { style: "display:flex;gap:14px;flex-wrap:wrap" },
-                activeRig ? linkToggle : null, activeToggle)
+                activeRig ? linkToggle : null, activeToggle, hotseatToggle)
             : null)));
     });
     if (!collapsed && !entries.length)

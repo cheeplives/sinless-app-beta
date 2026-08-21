@@ -2436,7 +2436,7 @@ session.
 - **Steps:** none.
 - **Check:**
 
-      (async () => { window.alert = () => {}; const c = RULES.defaultCharacter(); c.name = "QA Maneuver"; c.priorities = { heritage: 1, magic: 0, attributes: 5, skills: 4, resources: 0 }; c.heritage.type = "Human"; c.skills = { "Fly": 4, "Drive": 2 }; c.drones = [{ name: "Roto-Drone", weapons: [], mods: [] }]; c.vehicles = [{ name: "Speedboat", weapons: [], mods: [] }]; c.rigs = [{ name: "Basic VCR", mods: [] }]; c.finalized = true; c.lifestyles = [{ name: "Squatter", months: 1 }]; await openCharacter(c); sheetTab = "rigging"; renderSheet(); const droneSpec1 = maneuverRollSpec("drones", CHAR.play.kit.drones[0]); const boatSpec1 = maneuverRollSpec("vehicles", CHAR.play.kit.vehicles[0]); const droneNoHotseat = { skill: droneSpec1.skill, dice: droneSpec1.dice, penalty: droneSpec1.penalty, bits: droneSpec1.penaltyBits }; const boatNoHotseat = { skill: boatSpec1.skill, dice: boatSpec1.dice, penalty: boatSpec1.penalty, bits: boatSpec1.penaltyBits }; const rg = rigFlags(); rg.active["drones:0"] = true; rg.hotseat["drones:0"] = true; playChanged(); const droneHotseat = maneuverRollSpec("drones", CHAR.play.kit.drones[0]).penalty; const removedRig = CHAR.play.kit.rigs.pop(); playChanged(); const droneNoVcrAtAll = maneuverRollSpec("drones", CHAR.play.kit.drones[0]); CHAR.play.kit.rigs.push(removedRig); playChanged(); sheetTab = "rigging"; renderSheet(); const mvAll = root => [...root.querySelectorAll("button")].filter(b => /^Maneuver \(/.test(b.textContent)).length; const cardByTitle = n => [...document.querySelectorAll(".sh-card")].find(x => n.test(((x.querySelector("h3") || {}).textContent || "").trim())); const riggingActiveCard = mvAll(cardByTitle(/^Active drones & vehicles$/)); const riggingTabButtonCount = mvAll(document); sheetTab = "overview"; renderSheet(); const overviewBtn = () => [...document.querySelectorAll("button")].find(b => /^Maneuver \(/.test(b.textContent)); const overviewButtonTitle = overviewBtn().title; const focusBefore = poolState("Focus").remaining; overviewBtn().click(); document.querySelector(".sh-roller-roll").click(); const focusSpent = focusBefore - poolState("Focus").remaining; rollerState.open = false; const tab = activeTabObj(); tab.readonly = true; renderSheet(); const readonlyHasButton = !![...document.querySelectorAll("button")].find(b => /^Maneuver \(/.test(b.textContent)); tab.readonly = false; await closeTabByName("QA Maneuver"); return { droneNoHotseat, boatNoHotseat, droneHotseat, droneNoVcrAtAll: { penalty: droneNoVcrAtAll.penalty, bits: droneNoVcrAtAll.penaltyBits }, riggingTabButtonCount, riggingActiveCard, overviewButtonTitle, focusSpent, readonlyHasButton }; })()
+      (async () => { window.alert = () => {}; const c = RULES.defaultCharacter(); c.name = "QA Maneuver"; c.priorities = { heritage: 1, magic: 0, attributes: 5, skills: 4, resources: 0 }; c.heritage.type = "Human"; c.skills = { "Fly": 4, "Drive": 2 }; c.drones = [{ name: "Roto-Drone", weapons: [], mods: [] }]; c.vehicles = [{ name: "Speedboat", weapons: [], mods: [] }]; c.rigs = [{ name: "Basic VCR", mods: [] }]; c.finalized = true; c.lifestyles = [{ name: "Squatter", months: 1 }]; await openCharacter(c); sheetTab = "rigging"; renderSheet(); const droneSpec1 = maneuverRollSpec("drones", CHAR.play.kit.drones[0]); const boatSpec1 = maneuverRollSpec("vehicles", CHAR.play.kit.vehicles[0]); const droneNoHotseat = { skill: droneSpec1.skill, dice: droneSpec1.dice, penalty: droneSpec1.penalty, bits: droneSpec1.penaltyBits }; const boatNoHotseat = { skill: boatSpec1.skill, dice: boatSpec1.dice, penalty: boatSpec1.penalty, bits: boatSpec1.penaltyBits }; const rg = rigFlags(); rg.active["drones:0"] = true; rg.hotseat["drones:0"] = true; playChanged(); const droneHotseat = maneuverRollSpec("drones", CHAR.play.kit.drones[0]).penalty; const removedRig = CHAR.play.kit.rigs.pop(); playChanged(); const droneNoVcrAtAll = maneuverRollSpec("drones", CHAR.play.kit.drones[0]); CHAR.play.kit.rigs.push(removedRig); playChanged(); sheetTab = "rigging"; renderSheet(); const riggingTabButtonCount = [...document.querySelectorAll("button")].filter(b => /^Maneuver \(/.test(b.textContent)).length; sheetTab = "overview"; renderSheet(); const overviewBtn = () => [...document.querySelectorAll("button")].find(b => /^Maneuver \(/.test(b.textContent)); const overviewButtonTitle = overviewBtn().title; const focusBefore = poolState("Focus").remaining; overviewBtn().click(); document.querySelector(".sh-roller-roll").click(); const focusSpent = focusBefore - poolState("Focus").remaining; rollerState.open = false; const tab = activeTabObj(); tab.readonly = true; renderSheet(); const readonlyHasButton = !![...document.querySelectorAll("button")].find(b => /^Maneuver \(/.test(b.textContent)); tab.readonly = false; await closeTabByName("QA Maneuver"); return { droneNoHotseat, boatNoHotseat, droneHotseat, droneNoVcrAtAll: { penalty: droneNoVcrAtAll.penalty, bits: droneNoVcrAtAll.penaltyBits }, riggingTabButtonCount, overviewButtonTitle, focusSpent, readonlyHasButton }; })()
 
 - **Expected:**
 
@@ -2444,8 +2444,7 @@ session.
         "boatNoHotseat": { "skill": "Drive", "dice": 7, "penalty": 2, "bits": ["not hotseat"] },
         "droneHotseat": 0,
         "droneNoVcrAtAll": { "penalty": 6, "bits": ["no VCR", "not hotseat"] },
-        "riggingTabButtonCount": 3, "riggingActiveCard": 1,
-        "overviewButtonTitle": "Roll 10d6 — Fly 4 + Handling 6",
+        "riggingTabButtonCount": 2, "overviewButtonTitle": "Roll 10d6 — Fly 4 + Handling 6",
         "focusSpent": 1, "readonlyHasButton": false }
 
 - **Note:** Issue #89, built on #91's `Move Type` tagging. `maneuverRollSpec()`
@@ -2470,26 +2469,18 @@ session.
   together, never just one masking the other). `droneHotseat` (0) is the
   clean case: VCR owned, this unit actually jacked in.
 
-  The button renders in all three places a Fire button already does, off the
-  same `maneuverButton()`:
+  The button renders in both places a Fire button already does, off the same
+  `maneuverButton()` — the Rigging tab's per-unit card (`riggingTabButtonCount`
+  2, one per owned unit, gated on nothing but ownership — maneuvering doesn't
+  require the unit be on station, only that it be flown, hence the −2d rather
+  than a hard refusal without Hotseat) and the Overview's hotseat rollup
+  (only for seats actually on station, next to the same Move line the
+  Rigging tab's Move tile mirrors). It spends a Rigging Exploit Action before
+  a Simple one, same as Fire — maneuvering is a round's action.
 
-  - the Rigging tab's **per-unit cards** — one per owned unit, gated on
-    nothing but ownership, since maneuvering doesn't require the unit be on
-    station, only that it be flown (hence the −2d rather than a hard refusal
-    without Hotseat);
-  - the Rigging tab's **Active drones & vehicles** rollup
-    (`riggingActiveCard`), beside the Move/Handling stats it rolls off;
-  - the Overview's **hotseat rollup**, next to the same Move line the
-    Rigging tab's Move tile mirrors.
-
-  `riggingTabButtonCount` is 3 with one drone on station: two unit cards plus
-  that drone's row in the Active rollup. The Gear tab shares
-  `unitLoadoutTable()` with the Active rollup but renders it as an inventory,
-  where a drone in a box has nothing to fly — so the button is station-gated
-  there, the same way the Fire buttons in that table already are.
-
-  It spends a Rigging Exploit Action before a Simple one, same as Fire —
-  maneuvering is a round's action.
+  (#94 retired the Rigging tab's separate "Active drones & vehicles" rollup —
+  the per-unit cards now carry Hotseat too, so the count here dropped back
+  from 3 to 2. See P06-082.)
   `readonlyHasButton` false confirms a shared read-only character gets no
   mutating control, the same gate every other roll button on this sheet uses.
 - **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
@@ -2499,7 +2490,7 @@ session.
 - **Steps:** none.
 - **Check:**
 
-      (async () => { window.alert = () => {}; const c = RULES.defaultCharacter(); c.name = "QA Overheat"; c.priorities = { heritage: 1, magic: 0, attributes: 5, skills: 4, resources: 0 }; c.heritage.type = "Human"; c.skills = { "Firearms": 4, "Gunnery": 3 }; c.weapons = [{ name: "Neon Fang LS", mods: [] }]; c.drones = [{ name: "Roto-Drone", weapons: ["Pulse Rifle"], mods: [] }]; c.finalized = true; c.lifestyles = [{ name: "Squatter", months: 1 }]; await openCharacter(c); CHAR.play.kit.weapons[0].hand = 0; sheetTab = "overview"; renderSheet(); const w = CHAR.play.kit.weapons[0]; const defaultHeatIsZero = w.heat == null; const row = () => [...document.querySelectorAll(".sh-hand-card")].find(r => /Neon Fang LS/.test(r.textContent)); const fireOf = () => [...row().querySelectorAll("button")].find(b => b.textContent === "Fire"); const aimedExists = !![...row().querySelectorAll("button")].find(b => b.textContent === "Aimed Fire"); fireOf().click(); await new Promise(r => setTimeout(r, 20)); const safeFireNoWarning = !document.querySelector(".mount-modal-backdrop"); const heatAfterSafeFire = w.heat; rollerState.open = false; w.heat = 3; playChanged(); fireOf().click(); await new Promise(r => setTimeout(r, 20)); const warnModal = document.querySelector(".mount-modal-backdrop"); const warningText = warnModal.querySelector("p.hint").textContent; [...warnModal.querySelectorAll("button")].find(b => b.textContent === "Cancel").click(); const cancelNoHeatChange = w.heat === 3; const cancelNoModal = !document.querySelector(".mount-modal-backdrop"); fireOf().click(); await new Promise(r => setTimeout(r, 20)); const realRandom = Math.random; Math.random = () => 0; [...document.querySelector(".mount-modal-backdrop").querySelectorAll("button")].find(b => b.textContent === "Continue to Fire").click(); await new Promise(r => setTimeout(r, 20)); Math.random = realRandom; const heatAfterContinue = w.heat; rollerState.open = false; const explModal = document.querySelector(".mount-modal-backdrop"); const dieGroups = [...explModal.querySelectorAll(".sh-roller-dice")]; const forcedExplosion = { checkDice: dieGroups[0].children.length, damageGroupShown: dieGroups.length > 1, damageDiceCount: dieGroups.length > 1 ? dieGroups[1].children.length : 0 }; [...explModal.querySelectorAll("button")].find(b => b.textContent === "OK").click(); const rg = rigFlags(); rg.active["drones:0"] = true; sheetTab = "rigging"; renderSheet(); const droneRow = () => [...document.querySelectorAll("tr")].find(r => /Pulse Rifle/.test(r.textContent)); const droneFireBtn = () => [...droneRow().querySelectorAll("button")].find(b => b.textContent === "Fire"); const mountFireExists = !!droneFireBtn(); droneFireBtn().click(); await new Promise(r => setTimeout(r, 20)); const gunState = CHAR.play.rigging.units["drones:0"].guns[0]; const mountHeatAfterFire = gunState.heat; rollerState.open = false; newRound(); const mountHeatAfterNewRound = gunState.heat; w.heat = 0; playChanged(); newRound(); const personalHeatFloorsAtZero = w.heat; await closeTabByName("QA Overheat"); return { defaultHeatIsZero, aimedExists, safeFireNoWarning, heatAfterSafeFire, warningText, cancelNoHeatChange, cancelNoModal, heatAfterContinue, forcedExplosion, mountFireExists, mountHeatAfterFire, mountHeatAfterNewRound, personalHeatFloorsAtZero }; })()
+      (async () => { window.alert = () => {}; const c = RULES.defaultCharacter(); c.name = "QA Overheat"; c.priorities = { heritage: 1, magic: 0, attributes: 5, skills: 4, resources: 0 }; c.heritage.type = "Human"; c.skills = { "Firearms": 4, "Gunnery": 3 }; c.weapons = [{ name: "Neon Fang LS", mods: [] }]; c.drones = [{ name: "Roto-Drone", weapons: ["Pulse Rifle"], mods: [] }]; c.finalized = true; c.lifestyles = [{ name: "Squatter", months: 1 }]; await openCharacter(c); CHAR.play.kit.weapons[0].hand = 0; sheetTab = "overview"; renderSheet(); const w = CHAR.play.kit.weapons[0]; const defaultHeatIsZero = w.heat == null; const row = () => [...document.querySelectorAll(".sh-hand-card")].find(r => /Neon Fang LS/.test(r.textContent)); const fireOf = () => [...row().querySelectorAll("button")].find(b => b.textContent === "Fire"); const aimedExists = !![...row().querySelectorAll("button")].find(b => b.textContent === "Aimed Fire"); fireOf().click(); await new Promise(r => setTimeout(r, 20)); const safeFireNoWarning = !document.querySelector(".mount-modal-backdrop"); const heatAfterSafeFire = w.heat; rollerState.open = false; w.heat = 3; playChanged(); fireOf().click(); await new Promise(r => setTimeout(r, 20)); const warnModal = document.querySelector(".mount-modal-backdrop"); const warningText = warnModal.querySelector("p.hint").textContent; [...warnModal.querySelectorAll("button")].find(b => b.textContent === "Cancel").click(); const cancelNoHeatChange = w.heat === 3; const cancelNoModal = !document.querySelector(".mount-modal-backdrop"); fireOf().click(); await new Promise(r => setTimeout(r, 20)); const realRandom = Math.random; Math.random = () => 0; [...document.querySelector(".mount-modal-backdrop").querySelectorAll("button")].find(b => b.textContent === "Continue to Fire").click(); await new Promise(r => setTimeout(r, 20)); Math.random = realRandom; const heatAfterContinue = w.heat; rollerState.open = false; const explModal = document.querySelector(".mount-modal-backdrop"); const dieGroups = [...explModal.querySelectorAll(".sh-roller-dice")]; const forcedExplosion = { checkDice: dieGroups[0].children.length, damageGroupShown: dieGroups.length > 1, damageDiceCount: dieGroups.length > 1 ? dieGroups[1].children.length : 0 }; [...explModal.querySelectorAll("button")].find(b => b.textContent === "OK").click(); const rg = rigFlags(); rg.active["drones:0"] = true; sheetTab = "rigging"; renderSheet(); const droneCard = () => [...document.querySelectorAll(".sh-unit")].find(x => /Pulse Rifle/.test(x.textContent)); const droneFireBtn = () => [...droneCard().querySelectorAll("button")].find(b => b.textContent === "Fire"); const mountFireExists = !!droneFireBtn(); droneFireBtn().click(); await new Promise(r => setTimeout(r, 20)); const gunState = CHAR.play.rigging.units["drones:0"].guns[0]; const mountHeatAfterFire = gunState.heat; rollerState.open = false; newRound(); const mountHeatAfterNewRound = gunState.heat; w.heat = 0; playChanged(); newRound(); const personalHeatFloorsAtZero = w.heat; await closeTabByName("QA Overheat"); return { defaultHeatIsZero, aimedExists, safeFireNoWarning, heatAfterSafeFire, warningText, cancelNoHeatChange, cancelNoModal, heatAfterContinue, forcedExplosion, mountFireExists, mountHeatAfterFire, mountHeatAfterNewRound, personalHeatFloorsAtZero }; })()
 
 - **Expected:**
 
@@ -2530,7 +2521,9 @@ session.
 
   The drone's Pulse Rifle mount (Heat 3/Heat Limit 15) gets the same Fire
   button, on station, off the Rigging Exploit Action pool
-  (`mountFireExists`, `mountHeatAfterFire` 3 = 0 + 3).
+  (`mountFireExists`, `mountHeatAfterFire` 3 = 0 + 3). Looked up via
+  `droneCard` (a `.sh-unit` card, not a `<tr>`) since #94 moved a mount's
+  fire controls onto the drone/vehicle's own card in the main list.
 
   `mountHeatAfterNewRound` (2 = 3 − 1) and `personalHeatFloorsAtZero` (heat
   set to 0, New Round leaves it at 0, not −1) both exercise
@@ -2618,4 +2611,61 @@ goods for nothing.
   cost, and the whole thing rides the existing `lifestyle_restore` undo, so
   one Undo puts the lifestyle back at its old index with its months intact
   AND takes the refund away again (`undoRestores`, `undoTakesCashBack`).
+- **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
+
+
+### P06-082: Hotseat lives on the linked unit itself, sorted to the top of its list
+- **Type:** correctness
+- **Steps:** none.
+- **Check:**
+
+      (async () => { window.alert = () => {}; window.confirm = () => true; const c = RULES.defaultCharacter(); c.name = "QA Hotseat94"; c.priorities = { heritage: 1, magic: 0, attributes: 5, skills: 4, resources: 0 }; c.heritage.type = "Human"; c.skills = { "Fly": 4, "Drive": 2 }; c.drones = [{ name: "Roto-Drone", weapons: [], mods: [] }, { name: "Orb", weapons: [], mods: [] }, { name: "Bug-Spy", weapons: [], mods: [] }, { name: "Disc", weapons: [], mods: [] }]; c.vehicles = [{ name: "Speedboat", weapons: [], mods: [] }]; c.rigs = [{ name: "Master VCR", mods: [] }]; c.finalized = true; c.lifestyles = [{ name: "Squatter", months: 1 }]; await openCharacter(c); const rg = rigFlags(); rg.active["drones:1"] = true; rg.linked["drones:2"] = true; rg.linked["drones:3"] = true; rg.hotseat["drones:3"] = true; playChanged(); sheetTab = "rigging"; renderSheet(); const oldCardGone = ![...document.querySelectorAll(".sh-card")].some(x => /^Active drones & vehicles$/.test(((x.querySelector("h3")||{}).textContent||"").trim())); const cardTitles = [...document.querySelectorAll(".sh-card h3")].map(h => h.textContent.trim()); const vcrIdx = cardTitles.indexOf("Vehicle Control Rigs"); const dronesIdx = cardTitles.findIndex(t => /^Drones/.test(t)); const vcrBeforeDrones = vcrIdx >= 0 && dronesIdx > vcrIdx; const vcrCard = [...document.querySelectorAll(".sh-card")].find(x => (x.querySelector("h3")||{}).textContent.trim() === "Vehicle Control Rigs"); const vcrCardHints = [...vcrCard.querySelectorAll("p.hint")].map(p => p.textContent); const droneCard = [...document.querySelectorAll(".sh-card")].find(x => /^Drones/.test((x.querySelector("h3")||{}).textContent.trim())); const droneOrder = [...droneCard.querySelectorAll(".sh-unit-title b")].map(b => b.textContent); const unitCards = [...droneCard.querySelectorAll(".sh-unit")]; const hotseatLabelOf = card => [...card.querySelectorAll("label")].map(l => l.textContent.trim()).find(t => t === "Hotseat"); const hotseatVisibility = unitCards.map(uc => ({ name: (uc.querySelector(".sh-unit-title b")||{}).textContent, hasHotseatToggle: !!hotseatLabelOf(uc) })); const bugSpyCard = unitCards.find(uc => /Bug-Spy/.test(uc.textContent)); const bugSpyHotseatCb = [...bugSpyCard.querySelectorAll("input[type=checkbox]")].find(cb => cb.closest("label").textContent.trim() === "Hotseat"); const bugSpyHotseatBefore = !!rg.hotseat["drones:2"]; bugSpyHotseatCb.click(); await new Promise(r => setTimeout(r, 30)); const bugSpyHotseatAfter = !!CHAR.play.rigging.hotseat["drones:2"]; const vehCard = [...document.querySelectorAll(".sh-card")].find(x => /^Vehicles/.test((x.querySelector("h3")||{}).textContent.trim())); const boatCard = [...vehCard.querySelectorAll(".sh-unit")].find(uc => /Speedboat/.test(uc.textContent)); const boatHasHotseatBeforeLink = !!hotseatLabelOf(boatCard); const boatLinkCb = [...boatCard.querySelectorAll("input[type=checkbox]")].find(cb => cb.closest("label").textContent.trim().includes("VCR")); boatLinkCb.click(); await new Promise(r => setTimeout(r, 30)); const boatCard2 = [...document.querySelectorAll(".sh-card")].find(x => /^Vehicles/.test((x.querySelector("h3")||{}).textContent.trim())).querySelectorAll(".sh-unit")[0]; const boatHasHotseatAfterLink = !!hotseatLabelOf(boatCard2); await closeTabByName("QA Hotseat94"); return { oldCardGone, vcrBeforeDrones, vcrCardHints, droneOrder, hotseatVisibility, bugSpyHotseatBefore, bugSpyHotseatAfter, boatHasHotseatBeforeLink, boatHasHotseatAfterLink }; })()
+
+- **Expected:**
+
+      { "oldCardGone": true, "vcrBeforeDrones": true,
+        "vcrCardHints": [
+          "3 deployed · 1 of 4 cores flying · 2 of 4 VCR links used",
+          "Anything on a VCR link or ticked Active. Hotseat marks the ones you're piloting — up to the Master VCR's 4 cores. Each seat's stats and guns move to the Overview, above your own weapons, and its rolls gain +6d."
+        ],
+        "droneOrder": ["Disc", "Bug-Spy", "Orb", "Roto-Drone"],
+        "hotseatVisibility": [
+          { "name": "Disc", "hasHotseatToggle": true },
+          { "name": "Bug-Spy", "hasHotseatToggle": true },
+          { "name": "Orb", "hasHotseatToggle": false },
+          { "name": "Roto-Drone", "hasHotseatToggle": false }
+        ],
+        "bugSpyHotseatBefore": false, "bugSpyHotseatAfter": true,
+        "boatHasHotseatBeforeLink": false, "boatHasHotseatAfterLink": true }
+
+- **Note:** Issue #94. The Rigging tab's separate "Active drones & vehicles"
+  rollup (`unitLoadoutTable(activeUnits, "station")`) is gone
+  (`oldCardGone`); its deployment summary and explanatory paragraph moved
+  into the Vehicle Control Rigs card instead, right above the drone/vehicle
+  lists (`vcrBeforeDrones`, `vcrCardHints` — the same text, word for word,
+  the old card's header used to carry).
+
+  Four drones cover the four states the sort has to tell apart: Disc is
+  Hotseat, Bug-Spy is Linked (not seated), Orb is Active off-link, and
+  Roto-Drone is owned but stored. `droneOrder` — read off each unit card's
+  own title, in DOM order — is exactly Hotseat, Linked, Active, stored, which
+  is the tier order asked for, not just "deployed before stored": Bug-Spy
+  outranks Orb despite `rg.active` never being set for it, because a linked
+  unit counts as deployed on its own (a vehicle, which never carries a
+  separate Active flag at all, would fall to the sort's default tier
+  forever if Linked didn't outrank Active by itself).
+
+  `hotseatVisibility` is the toggle's new placement: it rides the unit card
+  itself now, shown only once the unit is actually Linked — Disc and
+  Bug-Spy get it, Orb (off-link) and Roto-Drone (stored) don't. This is a
+  narrowing from before #94, when the toggle rendered for anything on
+  station (linked OR active); an off-link Active drone runs autonomously by
+  definition, so there was never a rig to jack into. `bugSpyHotseatBefore`/
+  `After` confirms the relocated toggle still writes the same
+  `CHAR.play.rigging.hotseat` flag the rest of the engine reads.
+
+  The toggle isn't drone-only: `boatHasHotseatBeforeLink`/`AfterLink` links
+  the Speedboat live and watches the Hotseat toggle appear on the same
+  render, proving it follows `isLinked` reactively rather than only at
+  card-build time, and that vehicles get it exactly like drones do.
 - **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
