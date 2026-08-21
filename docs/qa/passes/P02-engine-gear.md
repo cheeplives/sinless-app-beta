@@ -782,6 +782,48 @@ actually testing.
   normal, and it isn't about benefit at all (#55).
 - **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
 
+### P02-027: Drones and vehicles are tagged with their Move Type (Fly/Water/ground), and the homebrew editor can set it
+- **Type:** correctness
+- **Steps:** none.
+- **Check:**
+
+      (() => { const flyDrones = ["Bug-Spy","Disc","Orb","VSTOL Bird","Roto-Drone","Shield Drone","Hawk","Aerial Warden"]; const flyVehicles = ["Nightwing","Cessna","Seaplane","Cargo Heli","Tansport Heli"]; const waterVehicles = ["Speedboat","Patrol Boat"]; const droneTypes = DATA.tables.drones.map(r => [r.Drone, r["Move Type"] || ""]); const vehicleTypes = DATA.tables.vehicles.map(r => [r.Vehicle, r["Move Type"] || ""]); const dronesFlyOk = flyDrones.every(n => droneTypes.find(([name]) => name === n)?.[1] === "Fly"); const vehiclesFlyOk = flyVehicles.every(n => vehicleTypes.find(([name]) => name === n)?.[1] === "Fly"); const vehiclesWaterOk = waterVehicles.every(n => vehicleTypes.find(([name]) => name === n)?.[1] === "Water"); const untouchedDrones = droneTypes.filter(([n, t]) => t && !flyDrones.includes(n)).map(([n]) => n); const untouchedVehicles = vehicleTypes.filter(([n, t]) => t && ![...flyVehicles, ...waterVehicles].includes(n)).map(([n]) => n); const droneField = HOMEBREW_CONFIG.drones.fields.find(f => f.key === "Move Type"); const vehicleField = HOMEBREW_CONFIG.vehicles.fields.find(f => f.key === "Move Type"); return { dronesFlyOk, vehiclesFlyOk, vehiclesWaterOk, untouchedDrones, untouchedVehicles, droneFieldHasOptions: droneField ? droneField.select() : null, vehicleFieldHasOptions: vehicleField ? vehicleField.select() : null }; })()
+
+- **Expected:**
+
+      { "dronesFlyOk": true, "vehiclesFlyOk": true, "vehiclesWaterOk": true,
+        "untouchedDrones": [], "untouchedVehicles": [],
+        "droneFieldHasOptions": ["", "Fly", "Water"],
+        "vehicleFieldHasOptions": ["", "Fly", "Water"] }
+
+- **Note:** Issue #91. Move was a numeric rate string ("8m") with no
+  associated movement TYPE anywhere on `drones`/`vehicles` — nothing branched
+  on it, since the engine deliberately never reads a unit's own Move for the
+  pilot's personal movement (rules.js: "Owning a fast car must not make you
+  fast"). The new `Move Type` column (blank = ground, `"Fly"`, `"Water"`) is
+  the data half of issue #89's Maneuver button, which needs to know whether a
+  unit rolls its Maneuver on Drive or Fly — ground and Water both use Drive
+  per the issue text ("All other based Moves use Drive"), so Water is its own
+  tag rather than folded into blank purely so it isn't lost as information,
+  even though today it resolves the same skill as blank does.
+
+  `untouchedDrones`/`untouchedVehicles` guard against tagging spreading to a
+  row the issue didn't name. `droneFieldHasOptions`/`vehicleFieldHasOptions`
+  confirm the homebrew editor was updated in the same change — a data column
+  with no editor field is exactly the silent gap the `homebrew-column-sync`
+  skill exists to catch.
+
+  Two naming mismatches between the issue text and the actual data, resolved
+  by inspection rather than guessed: the issue says "Orb Mini", the row is
+  named "Orb" (Frame: Mini — same drone); the issue says "Transport Heli",
+  the row is misspelled "Tansport Heli" (missing an "r") in the base data.
+  Tagged the existing row under its current name rather than renaming it —
+  a rename would need its own `RENAMED_VEHICLES`-style migration (the
+  pattern `RENAMED_WEAPONS`/`RENAMED_AUGMENTS` already use) to keep from
+  orphaning a saved character's owned "Tansport Heli", and fixing a decade-old
+  typo wasn't what this issue asked for. Worth a follow-up if it's wanted.
+- **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
+
 ---
 
 ## Wrapping up
