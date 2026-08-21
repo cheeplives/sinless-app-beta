@@ -2431,6 +2431,56 @@ session.
   leaves behind, not a second bug.
 - **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
 
+### P06-079: Maneuver rolls Drive or Fly off the unit's Move Type, adds Handling from Focus, and penalizes a missing VCR or Hotseat
+- **Type:** correctness
+- **Steps:** none.
+- **Check:**
+
+      (async () => { window.alert = () => {}; const c = RULES.defaultCharacter(); c.name = "QA Maneuver"; c.priorities = { heritage: 1, magic: 0, attributes: 5, skills: 4, resources: 0 }; c.heritage.type = "Human"; c.skills = { "Fly": 4, "Drive": 2 }; c.drones = [{ name: "Roto-Drone", weapons: [], mods: [] }]; c.vehicles = [{ name: "Speedboat", weapons: [], mods: [] }]; c.rigs = [{ name: "Basic VCR", mods: [] }]; c.finalized = true; c.lifestyles = [{ name: "Squatter", months: 1 }]; await openCharacter(c); sheetTab = "rigging"; renderSheet(); const droneSpec1 = maneuverRollSpec("drones", CHAR.play.kit.drones[0]); const boatSpec1 = maneuverRollSpec("vehicles", CHAR.play.kit.vehicles[0]); const droneNoHotseat = { skill: droneSpec1.skill, dice: droneSpec1.dice, penalty: droneSpec1.penalty, bits: droneSpec1.penaltyBits }; const boatNoHotseat = { skill: boatSpec1.skill, dice: boatSpec1.dice, penalty: boatSpec1.penalty, bits: boatSpec1.penaltyBits }; const rg = rigFlags(); rg.active["drones:0"] = true; rg.hotseat["drones:0"] = true; playChanged(); const droneHotseat = maneuverRollSpec("drones", CHAR.play.kit.drones[0]).penalty; const removedRig = CHAR.play.kit.rigs.pop(); playChanged(); const droneNoVcrAtAll = maneuverRollSpec("drones", CHAR.play.kit.drones[0]); CHAR.play.kit.rigs.push(removedRig); playChanged(); sheetTab = "rigging"; renderSheet(); const riggingTabButtonCount = [...document.querySelectorAll("button")].filter(b => /^Maneuver \(/.test(b.textContent)).length; sheetTab = "overview"; renderSheet(); const overviewBtn = () => [...document.querySelectorAll("button")].find(b => /^Maneuver \(/.test(b.textContent)); const overviewButtonTitle = overviewBtn().title; const focusBefore = poolState("Focus").remaining; overviewBtn().click(); document.querySelector(".sh-roller-roll").click(); const focusSpent = focusBefore - poolState("Focus").remaining; rollerState.open = false; const tab = activeTabObj(); tab.readonly = true; renderSheet(); const readonlyHasButton = !![...document.querySelectorAll("button")].find(b => /^Maneuver \(/.test(b.textContent)); tab.readonly = false; await closeTabByName("QA Maneuver"); return { droneNoHotseat, boatNoHotseat, droneHotseat, droneNoVcrAtAll: { penalty: droneNoVcrAtAll.penalty, bits: droneNoVcrAtAll.penaltyBits }, riggingTabButtonCount, overviewButtonTitle, focusSpent, readonlyHasButton }; })()
+
+- **Expected:**
+
+      { "droneNoHotseat": { "skill": "Fly", "dice": 10, "penalty": 2, "bits": ["not hotseat"] },
+        "boatNoHotseat": { "skill": "Drive", "dice": 7, "penalty": 2, "bits": ["not hotseat"] },
+        "droneHotseat": 0,
+        "droneNoVcrAtAll": { "penalty": 6, "bits": ["no VCR", "not hotseat"] },
+        "riggingTabButtonCount": 2, "overviewButtonTitle": "Roll 10d6 — Fly 4 + Handling 6",
+        "focusSpent": 1, "readonlyHasButton": false }
+
+- **Note:** Issue #89, built on #91's `Move Type` tagging. `maneuverRollSpec()`
+  picks the skill off the unit's own row — `"Fly"` rolls Fly, everything else
+  (blank/ground, `"Water"`) rolls Drive, per the issue text. The Roto-Drone
+  (Fly, Handling 6) and Speedboat (Water → Drive, Handling 5) confirm both
+  branches from real tagged rows, not a stub.
+
+  Handling is folded into `dice` (the roller's limit), not `bonus` —
+  `rollerSpendPool()` only ever bills the limit to a pool, so bonus dice are
+  free the way a firing mode's are. The issue wants Handling to *also* draw
+  from Focus, which only happens if it rides in `dice`; `focusSpent` (using
+  `Roto-Drone`'s Fly 4 + Handling 6 = 10 dice against a small Focus pool)
+  proves the roll's actual pool draw agrees with the button's own math, not
+  just its label.
+
+  Two independent penalties, same `extraPenalty`/`penaltyLabel` shape as the
+  Nerve Rig penalty (P06-078) and Twin Fire before it: `droneNoHotseat`/
+  `boatNoHotseat` are −2d with a VCR owned but this unit not seated in it;
+  `droneNoVcrAtAll` — the VCR removed outright — is −6d (−4d no VCR, −2d not
+  hotseat; losing the VCR also un-hotseats every seat, so both apply
+  together, never just one masking the other). `droneHotseat` (0) is the
+  clean case: VCR owned, this unit actually jacked in.
+
+  The button renders in both places a Fire button already does, off the same
+  `maneuverButton()` — the Rigging tab's per-unit card (`riggingTabButtonCount`
+  2, one per owned unit, gated on nothing but ownership — maneuvering doesn't
+  require the unit be on station, only that it be flown, hence the −2d rather
+  than a hard refusal without Hotseat) and the Overview's hotseat rollup
+  (only for seats actually on station, next to the same Move line the
+  Rigging tab's Move tile mirrors). It spends a Rigging Exploit Action before
+  a Simple one, same as Fire — maneuvering is a round's action.
+  `readonlyHasButton` false confirms a shared read-only character gets no
+  mutating control, the same gate every other roll button on this sheet uses.
+- **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
+
 ---
 
 ## Wrapping up

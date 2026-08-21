@@ -4832,6 +4832,63 @@ function gunneryRollSpec(accuracy, bonuses = []) {
   return { skill: "Gunnery", pool: s.pool, locked, skillDice, acc, limitDice, bonus, why, bwhy };
 }
 
+/* Maneuvering a drone/vehicle (issue #89): Drive or Fly, chosen off the unit's
+ * own Move Type (issue #91) — "Fly" rolls Fly, blank (ground) and "Water" both
+ * roll Drive, per the issue text. Handling is added as extra dice that ALSO
+ * draw from Focus, so it goes in `dice` (the limit openPoolRoller bills to the
+ * pool) rather than `bonus` (which rollerSpendPool never touches — bonus dice
+ * are free, the same reason a firing mode's bonus dice cost nothing).
+ *
+ * Two independent penalties, same shape as every other extraPenalty on this
+ * sheet: no VCR at all is worse (−4d, hasVcrRig()) than a VCR you aren't
+ * jacked into this unit with (−2d, isHotseated()) — the issue calls out both
+ * separately, and a character with neither takes both. */
+function maneuverRollSpec(table, u) {
+  const cfg = RIG_UNIT_CFG[table];
+  const r = (DATA.tables[table] || []).find(x => x[cfg.nameKey] === u.name) || {};
+  const skill = r["Move Type"] === "Fly" ? "Fly" : "Drive";
+  const s = (CALC.skills || {})[skill] || { final: 0, pool: "Focus" };
+  const skillDice = Math.max(0, toInt(s.final));
+  const handling = Math.max(0, toInt(r.Handling));
+  const noVcr = !hasVcrRig();
+  const notHotseat = !isHotseated(table, u);
+  const penaltyBits = [noVcr ? "no VCR" : null, notHotseat ? "not hotseat" : null].filter(Boolean);
+  return {
+    skill, pool: s.pool || "Focus", skillDice, handling, dice: skillDice + handling,
+    penalty: (noVcr ? 4 : 0) + (notHotseat ? 2 : 0), penaltyBits,
+  };
+}
+
+/* The Maneuver button itself, next to a unit's Move readout wherever that's
+ * shown (the Rigging tab's per-unit card and the Overview's hotseat rollup —
+ * same two places a mount's Fire controls render, and for the same reason:
+ * spending the roll and reading the roll happen in different places during
+ * play). Costs a Rigging Exploit Action first, falling back to a Simple one,
+ * matching unitGunControls' Fire button — maneuvering a vehicle is a round's
+ * action the same way firing one of its guns is. */
+function maneuverButton(table, u) {
+  if (activeTabObj() && activeTabObj().readonly) return null;
+  const spec = maneuverRollSpec(table, u);
+  const label = u.label || u.name;
+  return el("button", { class: "btn small",
+    title: `Roll ${spec.dice}d6 — ${spec.skill} ${spec.skillDice} + Handling ${spec.handling}`
+      + (spec.penalty ? ` · −${spec.penalty}d (${spec.penaltyBits.join(", ")})` : ""),
+    onclick: () => {
+      if (!spendActionUnits("Rigging", 1, `Maneuvering ${label}`)) return;
+      openPoolRoller({
+        dice: spec.dice, bonus: 0, pool: spec.pool,
+        label: `Maneuver: ${label}`,
+        note: `${spec.skill}: ${spec.skillDice} skill + ${spec.handling} Handling`
+          + (spec.penalty ? ` · −${spec.penalty}d (${spec.penaltyBits.join(", ")})` : ""),
+        extraPenalty: spec.penalty,
+        penaltyLabel: spec.penaltyBits.length
+          ? [woundPenalty().size > 0 ? "Wound" : null, ...spec.penaltyBits].filter(Boolean).join(" + ")
+          : null,
+      });
+      playChanged();
+    } }, `Maneuver (${spec.dice}d)`);
+}
+
 /* Firing controls for a mounted weapon: mode + magazine for a ballistic mount,
    a heat tracker for an energy one. Energy mounts state Heat and Heat Limit in
    their own columns, so unlike personal energy weapons nothing has to be parsed
@@ -5714,6 +5771,10 @@ function shOverview(body) {
               `${Math.min(toInt(st.physical), bodyMax)} phys · `
               + `${Math.min(toInt(st.integrity), bodyMax)} integrity`) : null,
           ].filter(Boolean));
+          // Right under the stats it rolls off of, same reasoning as the guns
+          // below: this is the tab you're actually flying from, not the one
+          // you outfit from.
+          card.append(el("div", { style: "margin:4px 0" }, maneuverButton(seat.table, seat.u)));
           // The guns, live. This used to be a comma-joined list of names, which
           // told you what was bolted on and left you to walk to the Rigging tab
           // to fire any of it — the one tab you are not on while flying. The
@@ -13460,6 +13521,10 @@ function shRigging(body) {
                 el("b", {}, Number.isFinite(num) ? `${num + bonus}${unit}` : base),
                 bonus ? el("span", { class: "delta" }, `+${bonus}`) : null);
             })(),
+            // Beside the Move tile it explains, not inside it — the button
+            // needs its own tap target and a face wide enough for "Maneuver
+            // (Nd)", which a stat tile's fixed shape doesn't have room for.
+            maneuverButton(cfg.table, u),
             unitReadonly
               // Read-only shares report the value but can't edit it, matching
               // the condition tracks above.
