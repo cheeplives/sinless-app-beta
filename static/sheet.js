@@ -13543,6 +13543,11 @@ function shRigging(body) {
 
   // --- VCRs
   const rigCard = el("div", { class: "card sh-card" }, el("h3", {}, "Vehicle Control Rigs"));
+  // Owned VCRs go in their own column so the deployment notes below can sit
+  // beside them instead of underneath -- the card runs the full width of the
+  // sheet body, and a couple of short paragraphs stacked under a handful of
+  // narrow rig rows left most of that width empty (#95).
+  const rigList = el("div", { class: "sh-rig-list" });
   rigEntries.forEach((en, ri) => {
     const { ref: r, arr: rigArr, i: rigIndex, inPlay, category } = en;
     const st = RULES.rigStats(r, DATA.tables);
@@ -13568,7 +13573,7 @@ function shRigging(body) {
       effectOf: name => (DATA.tables.rig_mods.find(m => m["Rig Mod"] === name) || {}).Effect || "",
       rerender: renderSheet, afterAdd: () => playChangedRecalc(),
     });
-    rigCard.append(el("div", { class: "sh-unit" },
+    rigList.append(el("div", { class: "sh-unit" },
       el("div", {},
         el("div", { class: "sh-advrow" + (isActive ? " active-row" : ""), style: "border:0;padding:0" },
           el("span", {}, el("b", {}, r.name),
@@ -13594,15 +13599,17 @@ function shRigging(body) {
           await playChangedRecalc();
         } }, "✕")));
   });
-  // Deployment summary + what the toggles below mean, right under the VCR
-  // card and before the drones/vehicles are listed -- this used to live atop
-  // its own "Active drones & vehicles" rollup table, but that table duplicated
-  // the per-unit cards below it for no reason once Hotseat moved onto them
-  // directly (#94). The prose survives; only the second table is gone.
+  // Deployment summary + what the toggles below mean -- this used to live
+  // atop its own "Active drones & vehicles" rollup table, but that table
+  // duplicated the per-unit cards below it for no reason once Hotseat moved
+  // onto them directly (#94). The prose survives; only the second table is
+  // gone, and (#95) it now sits in a column beside the rig list rather than
+  // stacked under it, so a card with only one or two VCRs in it doesn't read
+  // as three-quarters empty space above two short paragraphs.
   if (rigs.length) {
     const cores = hotseatCapacity();
     const seated = deployedUnits().filter(d => d.hotseat).length;
-    rigCard.append(
+    const rigNotes = el("div", { class: "sh-rig-notes" },
       el("p", { class: "hint" },
         `${deployedUnits().length} deployed`
         + (cores ? ` · ${seated} of ${cores} core${cores === 1 ? "" : "s"} flying` : "")
@@ -13617,8 +13624,9 @@ function shRigging(body) {
             : "No VCR owned, so nothing can be hotseated — buy a rig from the "
               + "Buy button at the top of this tab. "
               + "A rig's cores are how many units you can pilot at once.")));
+    rigCard.append(el("div", { class: "sh-rig-row" }, rigList, rigNotes));
   } else {
-    rigCard.append(el("p", { class: "hint" }, "No rigs owned — drones are piloted unlinked."));
+    rigCard.append(rigList, el("p", { class: "hint" }, "No rigs owned — drones are piloted unlinked."));
   }
   body.append(rigCard);
 

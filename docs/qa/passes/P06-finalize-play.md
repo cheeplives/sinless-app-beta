@@ -2152,16 +2152,19 @@ character (re-run that section's block first if starting fresh):
 
 **Expected:**
 
-      { "cardOrder": ["Active drones & vehicles", "Vehicle Control Rigs", "Drones 5", "Vehicles"],
-        "heightPx": 2276 }
+      { "cardOrder": ["Vehicle Control Rigs", "Drones 5", "Vehicles"],
+        "heightPx": 1482 }
 
-**Note:** 5538px → 3105px (3.4 screens) at the #87 restructure, and 2276px as
-observed at a 910px-wide viewport once two later changes landed on top: the
-two-up card layout (which also put the unit count in the Drones heading), and
-the move of the tab's "Buy rigs, drones & vehicles" card into a Buy dialog
-opened from a button at the top of the tab. The rollup — the one card touched
-mid-scene — still renders first instead of below a card consulted once a
-session.
+**Note:** 5538px → 3105px (3.4 screens) at the #87 restructure, 2276px once two
+later changes landed on top (the two-up card layout, and the move of the tab's
+"Buy rigs, drones & vehicles" card into a Buy dialog), and **1482px** (877px
+viewport, matching P13-018) once #94 retired the "Active drones & vehicles"
+rollup outright — Hotseat and a unit's fire controls moved onto its own card
+in the Drones/Vehicles lists below, so the rollup that used to render first
+had nothing left to do that wasn't already duplicated underneath it.
+`cardOrder` now opens on Vehicle Control Rigs, which is where #95 also moved
+this same deployment summary — see its own card, not a `.sh-card` of its own
+any more.
 
 ### P06-069: The garage is a garage — outfitting moved to Modify, firing did not move at all
 - **Type:** correctness

@@ -1352,12 +1352,32 @@ label.opt input{margin-top:3px}
 /* Two units side by side once outfitting left the card (#87 follow-up): each
    is ~265px tall now, down from ~817px with the attachments column open, so
    one marching down the page wasted the width the shrink bought back.
-   auto-fit + minmax folds to a single column on its own -- a narrow card, a
-   phone, or just one unit stretching to fill the row -- with no media query. */
-.sh-unit-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:10px}
+   Fixed at two columns, never three (#95) -- a wide desktop card used to grow
+   a third column just because auto-fit had the room, which read as thin and
+   cramped next to the two-up cards everywhere else on this tab. The clamp()
+   is what caps it without a hand-picked breakpoint: each column's minimum is
+   whichever is LARGER of 360px or roughly half the container, so a third
+   column can never claim enough room to exist, while the same 360px floor
+   still folds to a single column on its own on a narrow card or a phone. */
+.sh-unit-grid{display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(clamp(360px,50% - 5px,100%),1fr));gap:10px}
 .sh-unit{display:flex;align-items:flex-start;flex-wrap:wrap;
   border:1px solid var(--line);border-radius:6px;background:var(--panel-2);padding:8px 10px;margin-bottom:8px}
 .sh-unit-grid .sh-unit{margin-bottom:0}   /* the grid's own `gap` replaces it */
+/* The Vehicle Control Rigs card (#95): owned VCRs in one column, the
+   deployment summary beside them rather than stacked underneath -- the card
+   runs the sheet's full width, and a couple of short paragraphs under a
+   handful of narrow rig rows left most of that width sitting empty. `2 1`
+   vs `1 1` weights the rig list about twice the notes column's share on a
+   wide screen; both wrap to full width, notes below list, once the row
+   can't fit the notes column's own 220px floor. */
+.sh-rig-row{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap}
+.sh-rig-list{flex:2 1 320px;min-width:0}
+.sh-rig-list .sh-unit{margin-bottom:8px}
+.sh-rig-list .sh-unit:last-child{margin-bottom:0}
+.sh-rig-notes{flex:1 1 220px;min-width:220px}
+.sh-rig-notes p.hint{margin:0 0 8px}
+.sh-rig-notes p.hint:last-child{margin-bottom:0}
 .sh-unit-main{flex:1 1 auto;min-width:0}
 .sh-unit-title{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 /* The unit's custom-name field, used in the Modify dialog (renaming moved off

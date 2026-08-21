@@ -398,13 +398,15 @@ then reload so the `pointer:coarse` gate re-runs):
       (async () => { sheetTab = "rigging"; renderSheet(); await new Promise(r => setTimeout(r, 60)); return { viewportWidth: window.innerWidth, heightPx: document.getElementById("sh-tabpanel").scrollHeight, cardOrder: [...document.querySelectorAll("#sh-tabpanel .sh-card h3")].map(x => x.textContent) }; })()
 
 - **Expected:** `heightPx` under **3400** at an ~877px-wide viewport (observed
-  3105 immediately after the #87 restructure, **2276** once the two-up card
-  layout landed and the tab's Buy card moved into the Buy dialog — leaving
-  headroom rather than pinning the exact figure, since minor content changes
-  shift it a little); `cardOrder` is
-  `["Active drones & vehicles", "Vehicle Control Rigs", "Drones 5", "Vehicles"]`
-  — the count rides in the Drones heading, and buying is a button at the top of
-  the tab rather than a card at the bottom of it.
+  3105 immediately after the #87 restructure, 2276 once the two-up card layout
+  landed and the tab's Buy card moved into the Buy dialog, **1482** once #94
+  retired the separate "Active drones & vehicles" rollup — leaving headroom
+  rather than pinning the exact figure, since minor content changes shift it a
+  little); `cardOrder` is `["Vehicle Control Rigs", "Drones 5", "Vehicles"]` —
+  no more rollup ahead of the VCR card (#94 moved Hotseat and a unit's fire
+  controls onto its own card below, so the rollup had nothing left to do), the
+  count rides in the Drones heading, and buying is a button at the top of the
+  tab rather than a card at the bottom of it.
 - **Note:** No case anywhere in this pass measured a TAB's height before this
   one — only individual controls and horizontal overflow — which is exactly
   how the same fixture reached **5538px** (6.1 screens at an 877px-wide pane)
@@ -412,7 +414,45 @@ then reload so the `pointer:coarse` gate re-runs):
   whole restructure exists to move, and the one a future feature will quietly
   undo if nothing keeps watch on it. Treat the 3400px line as a ceiling to
   re-set deliberately (recording the viewport width alongside it), not a
-  target to shrink further for its own sake.
+  target to shrink further for its own sake — 1482px has plenty of room left
+  under it, and that headroom is the point, not a gap to fill back in.
+- **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
+
+### P13-019: Drone/vehicle cards cap at two columns, and the VCR card runs a rig list beside its notes
+- **Type:** usability
+- **Steps:** **desktop width, not a phone** — this is specifically about a
+  viewport WIDE enough for a third column to have room, so `resize_window` to
+  something generous (1400px used below) rather than the pass's usual phone
+  widths.
+- **Check:**
+
+      (async () => { window.alert = () => {}; window.confirm = () => true; const c = RULES.defaultCharacter(); c.name = "QA Layout95"; c.priorities = { heritage: 1, magic: 0, attributes: 5, skills: 4, resources: 0 }; c.heritage.type = "Human"; c.drones = [{ name: "Roto-Drone", weapons: [], mods: [] }, { name: "Orb", weapons: [], mods: [] }, { name: "Bug-Spy", weapons: [], mods: [] }]; c.vehicles = [{ name: "Speedboat", weapons: [], mods: [] }]; c.rigs = [{ name: "Master VCR", mods: [] }]; c.finalized = true; c.lifestyles = [{ name: "Squatter", months: 1 }]; await openCharacter(c); sheetTab = "rigging"; renderSheet(); await new Promise(r => setTimeout(r, 60)); const droneGrid = document.querySelector(".sh-unit-grid"); const droneGridColumnCount = getComputedStyle(droneGrid).gridTemplateColumns.split(" ").length; const rigList = document.querySelector(".sh-rig-list"); const rigNotes = document.querySelector(".sh-rig-notes"); const lr = rigList.getBoundingClientRect(), nr = rigNotes.getBoundingClientRect(); const rigSideBySide = Math.abs(lr.top - nr.top) < 5 && lr.right <= nr.left + 2; const rigListHasUnit = /Master VCR/.test(rigList.textContent); const rigNotesHasSummary = /deployed/.test(rigNotes.textContent) && /cores flying/.test(rigNotes.textContent); const noHorizScroll = document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1; await closeTabByName("QA Layout95"); return { viewportWidth: window.innerWidth, droneGridColumnCount, rigSideBySide, rigListHasUnit, rigNotesHasSummary, noHorizScroll }; })()
+
+- **Expected:**
+
+      { "viewportWidth": 1400, "droneGridColumnCount": 2, "rigSideBySide": true,
+        "rigListHasUnit": true, "rigNotesHasSummary": true, "noHorizScroll": true }
+
+- **Note:** #95. `.sh-unit-grid` (the Drones/Vehicles cards) used to be a bare
+  `auto-fit, minmax(360px, 1fr)`, which grew a THIRD column the moment a
+  desktop pane was wide enough — three drone cards abreast read thin and
+  cramped next to every other two-up layout on this tab.
+  `droneGridColumnCount` at a 1400px viewport (easily wide enough for three
+  360px columns plus gaps) is 2, not 3: the grid's minimum column width is now
+  `clamp(360px, 50% - 5px, 100%)`, so on a wide screen the floor becomes
+  roughly half the container — too wide for a third column to ever fit — while
+  the same 360px floor still folds to one column on a narrow one, with no
+  media query either way (unchanged from #87).
+
+  The Vehicle Control Rigs card got the same complaint from a different angle:
+  wide, but with only a short rig list and two paragraphs of notes stacked
+  under it, leaving most of the width empty. `rigSideBySide` confirms the rig
+  list and the deployment notes (moved into this card by #94) now sit as two
+  flex columns rather than one on top of the other; `rigListHasUnit` and
+  `rigNotesHasSummary` confirm each column still holds what it's supposed to
+  after the split (selling a rig, fitting a mod — nothing in that flow moved).
+  `noHorizScroll` guards the usual P13-001 concern: two columns fit inside the
+  page at this width rather than overflowing it.
 - **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
 
 ---
