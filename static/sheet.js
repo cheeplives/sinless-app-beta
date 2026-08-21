@@ -9432,7 +9432,7 @@ const gearCatOpen = {};
 
 /* Uses tracker for consumables bought per use (Ammo). Adjusts the owned count
    in place and moves NO cash — spending a use isn't a sale, and buying more
-   goes through the Buy section, which charges per use. Floors at 0 so a spent
+   goes through the Buy dialog, which charges per use. Floors at 0 so a spent
    stack can sit at zero rather than being forced to 1 like other gear. */
 /* How much of a placed spirit's effect actually moved a number: all of it, none
    of it, or some. Shared by the Overview infusion card and the Magic tab so the
@@ -9599,7 +9599,7 @@ function shUsesStepper(entry, onChange, unit = "use") {
   return el("span", { class: "stepper" },
     btn(-1, "–", `Spend one ${unit} (no refund)`),
     val,
-    btn(1, "+", `Add one ${unit} you already own — buy more in the Buy section below`));
+    btn(1, "+", `Add one ${unit} you already own — buy more from the Buy button at the top`));
 }
 
 /* "Use" for a dose: spend one from the stack and start being under its effects.
@@ -9656,7 +9656,7 @@ function shUseDoseBtn(entry, row, owned) {
  * Resolves to the chosen state, or null if cancelled. An unaffordable total is
  * shown and named but not blocked: overdrawing is the player's call everywhere
  * else in play, and it stays their call here.  */
-function buyDialog({ title, sub, fields, priceOf }) {
+function buyDialog({ title, sub, fields, priceOf, spent = 0, confirmLabel }) {
   return new Promise(resolve => {
     const state = {};
     for (const f of fields) state[f.key] = f.initial;
@@ -9670,12 +9670,17 @@ function buyDialog({ title, sub, fields, priceOf }) {
     const refresh = () => {
       const total = priceOf(state);
       totalLine.replaceChildren(el("span", { class: "sub" }, "Total "), el("b", {}, fmt(total)));
-      const over = total - CHAR.play.cash;
+      // `spent` is what a Buy dialog's basket already commits, so the cash line
+      // quotes what would be LEFT for this item rather than the wallet total —
+      // otherwise every configure step in one basket claims the same money.
+      const purse = CHAR.play.cash - spent;
+      const over = total - purse;
+      const left = spent ? " left after the basket" : "";
       cashLine.textContent = over > 0
-        ? `You have ${fmt(CHAR.play.cash)} — this overdraws by ${fmt(over)}.`
-        : `You have ${fmt(CHAR.play.cash)}, leaving ${fmt(-over)}.`;
+        ? `You have ${fmt(purse)}${left} — this overdraws by ${fmt(over)}.`
+        : `You have ${fmt(purse)}${left}, leaving ${fmt(-over)}.`;
       cashLine.style.color = over > 0 ? "var(--bad)" : "";
-      buyBtn.textContent = over > 0 ? "Buy anyway" : "Buy";
+      buyBtn.textContent = confirmLabel || (over > 0 ? "Buy anyway" : "Buy");
     };
 
     const rows = fields.map(f => {
@@ -9715,6 +9720,243 @@ function buyDialog({ title, sub, fields, priceOf }) {
     refresh();
   });
 }
+/* ------------------------------------------------ the per-tab Buy dialog
+ *
+ * Every play tab that spends money used to END in a Buy card: a grouped
+ * browser wired straight to the wallet, where clicking Add WAS the purchase.
+ * Five inventory screens each carried a shopfront at the bottom, and the player
+ * committed one click at a time -- each with its own confirm() when the money
+ * was short, and each writing to the character before the next was priced.
+ *
+ * Now each of those tabs carries one Buy button at the TOP, and this behind it.
+ * Same browsers, same prices; what changed is that picks land in a basket which
+ * is priced as a whole and approved once. Nothing touches CHAR until Approve,
+ * so Cancel really is free.
+ *
+ * A `section` is one shelf of that tab's shop:
+ *   key        stable id (also the browser's open-state key)
+ *   label      the pill's text
+ *   groups(cart)  categoryBrowser groups, rebuilt whenever the basket changes,
+ *              so eligibility keeps up with what is already pending -- the
+ *              second cybergun in one basket has to know about the first
+ *   price(name, opts) -> { cash, zp }   per unit
+ *   configure(name, spent) -> { opts, summary } | null   optional, for anything
+ *              priced by choices (armor quality, a vehicle's condition). `spent`
+ *              is what the basket already commits, so the configure step's own
+ *              cash line counts it.
+ *   commit(line)  writes ONE unit: pushes the purchase and files its own ledger
+ *              row. Called qty times, which is what keeps Undo per item rather
+ *              than per basket.
+ *   stackable  true when the same thing can sit in the basket more than once
+ *   warnings(cart) -> [string]   optional soft warnings for the footer
+ *   note       optional line under the pills
+ *
+ * ZP is the one currency that cannot go negative -- an amp power that overdrew
+ * it would switch every power off -- so a ZP overdraw BLOCKS Approve. Cash
+ * overdraw does not: going into the red is the player's call everywhere else in
+ * play, and it stays theirs here.
+ */
+function openShop({ title, sub, sections }) {
+  const cart = [];
+  let activeKey = sections[0].key;
+  let query = "";
+  let closeShop = () => {};
+  let approving = false;
+
+  const cartTotal = () => cart.reduce(
+    (t, l) => ({ cash: t.cash + l.cash * l.qty, zp: t.zp + l.zp * l.qty, n: t.n + l.qty }),
+    { cash: 0, zp: 0, n: 0 });
+  const current = () => sections.find(s => s.key === activeKey) || sections[0];
+  const mine = s => cart.filter(l => l.section === s.key);
+  // A line can be priced in cash, in ZP, or (nothing does today, but the shape
+  // allows it) both, so the price a row shows is built rather than branched.
+  const priceText = (cash, zp) =>
+    [cash || !zp ? fmt(cash) : "", zp ? zp + " ZP" : ""].filter(Boolean).join(" + ");
+
+  const pills = el("div", { class: "sh-shop-tabs", role: "tablist" });
+  const search = el("input", { type: "search", class: "sh-shop-search",
+    placeholder: "Filter by name or stats", "aria-label": "Filter this list",
+    oninput: e => { query = e.target.value.trim().toLowerCase(); drawList(); } });
+  const noteLine = el("p", { class: "hint" });
+  const listBox = el("div", { class: "sh-shop-list" });
+  const cartBox = el("div", { class: "sh-shop-cart" });
+  const foot = el("div", { class: "sh-shop-foot" });
+
+  const drawPills = () => {
+    pills.replaceChildren(...sections.map(s => el("button", {
+      class: "sh-shop-pill" + (s.key === activeKey ? " active" : ""),
+      role: "tab", "aria-selected": s.key === activeKey ? "true" : "false",
+      onclick: () => { activeKey = s.key; drawPills(); drawList(); },
+    }, s.label)));
+    pills.style.display = sections.length > 1 ? "" : "none";
+  };
+
+  const matches = it => !query
+    || (it.name + " " + (it.sub || "")).toLowerCase().includes(query);
+
+  const drawList = () => {
+    const s = current();
+    const basketed = name => cart
+      .filter(l => l.section === s.key && l.name === name)
+      .reduce((n, l) => n + l.qty, 0);
+    // A shelf is shown its OWN basket lines, never another shelf's: the
+    // augment list has to know what chrome is pending, and nothing about the
+    // guns sitting beside it.
+    const groups = s.groups(mine(s)).map(g => ({ ...g,
+      items: g.items.filter(matches).map(it => {
+        const n = basketed(it.name);
+        if (!n || it.hidden) return it;
+        // Already picked: a stackable shelf says how many and keeps its Add
+        // button, a one-of shelf closes the button -- the basket must not hold
+        // two of something the character can only own once.
+        return s.stackable
+          ? { ...it, note: [it.note, "in basket ×" + n].filter(Boolean).join(" · ") }
+          : { ...it, disabled: true, reason: "Already in the basket", note: "in basket" };
+      }),
+    }));
+    const nothing = !groups.some(g => g.items.some(it => !it.hidden));
+    listBox.replaceChildren(nothing
+      ? el("p", { class: "sh-shop-empty" },
+          query ? "Nothing here matches that." : "Nothing left to buy on this shelf.")
+      // A filtered list opens every heading it matched: the search results ARE
+      // the answer, and making the reader expand five groups to find three rows
+      // would hide it again. Its open state lives under its own browser id so
+      // collapsing a result does not disturb the browse-mode list.
+      : categoryBrowser({
+          id: "shop:" + s.key + (query ? ":find" : ""),
+          groups, forceOpen: !!query,
+          rerender: drawList, afterAdd: () => {},
+          onAdd: name => addToBasket(s, name),
+        }));
+    noteLine.textContent = s.note || "";
+    noteLine.style.display = s.note ? "" : "none";
+  };
+
+  const addToBasket = async (s, name) => {
+    let opts = null, summary = "";
+    if (s.configure) {
+      const chosen = await s.configure(name, cartTotal().cash);
+      if (!chosen) return;                       // configure step cancelled
+      opts = chosen.opts;
+      summary = chosen.summary || "";
+    }
+    const { cash = 0, zp = 0 } = s.price(name, opts) || {};
+    const same = s.stackable && cart.find(l =>
+      l.section === s.key && l.name === name && l.summary === summary);
+    if (same) same.qty += 1;
+    else cart.push({ section: s.key, name, opts, summary, cash, zp, qty: 1 });
+    drawAll();
+  };
+
+  const setQty = (line, n) => {
+    if (n <= 0) cart.splice(cart.indexOf(line), 1);
+    else line.qty = n;
+    drawAll();
+  };
+
+  const drawCart = () => {
+    if (!cart.length) { cartBox.replaceChildren(); return; }
+    const total = cartTotal();
+    const kids = [el("h4", {}, "Basket — " + total.n + " item" + (total.n === 1 ? "" : "s"))];
+    for (const line of cart) {
+      const s = sections.find(x => x.key === line.section) || {};
+      const detail = [sections.length > 1 ? s.label : "", line.summary]
+        .filter(Boolean).join(" · ");
+      kids.push(el("div", { class: "sh-shop-line" },
+        el("div", { class: "sh-shop-name" },
+          el("b", {}, line.name),
+          detail ? el("div", { class: "sub" }, detail) : null),
+        s.stackable
+          ? el("div", { class: "sh-shop-qty" },
+              el("button", { title: "One fewer", onclick: () => setQty(line, line.qty - 1) }, "–"),
+              el("b", {}, String(line.qty)),
+              el("button", { title: "One more", onclick: () => setQty(line, line.qty + 1) }, "+"))
+          : null,
+        el("span", { class: "cat-cost" }, priceText(line.cash * line.qty, line.zp * line.qty)),
+        el("button", { class: "row-del", title: "Take out of the basket",
+          onclick: () => setQty(line, 0) }, "✕")));
+    }
+    cartBox.replaceChildren(...kids);
+  };
+
+  const drawFoot = () => {
+    const t = cartTotal();
+    const zpLeft = (CALC.zoetics || {}).zp_remaining || 0;
+    const zpOver = t.zp > zpLeft;
+    const over = t.cash - CHAR.play.cash;
+    const kids = [
+      el("div", { class: "sh-shop-totals" },
+        el("span", { class: "sub" }, "Total "), el("b", {}, fmt(t.cash)),
+        t.zp ? el("span", { class: "sub" }, "  ·  " + t.zp + " ZP") : null),
+      el("div", { class: "sub", style: over > 0 ? "color:var(--bad)" : "" },
+        over > 0
+          ? `You have ${fmt(CHAR.play.cash)} — this overdraws by ${fmt(over)}.`
+          : `You have ${fmt(CHAR.play.cash)}, leaving ${fmt(-over)}.`),
+    ];
+    // Stated, not predicted: what ZP is left after a purchase is the engine's
+    // to say, and in Classic ZR it is not simply remaining-minus-spent (taking
+    // a first amp power also brings carried ZR against ZP). The shelf that
+    // knows that rule warns about it from its own warnings() hook.
+    if (t.zp) kids.push(el("div", { class: "sub", style: zpOver ? "color:var(--bad)" : "" },
+      zpOver
+        ? `Only ${zpLeft} ZP remains — ZP cannot go negative, so this basket cannot be approved.`
+        : `${zpLeft} ZP remaining; this basket spends ${t.zp}.`));
+    for (const s of sections) {
+      for (const w of (s.warnings ? s.warnings(mine(s)) : []))
+        kids.push(el("div", { class: "sh-shop-warn" }, "⚠ " + w));
+    }
+    const buyBtn = el("button", { class: "btn-add",
+      ...(t.n && !zpOver ? {} : { disabled: "1" }),
+      onclick: approve },
+      !t.n ? "Approve" : over > 0 ? "Buy anyway" : "Buy " + t.n + " item" + (t.n === 1 ? "" : "s"));
+    kids.push(el("div", { class: "sh-shop-buttons" },
+      buyBtn,
+      el("button", { class: "btn", onclick: () => closeShop() },
+        cart.length ? "Cancel" : "Close")));
+    foot.replaceChildren(...kids);
+  };
+
+  const drawAll = () => { drawList(); drawCart(); drawFoot(); };
+
+  /* Approve: every line is written, then the sheet recalculates ONCE. The
+   * basket is emptied and the dialog closed first so a double-click on a slow
+   * recalc cannot pay for the same basket twice. */
+  const approve = async () => {
+    if (!cart.length || approving) return;
+    approving = true;
+    const lines = cart.splice(0, cart.length);
+    closeShop();
+    for (const line of lines) {
+      const s = sections.find(x => x.key === line.section);
+      if (!s) continue;
+      for (let n = 0; n < line.qty; n++) s.commit(line);
+    }
+    await playChangedRecalc();
+  };
+
+  openSheetModal({
+    title, sub, maxWidth: "760px",
+    build: (refresh, close) => {
+      closeShop = close;
+      drawPills();
+      drawAll();
+      return [pills, search, noteLine, listBox, cartBox, foot];
+    },
+  });
+}
+
+/* The button that opens a tab's Buy dialog, parked at the top of the tab above
+ * the inventory it fills. Read-only shared views get nothing: they can't spend.
+ * The cash on hand rides along on the same line, because "can I afford this" is
+ * the question that sends anyone to this button in the first place. */
+function shopBar(label, open, note) {
+  if (activeTabObj() && activeTabObj().readonly) return null;
+  return el("div", { class: "sh-shop-bar" },
+    el("button", { class: "btn-add sh-shop-open", onclick: open }, "🛒 " + label),
+    note ? el("span", { class: "sub" }, note) : null,
+    el("span", { class: "sh-shop-cash" }, "On hand ", el("b", {}, fmt(CHAR.play.cash))));
+}
+
 /* A Quality/Style dropdown on an owned piece of armor, priced like an Extra.
  *
  * The multiplier is on the piece as a whole, so the marginal charge is
@@ -9837,6 +10079,169 @@ function shMountEditor(entry, hostRow, hostActive) {
   return wrap;
 }
 
+/* ---- the Gear tab's shop: weapons, armor and general gear.
+ *
+ * The three shelves that used to be the "Buy equipment" card at the bottom of
+ * the tab. The surcharge multipliers are recomputed here rather than handed in
+ * from shGear, so the dialog prices a thing exactly the way the tab that owns
+ * it does and neither can drift from the other. */
+function gearShopSections() {
+  const mult = RULES.surchargeFor("weapon", CALC.budget.gear_cost_multiplier || 1);
+  const gearMult = RULES.surchargeFor("gear", CALC.budget.gear_cost_multiplier || 1);
+  // Armor additionally carries the Extra Arm / Extra Leg +50% surcharge.
+  const armorMult = RULES.surchargeFor("armor", CALC.budget.gear_cost_multiplier || 1)
+    * (CALC.budget.armor_cost_multiplier || 1);
+
+  // A bow is priced and rated by the Strength it takes to draw. Buying one in
+  // play rates it to THIS character's Strength -- the heaviest they can
+  // actually use -- and prices it accordingly, so the browser shows what this
+  // buyer would pay rather than a base cost the row does not have.
+  const bowOf = r => RULES.bowRating(r, { min_str: CALC.attributes.Strength.final });
+  const weaponCost = r => Math.round(((bowOf(r) || {}).cost ?? (+r.Cost || 0)) * mult);
+
+  const weapons = {
+    key: "weapons", label: "Weapons", stackable: true,
+    note: mult > 1 ? `Heritage surcharge ×${mult} is already in these prices.` : "",
+    groups: () => Object.entries(
+      DATA.tables.weapons.reduce((acc, r) => (((acc[r.Type] ??= []).push(r)), acc), {}))
+      .map(([type, rows]) => ({
+        label: WEAPON_TYPE_LABELS[type] || type,
+        items: rows.map(r => {
+          const bow = bowOf(r);
+          return { name: r.Weapon, cost: weaponCost(r),
+            sub: (r.Type === "Melee" ? `Reach ${r.Reach || 0}` : `Acc ${r.Accuracy || 0}`)
+              + ` · DMG ${r.Type === "Melee" ? RULES.meleeDamage(r, CALC.attributes.Strength.final)
+                         : bow ? `${bow.damage} (Min STR ${bow.minStr})` : (r.Damage || "—")}`
+              + ` · Pen ${r.Pen || 0}` + barrierBit(r, r.Bar)
+              + ` · Conceal ${r.Conceal || 0} · ZR ${r.ZR || 0} · wt ${r.Weight || 0}` };
+        }),
+      })),
+    price: name => ({ cash: weaponCost(DATA.tables.weapons.find(x => x.Weapon === name) || {}), zp: 0 }),
+    commit: line => {
+      const r = DATA.tables.weapons.find(x => x.Weapon === line.name) || {};
+      const bow = bowOf(r);
+      const entry = { name: line.name, smart: Boolean(r["Integrated Smart"]),
+        mods: [], equipped: true, qty: 1 };
+      if (bow) entry.min_str = bow.minStr;
+      CHAR.play.purchases.weapons.push(entry);
+      logCash(`Bought ${line.name}${bow ? ` (Min STR ${bow.minStr})` : ""}`, -line.cash,
+        { kind: "weapon", name: line.name });
+    },
+  };
+
+  // Armor surcharges ADD onto the base -- base x (multiplier - 1) each, never
+  // compounding -- which is exactly what priceArmor does, so the figure in the
+  // configure step is the figure the engine will price the piece at.
+  //
+  // Priced at armorMult, which is what priceArmor is handed
+  // (surchargeFor("armor") x armor_cost_multiplier) and what the owned row's
+  // Quality/Style pickers already charged. The old buy flow quoted armorMult in
+  // the list and then charged the WEAPON multiplier in the dialog, so an Extra
+  // Arm / Extra Leg character paid less for armor than the sheet said it was
+  // worth -- and got the difference back on selling it.
+  const armorRow = name => DATA.tables.armor.find(x => x.Armor === name) || {};
+  const mOf = (table, col, v) => {
+    const row = table.find(x => x[col] === v);
+    return row ? (+row.Multiplier || 1) : 1;
+  };
+  const armorPrice = (name, st) => {
+    const r = armorRow(name);
+    const base = +r.Cost || 0;
+    const styleable = r.Style === "Y";
+    const s = st || {};
+    return Math.round((base
+      + base * (mOf(DATA.tables.armor_materials, "Material", s.material) - 1)
+      + (styleable ? base * (mOf(DATA.tables.armor_styles, "Style", s.style) - 1) : 0)
+      + (styleable ? (s.extras || []).reduce((n, e) =>
+          n + base * (mOf(DATA.tables.armor_extras, "Extra", e) - 1), 0) : 0)) * armorMult);
+  };
+  const armorItem = r => ({ name: r.Armor, cost: Math.round((+r.Cost || 0) * armorMult),
+    sub: `${r.Ballistic}B / ${r.Impact}I · wt ${r.wt}${r.Style === "Y" ? " · styleable" : ""}` });
+
+  const armor = {
+    key: "armor", label: "Armor", stackable: true,
+    note: "Listed price is the plain piece — Quality, Style and Extras are picked as you add it.",
+    groups: () => [
+      { label: "Outer Armor", items: DATA.tables.armor.filter(r => (r.Slot || "").startsWith("Outer")).map(armorItem) },
+      { label: "Under Armor", items: DATA.tables.armor.filter(r => r.Slot === "Under").map(armorItem) },
+      { label: "Other", items: DATA.tables.armor.filter(r => !(r.Slot || "").startsWith("Outer") && r.Slot !== "Under").map(armorItem) },
+    ],
+    configure: async (name, spent) => {
+      const r = armorRow(name);
+      const styleable = r.Style === "Y";
+      const opt = (table, col) => [{ value: "", label: "—" },
+        ...table.map(x => ({ value: x[col], label: `${x[col]} ×${x.Multiplier}` }))];
+      const chosen = await buyDialog({
+        title: `Buy ${name}`,
+        sub: `${r.Ballistic}B / ${r.Impact}I · weight ${r.wt}`
+          + (styleable ? " · styleable" : " · fixed design, no Style or Extras"),
+        fields: [
+          { key: "material", label: "Quality", type: "select",
+            options: opt(DATA.tables.armor_materials, "Material"), initial: "" },
+          ...(styleable ? [
+            { key: "style", label: "Style", type: "select",
+              options: opt(DATA.tables.armor_styles, "Style"), initial: "" },
+            { key: "extras", label: "Extras", type: "checks",
+              options: DATA.tables.armor_extras.map(x => ({ value: x.Extra,
+                label: `${x.Extra} ×${x.Multiplier}` })), initial: [] },
+          ] : []),
+        ],
+        priceOf: st => armorPrice(name, st),
+        spent, confirmLabel: "Add to basket",
+      });
+      if (!chosen) return null;
+      return { opts: chosen,
+        summary: [chosen.material, chosen.style, ...(chosen.extras || [])].filter(Boolean).join(", ") };
+    },
+    price: (name, opts) => ({ cash: armorPrice(name, opts), zp: 0 }),
+    commit: line => {
+      const o = line.opts || {};
+      CHAR.play.purchases.armor.push({ name: line.name, style: o.style || "",
+        material: o.material || "", extras: o.extras || [], active: true });
+      logCash(`Bought ${line.name}` + (line.summary ? ` (${line.summary})` : ""),
+        -line.cash, { kind: "armor", name: line.name });
+    },
+  };
+
+  const gearCost = name =>
+    Math.round((+(DATA.tables.misc_gear.find(x => x.Item === name) || {}).Cost || 0) * gearMult);
+  const gear = {
+    key: "gear", label: "Gear", stackable: true,
+    note: "General gear pays face value — the heritage surcharge is on weapons, armor and chrome only.",
+    groups: () => Object.entries(
+      DATA.tables.misc_gear.reduce((acc, r) => (((acc[r.Class || "Gear"] ??= []).push(r)), acc), {}))
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([cls, rows]) => ({
+        label: cls,
+        items: rows.map(r => ({ name: r.Item, cost: Math.round((+r.Cost || 0) * gearMult),
+          sub: [(+r.Dependence ? `Dependence ${r.Dependence}` : ""), r.Effect || "", r.Notes || "",
+            (r.Class || "").startsWith("Ammo") ? "per use" : ""]
+            .filter(Boolean).join(" · ") })),
+      })),
+    price: name => ({ cash: gearCost(name), zp: 0 }),
+    // Gear stacks on one entry rather than repeating rows, but each unit files
+    // its own ledger line -- that is what lets Undo hand back one grenade.
+    commit: line => {
+      const existing = CHAR.play.purchases.gear.find(g => g.name === line.name);
+      if (existing) existing.qty = (existing.qty || 1) + 1;
+      else CHAR.play.purchases.gear.push({ name: line.name, qty: 1 });
+      logCash(`Bought ${line.name}`, -line.cash, { kind: "gear", name: line.name });
+    },
+  };
+
+  return [weapons, armor, gear];
+}
+
+function openGearShop() {
+  openShop({
+    title: "Buy equipment",
+    sub: "Pick what you want from any shelf, then approve the basket — nothing is "
+      + "paid for until you do. Augments are bought on the Augments tab; decks, "
+      + "programs, rigs, drones and vehicles on the Decking and Rigging tabs.",
+    sections: gearShopSections(),
+  });
+}
+
 function shGear(body) {
   const play = CHAR.play;
   // Shared read-only flag for the tab's editable controls (a shared view reads
@@ -9851,13 +10256,16 @@ function shGear(body) {
   const overdrawOK = (name, cost) => CHAR.play.cash >= cost
     || confirm(`${name} costs ${fmt(cost)} but you have ${fmt(CHAR.play.cash)}. Overdraw?`);
 
-  // ===== Jump submenu: scroll to any section within the gear tab.
+  // ===== Buy, then the jump submenu that scrolls to any section of the tab.
+  // The shopfront that used to close the tab is now one button at the top of
+  // it, so the tab reads as an inventory and buying is a thing you go and do.
+  appendIf(body, shopBar("Buy equipment", openGearShop,
+    "Weapons, armor and gear — priced as a basket."));
   const jump = id => () => document.getElementById(id)
     ?.scrollIntoView({ behavior: "smooth", block: "start" });
   body.append(el("div", { class: "gear-submenu" },
     ...[["gear-cash", RULES.currencyName()], ["gear-lifestyle", "Lifestyle"], ["gear-weapons", "Weapons"],
-        ["gear-armor", "Armor"], ["gear-gear", "Gear"],
-        ["gear-vehicles", "Vehicles"], ["gear-buy", "Buy"]]
+        ["gear-armor", "Armor"], ["gear-gear", "Gear"], ["gear-vehicles", "Vehicles"]]
       .map(([id, label]) => el("button", { onclick: jump(id) }, label))));
 
   // ===== Woolongs on hand + Lifestyle — half-width, side by side.
@@ -9879,7 +10287,7 @@ function shGear(body) {
         el("button", { class: "btn warn", onclick: () => applyCash(-1) }, "− Subtract"))),
     el("p", { class: "hint" },
       "Unspent chargen cash was forfeited at finalize; starting cash was rolled 4d6×100. "
-      + "Money gained in play can be spent any time — buy equipment in the Buy section below."));
+      + "Money gained in play can be spent any time — Buy equipment is at the top of this tab."));
   const lsCard = lifestyleCard();
   lsCard.id = "gear-lifestyle";
 
@@ -9937,7 +10345,7 @@ function shGear(body) {
     lsCard));
 
   // ===== Weapons — owned table (equipped toggle stays live, remove). Buying
-  // moved to the Buy section at the bottom.
+  // happens in the Buy dialog at the top of the tab.
   const weaponCard = el("div", { class: "card sh-card", id: "gear-weapons" }, el("h3", {}, "Weapons"));
   if (mult > 1) weaponCard.append(el("p", { class: "hint" }, `Heritage surcharge: all costs ×${mult}.`));
   weaponCard.append(el("div", { class: "mod-slot-legend" },
@@ -9947,25 +10355,6 @@ function shGear(body) {
     el("span", { class: "mod-upgrade" }, "● Upgrade")));
   if (CALC.combat.optics_notes && CALC.combat.optics_notes.length)
     weaponCard.append(el("p", { class: "hint" }, "Optics: " + CALC.combat.optics_notes.join(" · ")));
-  const weaponBuyGroups = Object.entries(
-    DATA.tables.weapons.reduce((acc, r) => (((acc[r.Type] ??= []).push(r)), acc), {}))
-    .map(([type, rows]) => ({
-      label: WEAPON_TYPE_LABELS[type] || type,
-      // A bow is priced and rated by the Strength it takes to draw. Buying one
-      // in play rates it to this character's Strength — the heaviest they can
-      // actually use — and prices it accordingly, so the browser shows what
-      // this buyer would pay rather than a base cost the row doesn't have.
-      items: rows.map(r => {
-        const bow = RULES.bowRating(r, { min_str: CALC.attributes.Strength.final });
-        return { name: r.Weapon,
-          cost: Math.round((bow ? bow.cost : (+r.Cost || 0)) * mult),
-          sub: (r.Type === "Melee" ? `Reach ${r.Reach || 0}` : `Acc ${r.Accuracy || 0}`)
-            + ` · DMG ${r.Type === "Melee" ? RULES.meleeDamage(r, CALC.attributes.Strength.final)
-                       : bow ? `${bow.damage} (Min STR ${bow.minStr})` : (r.Damage || "—")}`
-            + ` · Pen ${r.Pen || 0}` + barrierBit(r, r.Bar)
-            + ` · Conceal ${r.Conceal || 0} · ZR ${r.ZR || 0} · wt ${r.Weight || 0}` };
-      }),
-    }));
   const cyberguns = equippedCyberguns();
   const weaponEntries = ownedWeapons();
   if (weaponEntries.length || cyberguns.length) {
@@ -10063,22 +10452,15 @@ function shGear(body) {
     });
     weaponCard.append(t);
   } else {
-    weaponCard.append(el("p", { class: "hint" }, "No weapons owned — buy some in the Buy section below."));
+    weaponCard.append(el("p", { class: "hint" }, "No weapons owned — buy some with the Buy button at the top of this tab."));
   }
   body.append(weaponCard);
 
-  // ===== Armor — owned table (worn toggle stays live, remove). Buying moved
-  // to the Buy section at the bottom.
+  // ===== Armor — owned table (worn toggle stays live, remove). Buying happens
+  // in the Buy dialog at the top of the tab.
   const armorCard = el("div", { class: "card sh-card", id: "gear-armor" }, el("h3", {}, "Armor"),
     el("p", { class: "hint" },
       `Current totals: ${CALC.combat.ballistic_armor}B / ${CALC.combat.impact_armor}I (augments and powers included). One Outer and one Under piece worn at a time.`));
-  const armorItem = r => ({ name: r.Armor, cost: Math.round((+r.Cost || 0) * armorMult),
-    sub: `${r.Ballistic}B / ${r.Impact}I · wt ${r.wt}${r.Style === "Y" ? " · styleable" : ""}` });
-  const armorBuyGroups = [
-    { label: "Outer Armor", items: DATA.tables.armor.filter(r => (r.Slot || "").startsWith("Outer")).map(armorItem) },
-    { label: "Under Armor", items: DATA.tables.armor.filter(r => r.Slot === "Under").map(armorItem) },
-    { label: "Other", items: DATA.tables.armor.filter(r => !(r.Slot || "").startsWith("Outer") && r.Slot !== "Under").map(armorItem) },
-  ];
   const armorEntries = ownedArmor();
   if (armorEntries.length) {
     const t = el("table");
@@ -10187,20 +10569,20 @@ function shGear(body) {
     });
     armorCard.append(t);
   } else {
-    armorCard.append(el("p", { class: "hint" }, "No armor owned — buy some in the Buy section below."));
+    armorCard.append(el("p", { class: "hint" }, "No armor owned — buy some with the Buy button at the top of this tab."));
   }
   body.append(armorCard);
 
   // ===== Gear list (chargen + bought in play) — remove buttons
   // (Augments moved to their own tab.)
   // Two backing stores rendered as one table (chargen kit, then bought-in-play),
-  // under the same Class headings the Buy section groups by, so a long kit can
+  // under the same Class headings the Buy dialog groups by, so a long kit can
   // be collapsed down to the category you're looking for. Reordering stays
   // inside an item's own array AND its own heading — moving across either
   // boundary would silently relabel a purchase or its category — so the handles
   // stop at each block's edge.
   // An item whose table row has gone (a deleted homebrew entry) still needs a
-  // home, so it falls back to the same "Gear" heading the Buy section uses.
+  // home, so it falls back to the same "Gear" heading the Buy dialog uses.
   const gearEntries = ownedGear().map(en => {
     const row = DATA.tables.misc_gear.find(x => x.Item === en.ref.name) || {};
     return { en, row, cls: row.Class || "Gear" };
@@ -10378,91 +10760,6 @@ function shGear(body) {
     body.append(vcard);
   }
 
-  // ===== Buy equipment — all purchasing lives here, collapsible by type.
-  // (Augments are bought on the Augments tab.)
-  const gearBuyGroups = Object.entries(
-    DATA.tables.misc_gear.reduce((acc, r) => (((acc[r.Class || "Gear"] ??= []).push(r)), acc), {}))
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([cls, rows]) => ({
-      label: cls,
-      items: rows.map(r => ({ name: r.Item, cost: Math.round((+r.Cost || 0) * gearMult),
-        sub: [(+r.Dependence ? `Dependence ${r.Dependence}` : ""), r.Effect || "", r.Notes || "",
-          (r.Class || "").startsWith("Ammo") ? "per use" : ""]
-          .filter(Boolean).join(" · ") })),
-    }));
-  const buySection = el("div", { class: "card sh-card", id: "gear-buy" },
-    el("h3", {}, "Buy equipment"),
-    el("p", { class: "hint" }, `Everything purchasable from ${RULES.currencyName().toLowerCase()}, grouped by type. `
-      + (mult > 1 ? `Heritage surcharge ×${mult} applies to weapons & armor (not general gear). ` : "")
-      + "Augments are bought on the Augments tab; decks, programs, rigs, drones and vehicles on the Decking and Rigging tabs."));
-  const buyBlock = (title, browser) =>
-    buySection.append(el("div", { class: "sh-unit-add" }, el("b", {}, title), browser));
-  buyBlock("Weapons", categoryBrowser({ id: "sh-buy-weapons", groups: weaponBuyGroups,
-    rerender: renderSheet, afterAdd: () => playChangedRecalc(),
-    onAdd: name => {
-      const r = DATA.tables.weapons.find(x => x.Weapon === name) || {};
-      const bow = RULES.bowRating(r, { min_str: CALC.attributes.Strength.final });
-      const cost = Math.round((bow ? bow.cost : (+r.Cost || 0)) * mult);
-      if (!overdrawOK(name, cost)) return;
-      const entry = { name, smart: Boolean(r["Integrated Smart"]),
-        mods: [], equipped: true, qty: 1 };
-      if (bow) entry.min_str = bow.minStr;
-      CHAR.play.purchases.weapons.push(entry);
-      logCash(`Bought ${name}${bow ? ` (Min STR ${bow.minStr})` : ""}`, -cost,
-        { kind: "weapon", name });
-    } }));
-  buyBlock("Armor", categoryBrowser({ id: "sh-buy-armor", groups: armorBuyGroups,
-    rerender: renderSheet, afterAdd: () => playChangedRecalc(),
-    onAdd: async name => {
-      const r = DATA.tables.armor.find(x => x.Armor === name) || {};
-      const base = +r.Cost || 0;
-      const styleable = r.Style === "Y";
-      // Surcharges ADD onto the base -- base x (multiplier - 1) each, never
-      // compounding -- which is exactly what priceArmor does, so the figure in
-      // the dialog is the figure the engine will price the piece at.
-      const mOf = (table, col, v) => {
-        const row = table.find(x => x[col] === v);
-        return row ? (+row.Multiplier || 1) : 1;
-      };
-      const priceOf = st => Math.round((base
-        + base * (mOf(DATA.tables.armor_materials, "Material", st.material) - 1)
-        + (styleable ? base * (mOf(DATA.tables.armor_styles, "Style", st.style) - 1) : 0)
-        + (styleable ? (st.extras || []).reduce((n, e) =>
-            n + base * (mOf(DATA.tables.armor_extras, "Extra", e) - 1), 0) : 0)) * mult);
-      const opt = (table, col) => [{ value: "", label: "—" },
-        ...table.map(x => ({ value: x[col], label: `${x[col]} ×${x.Multiplier}` }))];
-      const chosen = await buyDialog({
-        title: `Buy ${name}`,
-        sub: `${r.Ballistic}B / ${r.Impact}I · weight ${r.wt}`
-          + (styleable ? " · styleable" : " · fixed design, no Style or Extras"),
-        fields: [
-          { key: "material", label: "Quality", type: "select",
-            options: opt(DATA.tables.armor_materials, "Material"), initial: "" },
-          ...(styleable ? [
-            { key: "style", label: "Style", type: "select",
-              options: opt(DATA.tables.armor_styles, "Style"), initial: "" },
-            { key: "extras", label: "Extras", type: "checks",
-              options: DATA.tables.armor_extras.map(x => ({ value: x.Extra,
-                label: `${x.Extra} ×${x.Multiplier}` })), initial: [] },
-          ] : []),
-        ],
-        priceOf,
-      });
-      if (!chosen) return;
-      const cost = priceOf(chosen);
-      CHAR.play.purchases.armor.push({ name, style: chosen.style || "",
-        material: chosen.material || "", extras: chosen.extras || [], active: true });
-      logCash(`Bought ${name}`
-        + ([chosen.material, chosen.style, ...(chosen.extras || [])].filter(Boolean).length
-            ? ` (${[chosen.material, chosen.style, ...(chosen.extras || [])].filter(Boolean).join(", ")})` : ""),
-        -cost, { kind: "armor", name });
-      await playChangedRecalc();
-    } }));
-  buyBlock("Gear", categoryBrowser({ id: "sh-buy-gear", groups: gearBuyGroups,
-    rerender: renderSheet, afterAdd: () => {},
-    onAdd: name => buyGear(name, gearMult) }));
-  body.append(buySection);
-
   // ===== Activity (cash ledger) — moved to the bottom
   if (play.cash_log.length) {
     const t = el("table", { style: "max-width:560px" });
@@ -10503,10 +10800,162 @@ function shGear(body) {
 const AUG_TYPE_ORDER = ["Headware", "Eyeware", "Earware", "Bodyware", "Bioware",
   "Cyberlimbs", "Right Arm", "Left Arm", "Right Leg", "Left Leg", "Mobi"];
 
+/* ---- the Augments tab's shop.
+ *
+ * One shelf, but the interesting one: what a character may install depends on
+ * what they already have, and inside a basket that includes what is only
+ * PENDING. So the groups are rebuilt from owned-plus-basket every time the
+ * basket changes -- the second cybergun has to know about the first, and a
+ * Cyberarm sitting in the basket has to satisfy the limb requirement of the
+ * hand razors added after it.
+ *
+ * The hard rules (Synthetics take no Bioware, ban lists, one cybergun per
+ * cyberarm) close the Add button, exactly as they do in chargen. The soft ones
+ * -- Body Index over Body, total ZR over ZP -- were confirm() prompts fired one
+ * augment at a time; here they are footer warnings computed over the whole
+ * basket, which is the only place the running total was ever visible. */
+function augmentShopSections() {
+  const mult = CALC.budget.gear_cost_multiplier || 1;
+  const rowOf = name => DATA.tables.augments.find(x => x.Name === name) || {};
+  // augmentEffCost, not the raw row: it carries the Classic-ZR cyberlimb
+  // doubling, so the quote matches what the engine prices. Bioware is grown to
+  // fit and never carries the small-heritage surcharge.
+  const costOf = name => {
+    const r = rowOf(name);
+    return Math.round(RULES.augmentEffCost(r, {})
+      * RULES.surchargeFor(r.Type === "Bioware" ? "bioware" : "cyberware", mult));
+  };
+  // Installed plus basketed, as the entry shape augmentAvailability expects.
+  const withBasket = cart => [...allAugmentsOwned(),
+    ...cart.flatMap(l => Array.from({ length: l.qty }, () => ({ name: l.name, count: 1 })))];
+
+  const augments = {
+    key: "augments", label: "Augments", stackable: true,
+    note: mult > 1
+      ? `Heritage surcharge ×${mult} applies to cybertechtronic augments (Bioware pays face value).`
+      : "",
+    groups: cart => {
+      const owned = withBasket(cart);
+      const avail = augmentAvailability(owned);
+      const syntheticNoBio = CHAR.heritage.type === "Synthetic";
+      // Cyberlimb augments may need a cyberarm/leg first (data "Req Limb").
+      const ARM_T = new Set(["Right Arm", "Left Arm"]), LEG_T = new Set(["Right Leg", "Left Leg"]);
+      const typeOf = a => rowOf(a.name).Type || "";
+      const ownsArm = owned.some(a => ARM_T.has(typeOf(a)));
+      const ownsLeg = owned.some(a => LEG_T.has(typeOf(a)));
+      // Cyberguns are capped at one per cyberarm.
+      const cyberarmCount = owned.filter(a => ARM_T.has(typeOf(a))).length;
+      const cybergunCount = owned.filter(a => RULES.isCybergunAugment(a.name)).length;
+      const limbNeed = r => {
+        switch (RULES.augmentLimbRequirement(r)) {
+          case "Arm": return ownsArm ? null : "a Cyberarm";
+          case "Leg": return ownsLeg ? null : "a Cyberleg";
+          case "Any": return (ownsArm || ownsLeg) ? null : "a Cyberarm or Cyberleg";
+          default:    return null;
+        }
+      };
+      return Object.entries(
+        DATA.tables.augments.reduce((acc, r) => (((acc[r.Type || "Augment"] ??= []).push(r)), acc), {}))
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([type, rows]) => ({
+          label: type,
+          items: rows.map(r => {
+            const bioBanned = syntheticNoBio && r.Type === "Bioware";
+            const banned = bioBanned ? "Synthetics cannot install Bioware" : avail.bannedReason(r.Name);
+            const need = limbNeed(r);
+            const dmg = RULES.augmentMeleeDamage(r, CALC.attributes.Strength.final,
+              CALC.martial_art && CALC.martial_art.mods);
+            const isCybergun = RULES.isCybergunAugment(r.Name);
+            let disabled = !!need;
+            let reason = banned || (need ? `Requires ${need} installed` : "");
+            let note = banned ? "banned" : (need ? `needs ${need}` : "");
+            if (isCybergun && !banned && !need && cybergunCount >= cyberarmCount) {
+              disabled = true;
+              reason = `One cybergun per cyberarm (${cybergunCount}/${cyberarmCount} installed)`;
+              note = "at capacity";
+            }
+            return {
+              name: r.Name,
+              cost: costOf(r.Name),
+              sub: `ZR ${r.ZR || 0} · BI ${r.BI || 0}${dmg !== "" ? " · DMG " + dmg : ""}`
+                + (r.Rarity ? ` · Rarity ${r.Rarity}` : "")
+                + (r.Quality === "Y" ? " · quality tiers available" : "")
+                + (r.Effect ? " · " + r.Effect : ""),
+              banned: !!banned,
+              disabled,
+              reason,
+              note,
+            };
+          }),
+        }));
+    },
+    price: name => ({ cash: costOf(name), zp: 0 }),
+    warnings: cart => {
+      if (!cart.length) return [];
+      const z = CALC.zoetics;
+      let bi = 0, zr = 0;
+      for (const l of cart) {
+        const r = rowOf(l.name);
+        bi += (+r.BI || 0) * l.qty;
+        zr += (+r.ZR || 0) * l.qty;
+      }
+      const out = [];
+      const newBI = z.body_index + bi;
+      if (newBI > CALC.attributes.Body.final)
+        out.push(`Body Index would reach ${newBI} against Body ${CALC.attributes.Body.final}`
+          + " — Too Many Biomods.");
+      const newZR = z.cyber_zr + z.amp_zr + zr;
+      if (newZR > z.zp)
+        out.push(`Total Zoetic Rating would reach ${newZR} against ZP ${z.zp}.`);
+      return out;
+    },
+    commit: line => {
+      const name = line.name;
+      // Stackable augments (Knowledge Skillsoft, Chipjack, Memory) grow one
+      // entry's count so repeated buys read as "× N" rather than a wall of
+      // duplicate rows.
+      const existing = isStackableAugment(name)
+        && CHAR.play.purchases.augments.find(a => a.name === name && !a.alpha);
+      if (existing) existing.count = (existing.count || 1) + 1;
+      else {
+        const entry = { name, count: 1 };
+        // A freshly-bought Skillsoft only starts slotted if a free Chipjack is
+        // still available -- otherwise it lands unslotted rather than silently
+        // busting the cap. Re-read per unit, so the second Skillsoft in one
+        // basket sees the first.
+        if (name.startsWith("Skillsoft")) {
+          const owned = allAugmentsOwned();
+          const jacks = owned.filter(a => a.name === "Chipjack")
+            .reduce((sum, a) => sum + (a.count || 1), 0);
+          const slotted = owned
+            .filter(a => a.name.startsWith("Skillsoft") && a.slotted !== false).length;
+          if (slotted >= jacks) entry.slotted = false;
+        }
+        CHAR.play.purchases.augments.push(entry);
+      }
+      logCash(`Installed ${name}`, -line.cash, { kind: "augment", name });
+    },
+  };
+
+  return [augments];
+}
+
+function openAugmentShop() {
+  openShop({
+    title: "Buy augments",
+    sub: "Chrome and bioware, grouped by type. Anything your body already rules "
+      + "out is closed off; Body Index and Zoetic Rating are totalled for the "
+      + "whole basket at the bottom.",
+    sections: augmentShopSections(),
+  });
+}
+
 function shAugments(body) {
   const play = CHAR.play;
   const mult = CALC.budget.gear_cost_multiplier || 1;
   const z = CALC.zoetics;
+  appendIf(body, shopBar("Buy augments", openAugmentShop,
+    "Chrome and bioware — priced as a basket."));
 
   const augEntries = ownedAugments();
   // Slotted Skillsofts grant their bonus; how many can be slotted at once is
@@ -10702,71 +11151,6 @@ function shAugments(body) {
     byType[type].forEach(en => t.append(augmentRow(en)));
     body.append(el("div", { class: "card sh-card" }, el("h3", {}, type), t));
   }
-
-  // ===== Buy augments — same browser that used to live on the Gear tab.
-  const augAvail = augmentAvailability(ownedAugsAll);
-  const syntheticNoBio = CHAR.heritage.type === "Synthetic";
-  // Cyberlimb augments may need a cyberarm/leg first (data "Req Limb").
-  const ARM_T = new Set(["Right Arm", "Left Arm"]), LEG_T = new Set(["Right Leg", "Left Leg"]);
-  const buyAugType = a => (DATA.tables.augments.find(x => x.Name === a.name) || {}).Type || "";
-  const ownsArm = ownedAugsAll.some(a => ARM_T.has(buyAugType(a)));
-  const ownsLeg = ownedAugsAll.some(a => LEG_T.has(buyAugType(a)));
-  // Cyberguns are capped at one per cyberarm.
-  const cyberarmCount = ownedAugsAll.filter(a => ARM_T.has(buyAugType(a))).length;
-  const cybergunCount = ownedAugsAll.filter(a => RULES.isCybergunAugment(a.name)).length;
-  const buyLimbNeed = r => {
-    switch (RULES.augmentLimbRequirement(r)) {
-      case "Arm": return ownsArm ? null : "a Cyberarm";
-      case "Leg": return ownsLeg ? null : "a Cyberleg";
-      case "Any": return (ownsArm || ownsLeg) ? null : "a Cyberarm or Cyberleg";
-      default:    return null;
-    }
-  };
-  const augBuyGroups = Object.entries(
-    DATA.tables.augments.reduce((acc, r) => (((acc[r.Type || "Augment"] ??= []).push(r)), acc), {}))
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([type, rows]) => ({
-      label: type,
-      items: rows.map(r => {
-        const bioBanned = syntheticNoBio && r.Type === "Bioware";
-        const banned = bioBanned ? "Synthetics cannot install Bioware" : augAvail.bannedReason(r.Name);
-        const need = buyLimbNeed(r);
-        const dmg = RULES.augmentMeleeDamage(r, CALC.attributes.Strength.final, CALC.martial_art && CALC.martial_art.mods);
-        const isCybergun = RULES.isCybergunAugment(r.Name);
-        let disabled = !!need;
-        let reason = banned || (need ? `Requires ${need} installed` : "");
-        let note = banned ? "banned" : (need ? `needs ${need}` : "");
-        if (isCybergun && !banned && !need && cybergunCount >= cyberarmCount) {
-          disabled = true;
-          reason = `One cybergun per cyberarm (${cybergunCount}/${cyberarmCount} installed)`;
-          note = "at capacity";
-        }
-        return {
-          name: r.Name,
-          // augmentEffCost, not the raw row: it carries the Classic-ZR
-          // cyberlimb doubling, so the quote matches what the engine prices.
-          cost: Math.round(RULES.augmentEffCost(r, {})
-            * RULES.surchargeFor(r.Type === "Bioware" ? "bioware" : "cyberware", mult)),
-          sub: `ZR ${r.ZR || 0} · BI ${r.BI || 0}${dmg !== "" ? " · DMG " + dmg : ""}`
-            + (r.Rarity ? ` · Rarity ${r.Rarity}` : "")
-            + (r.Quality === "Y" ? " · quality tiers available" : "")
-            + (r.Effect ? " · " + r.Effect : ""),
-          banned: !!banned,
-          disabled,
-          reason,
-          note,
-        };
-      }),
-    }));
-  body.append(el("div", { class: "card sh-card" },
-    el("h3", {}, "Buy augments"),
-    el("p", { class: "hint" },
-      (mult > 1 ? `Heritage surcharge ×${mult} applies to cybertechtronic augments (Bioware pays face value). ` : "")
-      + "Installed augments appear above, grouped by type."),
-    el("div", { class: "sh-unit-add" },
-      categoryBrowser({ id: "sh-buy-augments", groups: augBuyGroups,
-        rerender: renderSheet, afterAdd: () => {},
-        onAdd: name => buyAugment(name, mult) }))));
 }
 
 /* prepaid lifestyle months: tick up/down, buy months, one active at a time */
@@ -10840,81 +11224,6 @@ function lifestyleCard() {
   return card;
 }
 
-async function buyGear(name, mult) {
-  if (!name) return;
-  const r = DATA.tables.misc_gear.find(x => x.Item === name);
-  if (!r) return;
-  const cost = Math.round(r.Cost * mult);
-  if (CHAR.play.cash < cost
-      && !confirm(`${name} costs ${fmt(cost)} but you only have ${fmt(CHAR.play.cash)}. Overdraw?`))
-    return;
-  const existing = CHAR.play.purchases.gear.find(g => g.name === name);
-  if (existing) existing.qty = (existing.qty || 1) + 1;
-  else CHAR.play.purchases.gear.push({ name, qty: 1 });
-  logCash(`Bought ${name}`, -cost, { kind: "gear", name });
-  await playChangedRecalc();
-}
-async function buyAugment(name, mult) {
-  if (!name) return;
-  const r = DATA.tables.augments.find(x => x.Name === name);
-  if (!r) return;
-  // Synthetics can't install Bioware; block augments that conflict with
-  // something already installed.
-  if (CHAR.heritage.type === "Synthetic" && r.Type === "Bioware") {
-    alert(`Can't install ${name}: Synthetics cannot install Bioware.`); return;
-  }
-  const owned = allAugmentsOwned();
-  const banReason = augmentAvailability(owned).bannedReason(name);
-  if (banReason) { alert(`Can't install ${name}: ${banReason}.`); return; }
-  // Cyberguns are capped at one per installed cyberarm.
-  if (RULES.isCybergunAugment(name)) {
-    const armTypes = new Set(["Right Arm", "Left Arm"]);
-    const arms = owned.filter(a => armTypes.has((DATA.tables.augments.find(x => x.Name === a.name) || {}).Type)).length;
-    const guns = owned.filter(a => RULES.isCybergunAugment(a.name)).length;
-    if (arms === 0) { alert("Can't install a Cybergun: requires a Cyberarm."); return; }
-    if (guns >= arms) { alert(`Can't install another Cybergun: one per cyberarm (${guns}/${arms}).`); return; }
-  }
-  // Bioware is grown to fit and never carries the small-heritage surcharge.
-  // Priced through augmentEffCost so a Classic-ZR cyberlimb is charged at the
-  // doubled rate the chargen budget uses -- reading r.Cost straight made
-  // limbs half price when bought in play.
-  const cost = Math.round(RULES.augmentEffCost(r, {})
-    * RULES.surchargeFor(r.Type === "Bioware" ? "bioware" : "cyberware", mult));
-  const z = CALC.zoetics;
-  const newBI = z.body_index + (+r.BI || 0);
-  const newZR = z.cyber_zr + z.amp_zr + (+r.ZR || 0);
-  if (newBI > CALC.attributes.Body.final
-      && !confirm(`Warning: Body Index would reach ${newBI} (Body ${CALC.attributes.Body.final}) — Too Many Biomods. Install anyway?`))
-    return;
-  if (newZR > z.zp
-      && !confirm(`Warning: total Zoetic Rating would reach ${newZR} (ZP ${z.zp}). Install anyway?`))
-    return;
-  if (CHAR.play.cash < cost
-      && !confirm(`${name} costs ${fmt(cost)} but you only have ${fmt(CHAR.play.cash)}. Overdraw?`))
-    return;
-  // Stackable augments (Knowledge Skillsoft, Chipjack, Memory) grow one entry's
-  // count so repeated buys read as "× N" rather than a wall of duplicate rows.
-  const existing = isStackableAugment(name)
-    && CHAR.play.purchases.augments.find(a => a.name === name && !a.alpha);
-  if (existing) existing.count = (existing.count || 1) + 1;
-  else {
-    const entry = { name, count: 1 };
-    // A freshly-bought Skillsoft only starts slotted if a free Chipjack is
-    // still available — otherwise it lands unslotted rather than silently
-    // busting the cap.
-    if (name.startsWith("Skillsoft")) {
-      const jacks = owned.filter(a => a.name === "Chipjack")
-        .reduce((sum, a) => sum + (a.count || 1), 0);
-      const slotted = owned
-        .filter(a => a.name.startsWith("Skillsoft") && a.slotted !== false).length;
-      if (slotted >= jacks) entry.slotted = false;
-    }
-    CHAR.play.purchases.augments.push(entry);
-  }
-  logCash(`Installed ${name}`, -cost, { kind: "augment", name });
-  await playChangedRecalc();
-}
-
 // Augments whose quantity is meaningful and merged into a single entry.
 function isStackableAugment(name) {
   return name === "Chipjack" || name === "Memory-1 EB" || name === "Knowledge Skillsoft";
@@ -10972,6 +11281,136 @@ function bondSpiritDetail(name, row, force) {
 }
 
 /* ------------------------------------------------ magic tab */
+/* ---- the Magic tab's shop: spells and amp powers.
+ *
+ * Two shelves paid for in two different currencies, which is the reason this
+ * dialog totals cash and ZP separately. A spell is priced per point of Force,
+ * so its Force is picked as it goes into the basket -- that choice IS the
+ * price. An amp power costs ZP and no money at all, and ZP is the one budget
+ * that may never go negative, so a basket that overdraws it cannot be approved.
+ *
+ * Which shelves exist depends on the caster: only Mages and Archmages learn
+ * spells, only Amps and Archmages take powers. A Speaker gets neither, and no
+ * Buy button (their Kismet spending -- bonds, infusions, relationships -- stays
+ * on the tab, where it sits under a Kismet budget rather than a wallet). */
+function magicShopSections() {
+  const type = CALC.magic.type;
+  const play = CHAR.play;
+  const out = [];
+
+  if (type === "Mage" || type === "Archmage") {
+    const spellRow = name => DATA.tables.spells.find(x => x.Name === name) || {};
+    const perForce = name => Math.round(+spellRow(name).Cost || 0);
+    // A spell sold off the tab lands in spells_forgotten and becomes learnable
+    // again, so the "already known" set is the same one the tab renders.
+    const known = () => {
+      const forgotten = new Set(play.spells_forgotten || []);
+      return new Set([...CHAR.magic.spells, ...(play.purchases.spells || [])]
+        .map(s => s.name).filter(n => !forgotten.has(n)));
+    };
+    out.push({
+      key: "spells", label: "Spells",
+      note: "Priced per point of Force — pick the Force you are learning it at.",
+      groups: () => {
+        const have = known();
+        // A Mage learns inside their school; an Archmage learns anywhere.
+        const learnable = DATA.tables.spells.filter(r => !have.has(r.Name)
+          && (type === "Archmage" || !CHAR.magic.school || r.School === CHAR.magic.school));
+        return Object.entries(
+          learnable.reduce((acc, r) => (((acc[r.School || "Spells"] ??= []).push(r)), acc), {}))
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([school, rows]) => ({
+            label: school,
+            items: rows.map(r => ({ name: r.Name,
+              sub: `${fmt(perForce(r.Name))} per Force · Drain ${r.Drain || "—"}`
+                + ` · Resist ${r["Target Resistance"] || "—"} · ${r.Duration || "—"}`
+                + (r.Effect ? " · " + r.Effect : "") })),
+          }));
+      },
+      configure: async (name, spent) => {
+        const chosen = await buyDialog({
+          title: `Learn ${name}`,
+          sub: `${spellRow(name).School} · ${fmt(perForce(name))} per point of Force`,
+          fields: [{ key: "force", label: "Force", type: "select",
+            options: [1, 2, 3, 4, 5, 6].map(f => ({ value: String(f),
+              label: `Force ${f} — ${fmt(perForce(name) * f)}` })), initial: "1" }],
+          priceOf: st => perForce(name) * (parseInt(st.force, 10) || 1),
+          spent, confirmLabel: "Add to basket",
+        });
+        if (!chosen) return null;
+        const force = parseInt(chosen.force, 10) || 1;
+        return { opts: { force }, summary: `Force ${force}` };
+      },
+      price: (name, opts) => ({ cash: perForce(name) * ((opts || {}).force || 1), zp: 0 }),
+      commit: line => {
+        const force = (line.opts || {}).force || 1;
+        play.purchases.spells.push({ name: line.name, force });
+        logCash(`Learned ${line.name} at Force ${force}`, -line.cash,
+          { kind: "spell", name: line.name });
+      },
+    });
+  }
+
+  if (type === "Amp" || type === "Archmage") {
+    // Amps pay half the listed ZP -- show both numbers so the listed cost is
+    // not mistaken for what is actually deducted.
+    const zpMult = type === "Amp" ? 0.5 : 1;
+    const zpOf = name =>
+      (+(DATA.tables.amp_powers.find(x => x.Name === name) || {})["ZP Cost"] || 0) * zpMult;
+    out.push({
+      key: "amp_powers", label: "Amp Powers", stackable: true,
+      note: "Paid in ZP, never cash"
+        + (type === "Amp" ? " — Amps pay half the listed cost." : ".")
+        + " ZP cannot go below zero.",
+      groups: () => [{ label: "Amp Powers", items: DATA.tables.amp_powers.map(r => ({
+        name: r.Name,
+        sub: `${zpOf(r.Name)} ZP`
+          + (zpMult !== 1 ? ` (listed ${+r["ZP Cost"] || 0})` : "")
+          + (r.Effect ? " · " + r.Effect : "") })) }],
+      price: name => ({ cash: 0, zp: zpOf(name) }),
+      warnings: cart => {
+        if (!cart.length) return [];
+        const z = CALC.zoetics;
+        const owned = CHAR.magic.amp_powers.length + (play.purchases.amp_powers || []).length;
+        // Classic ZR has a cliff at the FIRST amp power: from then on the whole
+        // carried ZR total counts against ZP, not just what the powers cost. So
+        // the ZP left afterwards falls by the chrome and gear on your back as
+        // well, and saying so is the only warning a player gets before the
+        // powers come up already offline. (The ZR house rule has no cliff --
+        // cyber ZR is charged to ZP continuously and gear ZR never touches it.)
+        if (owned || RULES.houseRule("zr") === "houserule" || !z.zr_total) return [];
+        return [`This is your first amp power — from here the ZR you carry `
+          + `(${z.zr_total}) counts against ZP too, on top of what the basket spends.`];
+      },
+      commit: line => {
+        play.purchases.amp_powers.push({ name: line.name, target: "", times: 1 });
+        // (#82) Amp powers are paid for in ZP, never cash, so a purchase used to
+        // leave no trace anywhere the player could act on. It gets a ZERO-DELTA
+        // ledger row: undoCashSpend's delta arithmetic is a no-op on 0, so the
+        // ledger stays balanced while the row gives the purchase an Undo. The
+        // ZP refund needs no arithmetic of its own -- amp_zp_spent is DERIVED
+        // from this list by the engine, so dropping the entry returns precisely
+        // what was charged, half-cost Amp discount and all. `zp` is for the
+        // label only.
+        logCash(`Learned amp power ${line.name} (${line.zp} ZP)`, 0,
+          { kind: "amp_power", name: line.name, zp: line.zp });
+      },
+    });
+  }
+
+  return out;
+}
+
+function openMagicShop() {
+  const sections = magicShopSections();
+  openShop({
+    title: sections.length > 1 ? "Buy spells & amp powers"
+      : sections[0].key === "spells" ? "Learn a spell" : "Buy amp powers",
+    sub: "Nothing is learned until you approve the basket.",
+    sections,
+  });
+}
+
 function shMagic(body) {
   const type = CALC.magic.type;
   const play = CHAR.play;
@@ -10979,6 +11418,13 @@ function shMagic(body) {
   // the spell ✕ is hidden there — same flag every other tab's destructive
   // controls are gated on (#82).
   const ro = !!(activeTabObj() && activeTabObj().readonly);
+
+  // Spells cost cash, amp powers cost ZP, and a Speaker buys neither with
+  // either — so the Buy button appears only for the traditions that have
+  // something to sell.
+  if (magicShopSections().length)
+    appendIf(body, shopBar("Buy", openMagicShop,
+      "Spells and amp powers — priced as a basket."));
 
   // House rule: gear/weapon ZR is a spellcasting dice penalty (−1d per full
   // point), not a ZP cost. Surface the current penalty at the top of the tab.
@@ -11082,35 +11528,8 @@ function shMagic(body) {
         summonPicker(sp.name, force),
         descriptionExpander(r.Description, `spells:${sp.name}`)));
     }
-    // learn a new spell with cash: listed Cost × starting Force
-    if (type === "Mage" || type === "Archmage") {
-      const known = new Set(allSpells.map(s => s.name));
-      const learnable = DATA.tables.spells.filter(r =>
-        !known.has(r.Name) && (type === "Archmage" || !CHAR.magic.school || r.School === CHAR.magic.school));
-      if (learnable.length) {
-        const shortEff = s => (s && s.length > 90) ? s.slice(0, 89) + "…" : (s || "");
-        const spellSel = el("select", {},
-          el("option", { value: "" }, "Learn new spell…"),
-          ...learnable.map(r => el("option", { value: r.Name, title: r.Effect || "" },
-            `${r.Name} (${r.School}) — ${fmt(Math.round(+r.Cost || 0))}/Force`
-            + (r.Effect ? ` — ${shortEff(r.Effect)}` : ""))));
-        const forceSel = el("select", {},
-          ...[1, 2, 3, 4, 5, 6].map(f => el("option", { value: String(f) }, `Force ${f}`)));
-        wrap.append(el("div", { class: "add-row" }, spellSel, forceSel,
-          el("button", { class: "btn-add", onclick: async () => {
-            const name = spellSel.value, force = parseInt(forceSel.value, 10);
-            if (!name) return;
-            const r = DATA.tables.spells.find(x => x.Name === name);
-            const cost = Math.round((+r.Cost || 0) * force);
-            if (play.cash < cost
-                && !confirm(`${name} at Force ${force} costs ${fmt(cost)} but you have ${fmt(play.cash)}. Overdraw?`))
-              return;
-            play.purchases.spells.push({ name, force });
-            logCash(`Learned ${name} at Force ${force}`, -cost, { kind: "spell", name });
-            await playChangedRecalc();
-          } }, "Buy")));
-      }
-    }
+    // New spells are learned in the tab's Buy dialog, where the Force that
+    // prices them is picked alongside everything else in the basket.
     body.append(wrap);
   }
 
@@ -11168,42 +11587,11 @@ function shMagic(body) {
         r.Effect ? el("div", { class: "sub" }, r.Effect) : null,
         descriptionExpander(r.Description, `amp_powers:${p.name}`)));
     }
-    if (type === "Amp" || type === "Archmage") {
-      const zpMult = type === "Amp" ? 0.5 : 1;
-      const powerSel = el("select", {}, el("option", { value: "" }, "Buy amp power…"),
-        ...DATA.tables.amp_powers.map(r =>
-          el("option", { value: r.Name }, `${r.Name} — ${(+r["ZP Cost"] || 0) * zpMult} ZP`)));
-      wrap.append(el("div", { class: "add-row" }, powerSel,
-        el("button", { class: "btn-add", onclick: async () => {
-          const name = powerSel.value;
-          if (!name) return;
-          const r = DATA.tables.amp_powers.find(x => x.Name === name);
-          const zpCost = (+r["ZP Cost"] || 0) * zpMult;
-          if (zpCost > CALC.zoetics.zp_remaining) {   // ZP can never go negative on a purchase
-            alert(`${name} needs ${zpCost} ZP but only ${CALC.zoetics.zp_remaining} remains. ZP cannot go negative.`);
-            return;
-          }
-          play.purchases.amp_powers.push({ name, target: "", times: 1 });
-          // (#82) Amp powers are paid for in ZP, never cash, so buying one used
-          // to leave no trace anywhere the player could act on — and there was
-          // no ✕ on the row either, so a misclicked power was permanent.
-          //
-          // It gets a ZERO-DELTA ledger row: the Activity list already carries
-          // changes that moved no money (unpaid lifestyle months, write-offs),
-          // and undoCashSpend's `delta` arithmetic is a no-op on 0, so the
-          // ledger stays exactly balanced while the row gives the purchase an
-          // Undo button. The ZP refund needs no arithmetic of its own —
-          // CALC.zoetics.amp_zp_spent is DERIVED from this list by the engine,
-          // so dropping the entry returns precisely what was charged, half-cost
-          // Amp discount and all. `zp` rides along for the label only.
-          logCash(`Learned amp power ${name} (${zpCost} ZP)`, 0,
-            { kind: "amp_power", name, zp: zpCost });
-          await playChangedRecalc();
-        } }, "Buy (ZP)")));
+    if (type === "Amp" || type === "Archmage")
       wrap.append(el("p", { class: "hint" },
-        "New powers draw on your remaining ZP and cannot take it below 0"
+        "New powers are bought in the tab's Buy dialog. They draw on your "
+        + "remaining ZP and cannot take it below 0"
         + (type === "Amp" ? " (Amps pay half the listed ZP)." : ".")));
-    }
     body.append(wrap);
   }
 
@@ -11578,6 +11966,76 @@ function runProgram(name, row) {
 }
 
 /* ------------------------------------------------ decking tab */
+/* ---- the Decking tab's shop: cyberdecks and programs.
+ *
+ * Decks, deck mods, programs and hacking levels are not physical kit, so the
+ * small-heritage surcharge never applies (surchargeFor("deck") is 1) and this
+ * still asks for it rather than hard-coding 1 -- a house rule that changed that
+ * should reach the shop the same way it reaches the tab.
+ *
+ * A deck is a chassis you can own several of; a program is a licence you either
+ * hold or do not, so owned programs drop out of the list entirely and the same
+ * one cannot be basketed twice. */
+function deckingShopSections() {
+  const mult = RULES.surchargeFor("deck", CALC.budget.gear_cost_multiplier || 1);
+  const deckCost = name =>
+    Math.round((+(DATA.tables.decks.find(x => x.Name === name) || {}).Cost || 0) * mult);
+  const progCost = name =>
+    Math.round((+(DATA.tables.programs.find(x => x.Name === name) || {}).Cost || 0) * mult);
+
+  const decks = {
+    key: "decks", label: "Cyberdecks", stackable: true,
+    groups: () => [{ label: "Cyberdecks", items: DATA.tables.decks.map(x => ({
+      name: x.Name, cost: deckCost(x.Name),
+      sub: `MCP ${x.MCP} · Threads ${x.Threads} · Core ${x.Core} · I/O ${x.IO}` })) }],
+    price: name => ({ cash: deckCost(name), zp: 0 }),
+    commit: line => {
+      CHAR.play.purchases.decks.push({ name: line.name, mods: [] });
+      logCash(`Bought ${line.name}`, -line.cash, { kind: "deck", name: line.name });
+    },
+  };
+
+  const programs = {
+    key: "programs", label: "Programs",
+    note: "Grouped by attack class. A program you already hold does not appear.",
+    groups: () => {
+      const owned = new Set(allPrograms());
+      const byType = {};
+      DATA.tables.programs.forEach(pr => (byType[pr.Attack || "Program"] ??= []).push(pr));
+      // Hacking leads the list -- it's what makes a deck run, not a tool run on it.
+      return Object.entries(byType)
+        .sort(([a], [b]) => (a === RULES.HACKING_PROGRAM_CATEGORY ? -1 : 0)
+                          - (b === RULES.HACKING_PROGRAM_CATEGORY ? -1 : 0)
+                          || a.localeCompare(b))
+        .map(([label, rows]) => ({
+          label,
+          items: rows.map(pr => ({
+            name: pr.Name, cost: progCost(pr.Name),
+            sub: `I/O ${pr["I/O"] || "—"} · Node Control ${pr["Node Control"] || "N"}`
+              + (RULES.programSkill(pr.Name) ? ` · Skill: ${RULES.programSkill(pr.Name)}` : "")
+              + (pr.Effect ? " · " + pr.Effect : ""),
+            hidden: owned.has(pr.Name),
+          })),
+        }));
+    },
+    price: name => ({ cash: progCost(name), zp: 0 }),
+    commit: line => {
+      CHAR.play.purchases.programs.push(line.name);
+      logCash(`Bought program ${line.name}`, -line.cash, { kind: "program", name: line.name });
+    },
+  };
+
+  return [decks, programs];
+}
+
+function openDeckingShop() {
+  openShop({
+    title: "Buy decks & programs",
+    sub: "Nothing is paid for until you approve the basket.",
+    sections: deckingShopSections(),
+  });
+}
+
 function shDecking(body) {
   const dk = CHAR.play.decking;
   const deckEntries = ownedDecks();
@@ -11592,9 +12050,8 @@ function shDecking(body) {
   // Decks, deck mods, programs and hacking levels are not physical kit — the
   // small-heritage surcharge never applies (surchargeFor("deck") → 1).
   const mult = RULES.surchargeFor("deck", CALC.budget.gear_cost_multiplier || 1);
-  // Buy browsers collect here and render at the bottom of the tab.
-  const deckBuySection = el("div", { class: "card sh-card", id: "deck-buy" },
-    el("h3", {}, "Buy decks & programs"));
+  appendIf(body, shopBar("Buy decks & programs", openDeckingShop,
+    "Cyberdecks and programs — priced as a basket."));
   const deckCard = el("div", { class: "card sh-card" }, el("h3", {}, "Cyberdecks"));
   deckEntries.forEach((en, di) => {
     const { ref: d, arr: deckArr, i: deckIndex, inPlay, category } = en;
@@ -11668,21 +12125,6 @@ function shDecking(body) {
     + `dice to spend. Jacking out unloaded the threads, so ${dk.active_deck || "a deck"} `
     + "starts empty when you jack back in."));
 
-  // buy a new cyberdeck in play
-  const deckGroups = [{ label: "Cyberdecks", items: DATA.tables.decks.map(x => ({
-    name: x.Name, cost: Math.round((+x.Cost || 0) * mult),
-    sub: `MCP ${x.MCP} · Threads ${x.Threads} · Core ${x.Core} · I/O ${x.IO}` })) }];
-  deckBuySection.append(el("div", { class: "sh-unit-add" }, el("b", {}, "Buy cyberdeck"),
-    categoryBrowser({ id: "buy-decks", groups: deckGroups,
-      rerender: renderSheet, afterAdd: () => playChangedRecalc(),
-      onAdd: name => {
-        const row = DATA.tables.decks.find(x => x.Name === name) || {};
-        const cost = Math.round((+row.Cost || 0) * mult);
-        if (CHAR.play.cash < cost
-            && !confirm(`${name} costs ${fmt(cost)} but you have ${fmt(CHAR.play.cash)}. Overdraw?`)) return;
-        CHAR.play.purchases.decks.push({ name, mods: [] });
-        logCash(`Bought ${name}`, -cost, { kind: "deck", name });
-      } })));
   body.append(deckCard);
 
   // --- hacking program: the deck's operating system, slotted per deck. Costs
@@ -11854,39 +12296,7 @@ function shDecking(body) {
   });
   if (!programEntries.length) progCard.append(el("p", { class: "hint" }, "No programs owned."));
 
-  // buy new programs in play (grouped by Attack class, owned ones drop out)
-  const ownedProg = new Set(allPrograms());
-  const progByType = {};
-  DATA.tables.programs.forEach(pr =>
-    (progByType[pr.Attack || "Program"] ??= []).push(pr));
-  // Hacking leads the list — it's what makes a deck run, not a tool run on it.
-  const progGroups = Object.entries(progByType)
-    .sort(([a], [b]) => (a === RULES.HACKING_PROGRAM_CATEGORY ? -1 : 0)
-                      - (b === RULES.HACKING_PROGRAM_CATEGORY ? -1 : 0)
-                      || a.localeCompare(b))
-    .map(([label, rows]) => ({
-      label,
-      items: rows.map(pr => ({
-        name: pr.Name, cost: Math.round((+pr.Cost || 0) * mult),
-        sub: `I/O ${pr["I/O"] || "—"} · Node Control ${pr["Node Control"] || "N"}`
-          + (RULES.programSkill(pr.Name) ? ` · Skill: ${RULES.programSkill(pr.Name)}` : "")
-          + (pr.Effect ? " · " + pr.Effect : ""),
-        hidden: ownedProg.has(pr.Name),
-      })),
-    }));
-  deckBuySection.append(el("div", { class: "sh-unit-add" }, el("b", {}, "Buy program"),
-    categoryBrowser({ id: "buy-programs", groups: progGroups,
-      rerender: renderSheet, afterAdd: () => playChangedRecalc(),
-      onAdd: name => {
-        const pr = DATA.tables.programs.find(x => x.Name === name) || {};
-        const cost = Math.round((+pr.Cost || 0) * mult);
-        if (CHAR.play.cash < cost
-            && !confirm(`${name} costs ${fmt(cost)} but you have ${fmt(CHAR.play.cash)}. Overdraw?`)) return;
-        CHAR.play.purchases.programs.push(name);
-        logCash(`Bought program ${name}`, -cost, { kind: "program", name });
-      } })));
   body.append(progCard);
-  body.append(deckBuySection);
 }
 
 /* Condition on an owned drone or vehicle, with the money attached (#73).
@@ -12658,6 +13068,86 @@ function unitLoadoutTable(entries, mode = "inventory") {
   return t;
 }
 
+/* ---- the Rigging tab's shop: VCRs, drones and vehicles.
+ *
+ * Buying a chassis and outfitting one are deliberately two different doors. A
+ * fresh drone is picked here, condition and all; everything that happens to it
+ * afterwards -- guns, mods, rename, repairs -- stays in the Modify dialog on
+ * its own card, which is where you already are when you want it.
+ *
+ * Only vehicles carry the small-heritage surcharge; VCRs and drones pay face
+ * value (unitBaseMult knows which is which). Condition SCALES the base chassis
+ * price rather than adding a surcharge the way armor Quality does, matching
+ * priceFittedVehicle. */
+function riggingShopSections() {
+  const base = CALC.budget.gear_cost_multiplier || 1;
+  const rigMult = RULES.surchargeFor("rig", base);
+  const rigCost = name =>
+    Math.round((+(DATA.tables.rigs.find(x => x["Rig Type"] === name) || {}).Cost || 0) * rigMult);
+
+  const rigs = {
+    key: "rigs", label: "VCRs", stackable: true,
+    note: "A rig's cores are how many units you can pilot at once; its links are how many it can carry.",
+    groups: () => [{ label: "Vehicle Control Rigs", items: DATA.tables.rigs.map(x => ({
+      name: x["Rig Type"], cost: rigCost(x["Rig Type"]),
+      sub: `+${x["Bonus Dice"]}d · Links ${x.Links} · Cores ${x.Cores}` })) }],
+    price: name => ({ cash: rigCost(name), zp: 0 }),
+    commit: line => {
+      CHAR.play.purchases.rigs.push({ name: line.name, mods: [] });
+      logCash(`Bought ${line.name}`, -line.cash, { kind: "rig", name: line.name });
+    },
+  };
+
+  const unitSection = cfg => {
+    const mult = unitBaseMult(cfg);
+    const rowOf = name => DATA.tables[cfg.table].find(x => x[cfg.nameKey] === name) || {};
+    const priceWith = (name, st) => Math.round((+rowOf(name).Cost || 0)
+      * (RULES.VEHICLE_CONDITION_FACTORS[(st || {}).condition] ?? 1) * mult);
+    return {
+      key: cfg.table, label: cfg.title, stackable: true,
+      note: `Condition scales the price. Guns and mods are fitted afterwards, in each ${cfg.title.toLowerCase().replace(/s$/, "")}'s Modify dialog.`,
+      groups: () => [{ label: cfg.title, items: DATA.tables[cfg.table].map(x => ({
+        name: x[cfg.nameKey], cost: Math.round((+x.Cost || 0) * mult),
+        sub: `Body ${x.Body} · Move ${x.Move} · Handling ${x.Handling}` })) }],
+      configure: async (name, spent) => {
+        const row = rowOf(name);
+        const chosen = await buyDialog({
+          title: `Buy ${name}`,
+          sub: `Body ${row.Body} · Move ${row.Move} · Handling ${row.Handling}`,
+          fields: [{ key: "condition", label: "Condition", type: "select",
+            options: RULES.VEHICLE_CONDITIONS.map(c => ({ value: c,
+              label: `${c} (×${RULES.VEHICLE_CONDITION_FACTORS[c]})`
+                + (RULES.VEHICLE_CONDITION_EFFECTS[c] ? ` — ${RULES.VEHICLE_CONDITION_EFFECTS[c]}` : "") })),
+            initial: "Pristine" }],
+          priceOf: st => priceWith(name, st),
+          spent, confirmLabel: "Add to basket",
+        });
+        if (!chosen) return null;
+        return { opts: { condition: chosen.condition }, summary: chosen.condition };
+      },
+      price: (name, opts) => ({ cash: priceWith(name, opts), zp: 0 }),
+      commit: line => {
+        const condition = (line.opts || {}).condition || "Pristine";
+        CHAR.play.purchases[cfg.table].push({ name: line.name, condition,
+          weapons: [], mods: [] });
+        logCash(`Bought ${line.name} (${condition})`, -line.cash,
+          { kind: cfg.table.replace(/s$/, ""), name: line.name });
+      },
+    };
+  };
+
+  return [rigs, unitSection(RIG_UNIT_CFG.drones), unitSection(RIG_UNIT_CFG.vehicles)];
+}
+
+function openRiggingShop() {
+  openShop({
+    title: "Buy rigs, drones & vehicles",
+    sub: "New chassis only — owned units are outfitted from their own Modify "
+      + "dialog. Nothing is paid for until you approve the basket.",
+    sections: riggingShopSections(),
+  });
+}
+
 function shRigging(body) {
   const rg = rigFlags();
   // The small-heritage surcharge applies to vehicles (below, via unitBlock) but
@@ -12672,10 +13162,8 @@ function shRigging(body) {
   const activeRig = rigs.find(r => r.name === rg.active_rig);
   const linkLimit = activeRig ? RULES.rigStats(activeRig, DATA.tables).links : 0;
   const linkedCount = () => Object.values(rg.linked).filter(Boolean).length;
-  // All "buy new unit" browsers collect here and render at the bottom.
-  const rigBuySection = el("div", { class: "card sh-card", id: "rig-buy" },
-    el("h3", {}, "Buy rigs, drones & vehicles"),
-    el("p", { class: "hint" }, "New units are purchased here; configure owned ones above."));
+  appendIf(body, shopBar("Buy rigs, drones & vehicles", openRiggingShop,
+    "New chassis — owned units are outfitted from Modify."));
 
   // --- VCRs
   const rigCard = el("div", { class: "card sh-card" }, el("h3", {}, "Vehicle Control Rigs"));
@@ -12735,21 +13223,6 @@ function shRigging(body) {
       `Active VCR links ${linkedCount()} / ${linkLimit} units.`));
   else
     rigCard.append(el("p", { class: "hint" }, "No rigs owned — drones are piloted unlinked."));
-  // buy a new VCR in play
-  const rigGroups = [{ label: "Vehicle Control Rigs", items: DATA.tables.rigs.map(x => ({
-    name: x["Rig Type"], cost: Math.round((+x.Cost || 0) * rigMult),
-    sub: `+${x["Bonus Dice"]}d · Links ${x.Links} · Cores ${x.Cores}` })) }];
-  rigBuySection.append(el("div", { class: "sh-unit-add" }, el("b", {}, "Buy VCR"),
-    categoryBrowser({ id: "buy-rigs", groups: rigGroups,
-      rerender: renderSheet, afterAdd: () => playChangedRecalc(),
-      onAdd: name => {
-        const row = DATA.tables.rigs.find(x => x["Rig Type"] === name) || {};
-        const cost = Math.round((+row.Cost || 0) * rigMult);
-        if (CHAR.play.cash < cost
-            && !confirm(`${name} costs ${fmt(cost)} but you have ${fmt(CHAR.play.cash)}. Overdraw?`)) return;
-        CHAR.play.purchases.rigs.push({ name, mods: [] });
-        logCash(`Bought ${name}`, -cost, { kind: "rig", name });
-      } })));
   // On-station summary: everything riding a VCR link OR running Active.
   // Link keys index the joined list, the same one unitStateKey uses.
   //
@@ -12775,7 +13248,8 @@ function shRigging(body) {
               + `${cores} core${cores === 1 ? "" : "s"}. `
               + "Each seat's stats and guns move to the Overview, above your own weapons"
               + (hotseatBonusDice() ? `, and its rolls gain +${hotseatBonusDice()}d.` : ".")
-            : "No VCR owned, so nothing can be hotseated — buy a rig below. "
+            : "No VCR owned, so nothing can be hotseated — buy a rig from the "
+              + "Buy button at the top of this tab. "
               + "A rig's cores are how many units you can pilot at once.")),
       unitLoadoutTable(activeUnits, "station")));
   }
@@ -12984,41 +13458,9 @@ function shRigging(body) {
       card.append(el("p", { class: "hint" }, `No ${cfg.title.toLowerCase()} owned.`));
     body.append(card);
 
-    // buy a new unit — rendered in the bottom Buy section
-    const buyGroups = [{ label: cfg.title, items: DATA.tables[cfg.table].map(x => ({
-      name: x[cfg.nameKey], cost: Math.round((+x.Cost || 0) * baseMult),
-      sub: `Body ${x.Body} · Move ${x.Move} · Handling ${x.Handling}` })) }];
-    rigBuySection.append(el("div", { class: "sh-unit-add" }, el("b", {}, `Buy new ${cfg.title.toLowerCase().replace(/s$/, "")}`),
-      categoryBrowser({ id: `buy-${cfg.table}`, groups: buyGroups,
-        rerender: renderSheet, afterAdd: () => playChangedRecalc(),
-        onAdd: async name => {
-          const row = DATA.tables[cfg.table].find(x => x[cfg.nameKey] === name) || {};
-          const base = +row.Cost || 0;
-          // Condition SCALES the base chassis price (it does not add a
-          // surcharge the way armor Quality does), matching priceFittedVehicle.
-          const priceOf = st => Math.round(
-            base * (RULES.VEHICLE_CONDITION_FACTORS[st.condition] ?? 1) * baseMult);
-          const chosen = await buyDialog({
-            title: `Buy ${name}`,
-            sub: `Body ${row.Body} · Move ${row.Move} · Handling ${row.Handling}`,
-            fields: [{ key: "condition", label: "Condition", type: "select",
-              options: RULES.VEHICLE_CONDITIONS.map(c => ({ value: c,
-                label: `${c} (×${RULES.VEHICLE_CONDITION_FACTORS[c]})`
-                  + (RULES.VEHICLE_CONDITION_EFFECTS[c] ? ` — ${RULES.VEHICLE_CONDITION_EFFECTS[c]}` : "") })),
-              initial: "Pristine" }],
-            priceOf,
-          });
-          if (!chosen) return;
-          CHAR.play.purchases[cfg.table].push({ name, condition: chosen.condition,
-            weapons: [], mods: [] });
-          logCash(`Bought ${name} (${chosen.condition})`, -priceOf(chosen),
-            { kind: cfg.table.replace(/s$/, ""), name });
-          await playChangedRecalc();
-        } })));
   };
   unitBlock(RIG_UNIT_CFG.drones, ownedDrones(), CALC.drones);
   unitBlock(RIG_UNIT_CFG.vehicles, ownedVehicles(), CALC.vehicles);
-  body.append(rigBuySection);
 }
 
 /* ------------------------------------------------ actions tab */

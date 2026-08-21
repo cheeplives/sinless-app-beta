@@ -203,7 +203,9 @@ assuming a clean slate.
 - **Steps:**
   1. Reload the fixture.
   2. Click the **Gear** tab.
-  3. Expand a weapon category and click **Buy** on any weapon.
+  3. Click **Buy equipment** at the top of the tab, expand a weapon category,
+     click **Add** on any weapon, then approve the basket with the footer's
+     **Buy 1 item**.
 - **Check:**
 
       (() => ({ chargenWeapons: CHAR.weapons.map(w => w.name), playWeapons: CHAR.play.purchases.weapons.map(w => w.name), allWeapons: allWeapons().map(w => w.name), calcWeapons: (CALC.weapons || []).map(w => w.Weapon) }))()
@@ -2150,11 +2152,15 @@ character (re-run that section's block first if starting fresh):
 
 **Expected:**
 
-      { "cardOrder": ["Active drones & vehicles", "Vehicle Control Rigs", "Drones", "Vehicles", "Buy rigs, drones & vehicles"],
-        "heightPx": 3105 }
+      { "cardOrder": ["Active drones & vehicles", "Vehicle Control Rigs", "Drones 5", "Vehicles"],
+        "heightPx": 2276 }
 
-**Note:** 5538px → 3105px (3.4 screens), and the rollup — the one card touched
-mid-scene — now renders first instead of below a card consulted once a
+**Note:** 5538px → 3105px (3.4 screens) at the #87 restructure, and 2276px as
+observed at a 910px-wide viewport once two later changes landed on top: the
+two-up card layout (which also put the unit count in the Drones heading), and
+the move of the tab's "Buy rigs, drones & vehicles" card into a Buy dialog
+opened from a button at the top of the tab. The rollup — the one card touched
+mid-scene — still renders first instead of below a card consulted once a
 session.
 
 ### P06-069: The garage is a garage — outfitting moved to Modify, firing did not move at all

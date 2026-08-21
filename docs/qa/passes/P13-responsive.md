@@ -398,10 +398,13 @@ then reload so the `pointer:coarse` gate re-runs):
       (async () => { sheetTab = "rigging"; renderSheet(); await new Promise(r => setTimeout(r, 60)); return { viewportWidth: window.innerWidth, heightPx: document.getElementById("sh-tabpanel").scrollHeight, cardOrder: [...document.querySelectorAll("#sh-tabpanel .sh-card h3")].map(x => x.textContent) }; })()
 
 - **Expected:** `heightPx` under **3400** at an ~877px-wide viewport (observed
-  3105 immediately after the #87 restructure — leaving headroom rather than
-  pinning the exact figure, since minor content changes shift it a little);
-  `cardOrder` is
-  `["Active drones & vehicles", "Vehicle Control Rigs", "Drones", "Vehicles", "Buy rigs, drones & vehicles"]`.
+  3105 immediately after the #87 restructure, **2276** once the two-up card
+  layout landed and the tab's Buy card moved into the Buy dialog — leaving
+  headroom rather than pinning the exact figure, since minor content changes
+  shift it a little); `cardOrder` is
+  `["Active drones & vehicles", "Vehicle Control Rigs", "Drones 5", "Vehicles"]`
+  — the count rides in the Drones heading, and buying is a button at the top of
+  the tab rather than a card at the bottom of it.
 - **Note:** No case anywhere in this pass measured a TAB's height before this
   one — only individual controls and horizontal overflow — which is exactly
   how the same fixture reached **5538px** (6.1 screens at an 877px-wide pane)

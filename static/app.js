@@ -2009,7 +2009,11 @@ function sortToggle(id, redraw = renderPanel) {
     el("span", { class: "sub" }, "Sort"), btn("added", "Added"), btn("az", "A–Z"));
 }
 
-function categoryBrowser({ id, groups, onAdd, rerender, afterAdd }) {
+/* `forceOpen` flips the default the other way: groups start expanded and stay
+ * that way unless the reader collapses one. It exists for a filtered list --
+ * the Buy dialog's search results are already the answer, and making the reader
+ * open five headings to see three matches would hide it again. */
+function categoryBrowser({ id, groups, onAdd, rerender, afterAdd, forceOpen }) {
   const redraw = rerender || renderPanel;      // toggling open/closed
   const postAdd = afterAdd || refresh;         // after an item is added
   const state = (browserOpenState[id] ??= {});
@@ -2018,7 +2022,7 @@ function categoryBrowser({ id, groups, onAdd, rerender, afterAdd }) {
     // Items flagged `hidden` (e.g. an owned augment or a lesser rank) drop out.
     const visible = g.items.filter(it => !it.hidden);
     if (!visible.length) continue;
-    const open = !!state[g.label];
+    const open = forceOpen ? state[g.label] !== false : !!state[g.label];
     wrap.append(el("div", {
       class: "cat-head", role: "button", tabindex: "0",
       onclick: () => { state[g.label] = !open; redraw(); },
