@@ -13433,7 +13433,12 @@ function unitLoadoutTable(entries, mode = "inventory") {
         station ? stateChips : null,
         station ? shHotseatToggle(key, u) : shCarriedToggle(u)),
       el("td", { class: "sub" }, stats,
-        dmgLine ? el("div", { class: "sh-unit-dmg" }, dmgLine) : null),
+        dmgLine ? el("div", { class: "sh-unit-dmg" }, dmgLine) : null,
+        // Maneuver sits with the Move/Handling stats it rolls off, and only on
+        // station -- the Gear tab shares this table as an inventory list, where
+        // a drone in a box has nothing to fly, the same reason the Fire buttons
+        // above are station-gated (#89).
+        station ? el("div", { style: "margin:4px 0" }, maneuverButton(table, u)) : null),
       el("td", {}, attachCell)));
   });
   return t;

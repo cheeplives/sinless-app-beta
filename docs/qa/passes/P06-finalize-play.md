@@ -2436,7 +2436,7 @@ session.
 - **Steps:** none.
 - **Check:**
 
-      (async () => { window.alert = () => {}; const c = RULES.defaultCharacter(); c.name = "QA Maneuver"; c.priorities = { heritage: 1, magic: 0, attributes: 5, skills: 4, resources: 0 }; c.heritage.type = "Human"; c.skills = { "Fly": 4, "Drive": 2 }; c.drones = [{ name: "Roto-Drone", weapons: [], mods: [] }]; c.vehicles = [{ name: "Speedboat", weapons: [], mods: [] }]; c.rigs = [{ name: "Basic VCR", mods: [] }]; c.finalized = true; c.lifestyles = [{ name: "Squatter", months: 1 }]; await openCharacter(c); sheetTab = "rigging"; renderSheet(); const droneSpec1 = maneuverRollSpec("drones", CHAR.play.kit.drones[0]); const boatSpec1 = maneuverRollSpec("vehicles", CHAR.play.kit.vehicles[0]); const droneNoHotseat = { skill: droneSpec1.skill, dice: droneSpec1.dice, penalty: droneSpec1.penalty, bits: droneSpec1.penaltyBits }; const boatNoHotseat = { skill: boatSpec1.skill, dice: boatSpec1.dice, penalty: boatSpec1.penalty, bits: boatSpec1.penaltyBits }; const rg = rigFlags(); rg.active["drones:0"] = true; rg.hotseat["drones:0"] = true; playChanged(); const droneHotseat = maneuverRollSpec("drones", CHAR.play.kit.drones[0]).penalty; const removedRig = CHAR.play.kit.rigs.pop(); playChanged(); const droneNoVcrAtAll = maneuverRollSpec("drones", CHAR.play.kit.drones[0]); CHAR.play.kit.rigs.push(removedRig); playChanged(); sheetTab = "rigging"; renderSheet(); const riggingTabButtonCount = [...document.querySelectorAll("button")].filter(b => /^Maneuver \(/.test(b.textContent)).length; sheetTab = "overview"; renderSheet(); const overviewBtn = () => [...document.querySelectorAll("button")].find(b => /^Maneuver \(/.test(b.textContent)); const overviewButtonTitle = overviewBtn().title; const focusBefore = poolState("Focus").remaining; overviewBtn().click(); document.querySelector(".sh-roller-roll").click(); const focusSpent = focusBefore - poolState("Focus").remaining; rollerState.open = false; const tab = activeTabObj(); tab.readonly = true; renderSheet(); const readonlyHasButton = !![...document.querySelectorAll("button")].find(b => /^Maneuver \(/.test(b.textContent)); tab.readonly = false; await closeTabByName("QA Maneuver"); return { droneNoHotseat, boatNoHotseat, droneHotseat, droneNoVcrAtAll: { penalty: droneNoVcrAtAll.penalty, bits: droneNoVcrAtAll.penaltyBits }, riggingTabButtonCount, overviewButtonTitle, focusSpent, readonlyHasButton }; })()
+      (async () => { window.alert = () => {}; const c = RULES.defaultCharacter(); c.name = "QA Maneuver"; c.priorities = { heritage: 1, magic: 0, attributes: 5, skills: 4, resources: 0 }; c.heritage.type = "Human"; c.skills = { "Fly": 4, "Drive": 2 }; c.drones = [{ name: "Roto-Drone", weapons: [], mods: [] }]; c.vehicles = [{ name: "Speedboat", weapons: [], mods: [] }]; c.rigs = [{ name: "Basic VCR", mods: [] }]; c.finalized = true; c.lifestyles = [{ name: "Squatter", months: 1 }]; await openCharacter(c); sheetTab = "rigging"; renderSheet(); const droneSpec1 = maneuverRollSpec("drones", CHAR.play.kit.drones[0]); const boatSpec1 = maneuverRollSpec("vehicles", CHAR.play.kit.vehicles[0]); const droneNoHotseat = { skill: droneSpec1.skill, dice: droneSpec1.dice, penalty: droneSpec1.penalty, bits: droneSpec1.penaltyBits }; const boatNoHotseat = { skill: boatSpec1.skill, dice: boatSpec1.dice, penalty: boatSpec1.penalty, bits: boatSpec1.penaltyBits }; const rg = rigFlags(); rg.active["drones:0"] = true; rg.hotseat["drones:0"] = true; playChanged(); const droneHotseat = maneuverRollSpec("drones", CHAR.play.kit.drones[0]).penalty; const removedRig = CHAR.play.kit.rigs.pop(); playChanged(); const droneNoVcrAtAll = maneuverRollSpec("drones", CHAR.play.kit.drones[0]); CHAR.play.kit.rigs.push(removedRig); playChanged(); sheetTab = "rigging"; renderSheet(); const mvAll = root => [...root.querySelectorAll("button")].filter(b => /^Maneuver \(/.test(b.textContent)).length; const cardByTitle = n => [...document.querySelectorAll(".sh-card")].find(x => n.test(((x.querySelector("h3") || {}).textContent || "").trim())); const riggingActiveCard = mvAll(cardByTitle(/^Active drones & vehicles$/)); const riggingTabButtonCount = mvAll(document); sheetTab = "overview"; renderSheet(); const overviewBtn = () => [...document.querySelectorAll("button")].find(b => /^Maneuver \(/.test(b.textContent)); const overviewButtonTitle = overviewBtn().title; const focusBefore = poolState("Focus").remaining; overviewBtn().click(); document.querySelector(".sh-roller-roll").click(); const focusSpent = focusBefore - poolState("Focus").remaining; rollerState.open = false; const tab = activeTabObj(); tab.readonly = true; renderSheet(); const readonlyHasButton = !![...document.querySelectorAll("button")].find(b => /^Maneuver \(/.test(b.textContent)); tab.readonly = false; await closeTabByName("QA Maneuver"); return { droneNoHotseat, boatNoHotseat, droneHotseat, droneNoVcrAtAll: { penalty: droneNoVcrAtAll.penalty, bits: droneNoVcrAtAll.penaltyBits }, riggingTabButtonCount, riggingActiveCard, overviewButtonTitle, focusSpent, readonlyHasButton }; })()
 
 - **Expected:**
 
@@ -2444,7 +2444,8 @@ session.
         "boatNoHotseat": { "skill": "Drive", "dice": 7, "penalty": 2, "bits": ["not hotseat"] },
         "droneHotseat": 0,
         "droneNoVcrAtAll": { "penalty": 6, "bits": ["no VCR", "not hotseat"] },
-        "riggingTabButtonCount": 2, "overviewButtonTitle": "Roll 10d6 — Fly 4 + Handling 6",
+        "riggingTabButtonCount": 3, "riggingActiveCard": 1,
+        "overviewButtonTitle": "Roll 10d6 — Fly 4 + Handling 6",
         "focusSpent": 1, "readonlyHasButton": false }
 
 - **Note:** Issue #89, built on #91's `Move Type` tagging. `maneuverRollSpec()`
@@ -2469,14 +2470,26 @@ session.
   together, never just one masking the other). `droneHotseat` (0) is the
   clean case: VCR owned, this unit actually jacked in.
 
-  The button renders in both places a Fire button already does, off the same
-  `maneuverButton()` — the Rigging tab's per-unit card (`riggingTabButtonCount`
-  2, one per owned unit, gated on nothing but ownership — maneuvering doesn't
-  require the unit be on station, only that it be flown, hence the −2d rather
-  than a hard refusal without Hotseat) and the Overview's hotseat rollup
-  (only for seats actually on station, next to the same Move line the
-  Rigging tab's Move tile mirrors). It spends a Rigging Exploit Action before
-  a Simple one, same as Fire — maneuvering is a round's action.
+  The button renders in all three places a Fire button already does, off the
+  same `maneuverButton()`:
+
+  - the Rigging tab's **per-unit cards** — one per owned unit, gated on
+    nothing but ownership, since maneuvering doesn't require the unit be on
+    station, only that it be flown (hence the −2d rather than a hard refusal
+    without Hotseat);
+  - the Rigging tab's **Active drones & vehicles** rollup
+    (`riggingActiveCard`), beside the Move/Handling stats it rolls off;
+  - the Overview's **hotseat rollup**, next to the same Move line the
+    Rigging tab's Move tile mirrors.
+
+  `riggingTabButtonCount` is 3 with one drone on station: two unit cards plus
+  that drone's row in the Active rollup. The Gear tab shares
+  `unitLoadoutTable()` with the Active rollup but renders it as an inventory,
+  where a drone in a box has nothing to fly — so the button is station-gated
+  there, the same way the Fire buttons in that table already are.
+
+  It spends a Rigging Exploit Action before a Simple one, same as Fire —
+  maneuvering is a round's action.
   `readonlyHasButton` false confirms a shared read-only character gets no
   mutating control, the same gate every other roll button on this sheet uses.
 - **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
