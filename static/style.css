@@ -1609,6 +1609,16 @@ input.sh-unit-name::placeholder{color:var(--dim);font-weight:600}
 .chip.mod-chassis{color:var(--slot-chassis);border-color:var(--slot-chassis)}
 .chip.mod-upgrade{color:var(--slot-upgrade);border-color:var(--slot-upgrade)}
 .mod-slot-legend{display:flex;gap:12px;flex-wrap:wrap;font-size:11px;margin:2px 0 6px}
+/* A stat's own number, coloured because a fitted mod or upgrade — not the
+ * loaded round, that's .wpn-ammo-mod's job — moved it off the data row's base
+ * value: Accuracy, a magazine's size, Hardening, a rig's Bonus Dice/Links, a
+ * unit's Ballistic/Impact/Body/Move, and the like. Reuses --slot-chassis, the
+ * mod-slot legend's "a mod is involved" violet, rather than reaching for a new
+ * hue: chassis mods are the most general of the four slots, and every other
+ * colour in the palette already carries a different meaning (green=ammo/ok,
+ * amber=money, red=bad, blue=dice, cyan=MCP). `title` names the base value —
+ * hover/long-press to read it, same contract as .wpn-ammo-mod. */
+.sh-fitted-mod{color:var(--slot-chassis)}
 /* Weapon mod/upgrade slot strip — one fixed box per barrel/chassis slot plus
  * the weapon's two fixed upgrade slots, spread across the bottom of the
  * weapon row instead of stacked chips at the side. Auto-fit keeps 2-5 boxes

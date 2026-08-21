@@ -10728,9 +10728,14 @@ function shGear(body) {
             weaponSkillDice(w.name, r.Type, calcRow.Accuracy ?? r.Accuracy ?? 0, [], r.Reach)),
           shMountEditor(en, r, w.equipped !== false)),
         el("td", { class: "sub" },
-          `${r.Type || ""} · Acc ${calcRow.Accuracy ?? r.Accuracy ?? 0} · DMG ${calcRow.Damage ?? r.Damage ?? "—"} · ${r["Firing modes"] || "melee"} · Pen ${r.Pen || 0}${barrierBit(r, calcRow.Bar ?? r.Bar)} · Conceal ${concealBit(r, calcRow)} · ZR ${r.ZR || 0} · Weight ${r.Weight || 0}${weaponTraitBits(r)}` +
-          ((calcRow.Ammo ?? r.Ammo) ? ` · Ammo ${calcRow.Ammo ?? r.Ammo}` : "") +
-          recoilBit(calcRow)),
+          `${r.Type || ""} · Acc `,
+          fittedBit(calcRow.Accuracy ?? r.Accuracy ?? 0, r.Accuracy ?? 0),
+          ` · DMG ${calcRow.Damage ?? r.Damage ?? "—"} · ${r["Firing modes"] || "melee"} · Pen ${r.Pen || 0}${barrierBit(r, calcRow.Bar ?? r.Bar)} · Conceal `,
+          fittedIf(concealBit(r, calcRow), !!calcRow.conceal_mod),
+          ` · ZR ${r.ZR || 0} · Weight ${r.Weight || 0}${weaponTraitBits(r)}`,
+          (calcRow.Ammo ?? r.Ammo) ? " · Ammo " : null,
+          (calcRow.Ammo ?? r.Ammo) ? fittedBit(calcRow.Ammo ?? r.Ammo, r.Ammo) : null,
+          fittedIf(recoilBit(calcRow), !!calcRow.recoil_mod)),
         el("td", {},
           el("input", { type: "checkbox", ...(w.equipped !== false ? { checked: 1 } : {}),
             onchange: async e => { w.equipped = e.target.checked; await playChangedRecalc(); } }),
@@ -12449,9 +12454,16 @@ function shDecking(body) {
         el("div", { class: "sh-advrow" + (isActive ? " active-row" : ""), style: "border:0;padding:0" },
           el("span", {}, el("b", {}, d.name),
             el("span", { class: "sub" },
-              ` MCP ${r.MCP} · Hardening ${deckHardeningBit(d, r)} · Threads ${r.Threads} · Core ${r.Core} · I/O ${r.IO}`
-              // Range is per-deck because the mods that change it are per-deck.
-              + ` · Range ${RULES.deckHackRange(d, DATA.tables)} m`)),
+              ` MCP ${r.MCP} · Hardening `,
+              fittedIf(deckHardeningBit(d, r), RULES.deckHardening(d, DATA.tables) !== RULES.hardeningOf(r)),
+              ` · Threads ${r.Threads} · Core ${r.Core} · I/O ${r.IO}`,
+              // Range is per-deck because the mods that change it are
+              // per-deck; a fitted Range mod overrides the base metres
+              // outright rather than adding to them, so the highlight is
+              // gated on there being a mod at all rather than a value diff.
+              " · Range ",
+              fittedBit(`${RULES.deckHackRange(d, DATA.tables)} m`, `${RULES.BASE_HACK_RANGE_METERS} m`,
+                RULES.deckRangeConflict(d, DATA.tables) ? "Multiple range mods fitted — highest wins" : null))),
           // Jacking out is its own state, not "sell it" and not "leave it at
           // home": the deck is still owned, still carried, still contributing
           // its own ZR — it just isn't running, so its cores grant no Decking
@@ -13364,25 +13376,30 @@ function unitLoadoutTable(entries, mode = "inventory") {
     // Hoisted from further down: the stats line below needs it to ask whether
     // this unit is on the rig's link.
     const key = unitStateKey(table, u);
-    // Mods can raise armor/hardening — reflect the boosted values here.
+    // Mods can raise armor/hardening — reflect the boosted values here, and
+    // highlight (.sh-fitted-mod) whichever of these a mod, infusion or rig
+    // bonus actually moved off the data row's own figure.
     const ball = toInt(r.Ballistic) + statMods.ballistic;
     const imp = toInt(r.Impact) + statMods.impact;
     const body = Math.max(0, toInt(r.Body) + statMods.body);
-    const stats = `Move ${r.Move}`
-      + (statMods.infusion_move ? ` +${statMods.infusion_move}m (infusion)` : "")
-      + ` · Handling ${r.Handling} · Body ${body}`
-      + (statMods.body ? ` (base ${r.Body})` : "")
-      + ((ball || imp) ? ` · ${ball}B/${imp}I` : "")
+    const hardening = unitHardening(r, statMods, key);
+    const statParts = [
+      `Move ${r.Move}`,
+      statMods.infusion_move ? ` +${statMods.infusion_move}m (infusion)` : null,
+      " · Handling ", `${r.Handling}`, " · Body ", fittedBit(body, toInt(r.Body)),
+      (ball || imp) ? " · " : null,
+      (ball || imp) ? fittedBit(`${ball}B/${imp}I`, `${toInt(r.Ballistic)}B/${toInt(r.Impact)}I`) : null,
       // Hardening always prints, even at 0. Drones and vehicles carry no base
-      // Hardening in the data — it only arrives from a fitted mod or a drone
-      // infusion — and hiding the zero made the stat look missing rather than
-      // absent (issue #33).
-      + ` · Hardening ${unitHardening(r, statMods, key)}`
-      + ` · ${cfg.capLabel} ${cfg.capOf(r)}`
+      // Hardening in the data — it only arrives from a fitted mod, a drone
+      // infusion or a linked rig's own mod — and hiding the zero made the stat
+      // look missing rather than absent (issue #33).
+      " · Hardening ", fittedBit(hardening, RULES.hardeningOf(r)),
+      ` · ${cfg.capLabel} ${cfg.capOf(r)}`,
       // A condition carrying a gameplay rider (Blinged) reports it here; it is
       // never applied to a stat.
-      + (u.condition && RULES.VEHICLE_CONDITION_EFFECTS[u.condition]
-          ? ` · ${u.condition}: ${RULES.VEHICLE_CONDITION_EFFECTS[u.condition]}` : "");
+      (u.condition && RULES.VEHICLE_CONDITION_EFFECTS[u.condition])
+        ? ` · ${u.condition}: ${RULES.VEHICLE_CONDITION_EFFECTS[u.condition]}` : null,
+    ];
     // Damage read-out, so the Gear inventory reflects it too (the interactive
     // tracks live on the Rigging tab).
     const dst = (CHAR.play.rigging.units || {})[unitStateKey(table, u)] || {};
@@ -13432,7 +13449,7 @@ function unitLoadoutTable(entries, mode = "inventory") {
         el("div", { class: "sub" }, cfg.title.replace(/s$/, "")),
         station ? stateChips : null,
         station ? shHotseatToggle(key, u) : shCarriedToggle(u)),
-      el("td", { class: "sub" }, stats,
+      el("td", { class: "sub" }, ...statParts,
         dmgLine ? el("div", { class: "sh-unit-dmg" }, dmgLine) : null,
         // Maneuver sits with the Move/Handling stats it rolls off, and only on
         // station -- the Gear tab shares this table as an inventory list, where
@@ -13578,12 +13595,15 @@ function shRigging(body) {
         el("div", { class: "sh-advrow" + (isActive ? " active-row" : ""), style: "border:0;padding:0" },
           el("span", {}, el("b", {}, r.name),
             el("span", { class: "sub" },
-              ` +${st.bonusDice}d · Hardening ${st.hardening >= 0 ? "+" : ""}${st.hardening} · Links ${st.links} · Cores ${st.cores}`
+              " +", fittedBit(st.bonusDice, +st.row["Bonus Dice"] || 0), "d · Hardening ",
+              fittedBit(`${st.hardening >= 0 ? "+" : ""}${st.hardening}`,
+                `${(+st.row.Hardening || 0) >= 0 ? "+" : ""}${+st.row.Hardening || 0}`),
+              " · Links ", fittedBit(st.links, +st.row.Links || 0),
+              ` · Cores ${st.cores}`,
               // What the rig's mods hand its linked units, stated on the rig
               // because that's where you fitted them — but it lands on the
               // drones, not here (#44).
-              + (st.unit_hardening
-                  ? ` · +${st.unit_hardening} Hardening to linked units` : ""))),
+              st.unit_hardening ? ` · +${st.unit_hardening} Hardening to linked units` : null)),
           isActive ? el("span", { class: "chip ok" }, "Active VCR")
             : counterBtn("Set Active", () => { rg.active_rig = r.name; playChanged(); })),
         el("div", { class: "sh-unit-add" }, el("b", {}, "Mods"), modEditor)),

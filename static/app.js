@@ -2255,6 +2255,31 @@ function concealBit(row, calcRow) {
 }
 /** "+2" / "-1" -- an adjustment printed with its sign either way. */
 function signed(n) { return `${n > 0 ? "+" : ""}${n}`; }
+/* Wraps a stat's displayed value in the "a fitted mod/upgrade changed this"
+ * highlight (.sh-fitted-mod — the violet counterpart to a loaded round's own
+ * .wpn-ammo-mod, see style.css for why that colour) when it differs from
+ * `base`, the data row's own figure. Compared as strings so "3" and 3 don't
+ * false-positive, and a mod that changes text (a deck's hack Range) highlights
+ * the same way a mod that changes a number does. `title` is what hover/
+ * long-press reads; defaults to naming the base value when the caller has
+ * nothing more specific to say. Returns a plain string when nothing changed,
+ * an Element when it did — pass the result on as its own child (el()
+ * flattens/stringifies either kind fine) rather than folding it back into a
+ * template literal, or the highlight is lost. Shared with sheet.js so chargen
+ * and play highlight the same stats the same way. */
+function fittedBit(display, base, title) {
+  const changed = base != null && String(display) !== String(base);
+  return changed
+    ? el("span", { class: "sh-fitted-mod", title: title || `Base ${base}` }, String(display))
+    : String(display);
+}
+/* Same highlight as fittedBit, gated by an explicit boolean instead of a
+ * base-value diff — for concealBit/recoilBit/deckHardeningBit, whose own
+ * "(+2 mods)" text already says what changed and by how much, so the
+ * highlight needs no title of its own. */
+function fittedIf(display, changed) {
+  return changed ? el("span", { class: "sh-fitted-mod" }, String(display)) : String(display);
+}
 /* Recoil capacity for one gun: the shooter's own capacity plus whatever is
    bolted to this weapon, or "Ignored" when Gun-Kata rank 3 covers the type.
    Blank for melee, thrown and anything the engine didn't rate — there is no

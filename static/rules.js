@@ -36,7 +36,7 @@ const BUNDLE = (typeof DATA_BUNDLE !== "undefined")
  * default fill claim this build made it: "unknown" is a fact worth keeping,
  * and a confidently wrong version is worse than none when you are working out
  * why an old file behaves oddly. */
-const APP_VERSION = "350";
+const APP_VERSION = "351";
 
 // ============================================================== game constants
 // The numeric knobs the engine reads; grouped by chargen step below.
