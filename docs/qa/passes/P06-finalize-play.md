@@ -2354,6 +2354,38 @@ session.
   player left it.
 - **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
 
+### P06-077: A deployed unit's Inertia reads 0, not the literal text "undefined"
+- **Type:** correctness
+- **Steps:** the bug this pins needs the rollup to render a unit's fire
+  controls (which calls `unitGunState`, creating `rg.units[key]`) BEFORE that
+  unit's own card runs its `rg.units[key] || {...}` default — linking a fresh
+  drone and rendering the Rigging tab does both in the right order for free.
+- **Check:**
+
+      (async () => { const p = CHAR.play.purchases, rg = CHAR.play.rigging; rigFlags(); p.rigs.push({ name: "Master VCR", mods: [] }); rg.active_rig = "Master VCR"; p.drones.push({ name: "Disc", label: "Alpha", weapons: ["Mini Gun"], mods: [] }); rg.linked["drones:0"] = true; await playChangedRecalc(); sheetTab = "rigging"; renderSheet(); const droneCard = [...document.querySelectorAll(".sh-card")].find(c => c.querySelector("h3")?.textContent.startsWith("Drones")); const freshState = { blockText: droneCard.querySelector(".sh-unit-inertia").innerText, raw: CHAR.play.rigging.units["drones:0"] }; CHAR.play.rigging.units["drones:0"] = { guns: { "0": {} } }; renderSheet(); const legacyState = { blockText: [...document.querySelectorAll(".sh-card")].find(c => c.querySelector("h3")?.textContent.startsWith("Drones")).querySelector(".sh-unit-inertia").innerText }; return { freshState, legacyState }; })()
+
+- **Expected:**
+
+      { "freshState": { "blockText": "MOVE\n8m\nInertia\n−\n0\n+",
+                        "raw": { "guns": { "0": {} }, "inertia": 0, "integrity": 0, "physical": 0 } },
+        "legacyState": { "blockText": "MOVE\n8m\nInertia\n−\n0\n+" } }
+
+- **Note:** `unitGunState` (sheet.js, called from `unitFireControls` when the
+  on-station rollup builds a mount's Fire controls, which always renders
+  before `unitBlock`'s own card) used to seed `rg.units[key]` with a bare `{}`.
+  `unitBlock`'s `rg.units[key] || { inertia: 0, … }` default never applies
+  once the slot already exists — sparse or not — so `st.inertia` stayed
+  `undefined` forever for any unit whose rollup row rendered first, and
+  `miniCounter`'s `String(get())` printed that literally as the four-letter
+  word "undefined" instead of a number. `freshState.raw` proves the root
+  cause is fixed: `unitGunState` now seeds the same three-field shape
+  `unitBlock` does, so a newly-deployed unit's slot is never sparse to begin
+  with. `legacyState` proves the belt-and-suspenders half: a character saved
+  *before* this fix, still carrying exactly the old sparse shape, is caught by
+  `toInt(st.inertia)` at the Inertia counter's getter — the same defence the
+  read-only branch already had, now applied to the editable one too.
+- **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
+
 ---
 
 ## Wrapping up

@@ -4792,10 +4792,19 @@ function unitLoadedAmmo(table, unit, wi, wn) {
 
 /* Firing state for a mount, kept in play state because a unit's weapons are
    stored as bare names with nothing to hang it on. Keyed by the unit's slot and
-   the weapon's index within it, alongside the condition tracks. */
+   the weapon's index within it, alongside the condition tracks.
+ *
+ * Seeds the SAME default shape unitBlock's own `rg.units[key] || {...}` uses,
+ * not a bare `{}` -- the on-station rollup calls this (via unitFireControls)
+ * before a unit's own card ever runs, and unitBlock's `||` fallback only
+ * fires when the slot doesn't exist yet. A bare `{}` created here first left
+ * `inertia` permanently undefined for every unit whose rollup row rendered
+ * before its card did, which miniCounter then printed as the literal text
+ * "undefined" instead of 0. */
 function unitGunState(table, unit, wi) {
   const rg = CHAR.play.rigging;
-  const slot = (rg.units[unitStateKey(table, unit)] ??= {});
+  const slot = (rg.units[unitStateKey(table, unit)] ??=
+    { inertia: 0, physical: 0, integrity: 0 });
   const guns = (slot.guns ??= {});
   return (guns[wi] ??= {});
 }
@@ -12956,7 +12965,13 @@ function shRigging(body) {
               // Read-only shares report the value but can't edit it, matching
               // the condition tracks above.
               ? el("span", { class: "sub" }, `Inertia ${toInt(st.inertia)}`)
-              : miniCounter("Inertia", () => st.inertia, v => { st.inertia = v; })),
+              // toInt() here for the same reason the read-only line needs it:
+              // unitGunState can create rg.units[key] first (rendering the
+              // rollup, which runs before this card) with no `inertia` field,
+              // and this card's own `rg.units[key] || {...}` default never
+              // applies once the object already exists sparse -- leaving
+              // `undefined`, which miniCounter's String(get()) prints literally.
+              : miniCounter("Inertia", () => toInt(st.inertia), v => { st.inertia = v; })),
           loadoutSummary,
           // Deploy toggles on one row: Link and Active are the two ways a unit
           // gets on station, and reading them takes one glance rather than two.
