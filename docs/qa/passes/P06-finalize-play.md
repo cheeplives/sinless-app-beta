@@ -2481,6 +2481,51 @@ session.
   mutating control, the same gate every other roll button on this sheet uses.
 - **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
 
+### P06-080: An overheated Energy weapon always fires — it warns, then risks exploding
+- **Type:** correctness
+- **Steps:** none.
+- **Check:**
+
+      (async () => { window.alert = () => {}; const c = RULES.defaultCharacter(); c.name = "QA Overheat"; c.priorities = { heritage: 1, magic: 0, attributes: 5, skills: 4, resources: 0 }; c.heritage.type = "Human"; c.skills = { "Firearms": 4, "Gunnery": 3 }; c.weapons = [{ name: "Neon Fang LS", mods: [] }]; c.drones = [{ name: "Roto-Drone", weapons: ["Pulse Rifle"], mods: [] }]; c.finalized = true; c.lifestyles = [{ name: "Squatter", months: 1 }]; await openCharacter(c); CHAR.play.kit.weapons[0].hand = 0; sheetTab = "overview"; renderSheet(); const w = CHAR.play.kit.weapons[0]; const defaultHeatIsZero = w.heat == null; const row = () => [...document.querySelectorAll(".sh-hand-card")].find(r => /Neon Fang LS/.test(r.textContent)); const fireOf = () => [...row().querySelectorAll("button")].find(b => b.textContent === "Fire"); const aimedExists = !![...row().querySelectorAll("button")].find(b => b.textContent === "Aimed Fire"); fireOf().click(); await new Promise(r => setTimeout(r, 20)); const safeFireNoWarning = !document.querySelector(".mount-modal-backdrop"); const heatAfterSafeFire = w.heat; rollerState.open = false; w.heat = 3; playChanged(); fireOf().click(); await new Promise(r => setTimeout(r, 20)); const warnModal = document.querySelector(".mount-modal-backdrop"); const warningText = warnModal.querySelector("p.hint").textContent; [...warnModal.querySelectorAll("button")].find(b => b.textContent === "Cancel").click(); const cancelNoHeatChange = w.heat === 3; const cancelNoModal = !document.querySelector(".mount-modal-backdrop"); fireOf().click(); await new Promise(r => setTimeout(r, 20)); const realRandom = Math.random; Math.random = () => 0; [...document.querySelector(".mount-modal-backdrop").querySelectorAll("button")].find(b => b.textContent === "Continue to Fire").click(); await new Promise(r => setTimeout(r, 20)); Math.random = realRandom; const heatAfterContinue = w.heat; rollerState.open = false; const explModal = document.querySelector(".mount-modal-backdrop"); const dieGroups = [...explModal.querySelectorAll(".sh-roller-dice")]; const forcedExplosion = { checkDice: dieGroups[0].children.length, damageGroupShown: dieGroups.length > 1, damageDiceCount: dieGroups.length > 1 ? dieGroups[1].children.length : 0 }; [...explModal.querySelectorAll("button")].find(b => b.textContent === "OK").click(); const rg = rigFlags(); rg.active["drones:0"] = true; sheetTab = "rigging"; renderSheet(); const droneRow = () => [...document.querySelectorAll("tr")].find(r => /Pulse Rifle/.test(r.textContent)); const droneFireBtn = () => [...droneRow().querySelectorAll("button")].find(b => b.textContent === "Fire"); const mountFireExists = !!droneFireBtn(); droneFireBtn().click(); await new Promise(r => setTimeout(r, 20)); const gunState = CHAR.play.rigging.units["drones:0"].guns[0]; const mountHeatAfterFire = gunState.heat; rollerState.open = false; newRound(); const mountHeatAfterNewRound = gunState.heat; w.heat = 0; playChanged(); newRound(); const personalHeatFloorsAtZero = w.heat; await closeTabByName("QA Overheat"); return { defaultHeatIsZero, aimedExists, safeFireNoWarning, heatAfterSafeFire, warningText, cancelNoHeatChange, cancelNoModal, heatAfterContinue, forcedExplosion, mountFireExists, mountHeatAfterFire, mountHeatAfterNewRound, personalHeatFloorsAtZero }; })()
+
+- **Expected:**
+
+      { "defaultHeatIsZero": true, "aimedExists": true, "safeFireNoWarning": true,
+        "heatAfterSafeFire": 1,
+        "warningText": "Gun Overheated, if you fire, roll 1d6 after the attack. If any dice come up a 1, it explodes dealing 18d6 damage.",
+        "cancelNoHeatChange": true, "cancelNoModal": true, "heatAfterContinue": 4,
+        "forcedExplosion": { "checkDice": 1, "damageGroupShown": true, "damageDiceCount": 18 },
+        "mountFireExists": true, "mountHeatAfterFire": 3, "mountHeatAfterNewRound": 2,
+        "personalHeatFloorsAtZero": 0 }
+
+- **Note:** Issue #92. Heat now defaults to 0 (`defaultHeatIsZero`), not the
+  old 1 — the bug the issue opened with. Firing while under Max Heat
+  (Neon Fang LS: Heat 1/Max 3) is silent — no warning, heat just ticks up
+  (`safeFireNoWarning`, `heatAfterSafeFire` 1).
+
+  Pushed to Heat 3 (== Max), firing warns instead of refusing: the modal's
+  text is the issue's own wording verbatim, with the actual d6 count
+  computed as how far THIS shot would carry the gun over the cap — clarified
+  with the user as `max(1, (cur + per) - max)`, floored at 1. "Cancel"
+  charges nothing at all (`cancelNoHeatChange`, and no action or roll either
+  — not captured here only because they're already covered by `spendAction`
+  short-circuiting before `openRoll`/`applyHeat` run). "Continue to Fire"
+  charges Heat (`heatAfterContinue` 4 = 3 + 1), opens the attack roll, and
+  THEN rolls the explosion check — forced deterministic here by stubbing
+  `Math.random` to 0 so every d6 reads 1, proving both halves of the payoff:
+  the 1-die check itself, and the follow-on 18d6 damage roll it triggers.
+
+  The drone's Pulse Rifle mount (Heat 3/Heat Limit 15) gets the same Fire
+  button, on station, off the Rigging Exploit Action pool
+  (`mountFireExists`, `mountHeatAfterFire` 3 = 0 + 3).
+
+  `mountHeatAfterNewRound` (2 = 3 − 1) and `personalHeatFloorsAtZero` (heat
+  set to 0, New Round leaves it at 0, not −1) both exercise
+  `decrementAllHeat()` — one point off every Heat counter in the game each
+  round, floored at 0, walking personal weapons and every rigging unit's
+  mounts alike.
+- **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
+
 ---
 
 ## Wrapping up

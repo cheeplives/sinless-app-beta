@@ -4919,23 +4919,26 @@ function unitGunControls(table, unit, wi, wn, wr, isEnergy, ammoMods = null,
     const per = parseInt(wr.Heat, 10) || 0;
     const max = parseInt(wr["Heat Limit"], 10) || 0;
     if (!per && !max) return null;                 // no heat rating on this mount
-    const cur = () => (st.heat == null ? 1 : Math.max(0, Math.floor(+st.heat) || 0));
+    // Defaults to 0, not 1 (#92) -- a mount nobody has fired yet hasn't
+    // generated any heat.
+    const cur = () => (st.heat == null ? 0 : Math.max(0, Math.floor(+st.heat) || 0));
     if (ro) wrap.append(el("span", { class: "sub" }, `Heat ${cur()}`));
     else wrap.append(miniCounter("Heat", cur, v => { st.heat = v; }, 0, max || 99));
     wrap.append(el("span", { class: "sub" },
       ` ${per} per shot · max ${max}${max && cur() >= max ? " — overheated" : ""}`));
-    // No ordinary Fire button here, matching personal Energy weapons — Heat
-    // is tracked by hand above. Aimed Fire still applies, spending a point
-    // of Heat (when the row rates one) the same way Fire spends a round.
+    // Fire and Aimed Fire both go through energyFireButtons/attemptEnergyShot
+    // (#92): an overheated mount is never blocked, it warns first and only
+    // spends anything if the rigger says to keep firing.
     if (!ro) {
-      const overheated = !!(max && cur() + per > max);
       const rollSpec = gunneryRollSpec(wr.Accuracy, rigBonus);
-      const aimed = aimedFireButton(rollSpec, wn, "SS", {
-        disabled: overheated,
-        disabledTitle: "Not enough heat capacity left for another shot",
-        spend: () => { st.heat = cur() + per; },
-      }, "Rigging");
-      if (aimed) wrap.append(el("div", { class: "sh-fire-btns" }, aimed));
+      const btns = energyFireButtons({
+        label: wn, rollSpec, mode: "SS", per, max, cur,
+        applyHeat: () => { st.heat = cur() + per; },
+        spendFire: () => spendActionUnits("Rigging", 1, `Firing ${wn}`),
+        spendAimed: () => spendActionUnits("Rigging", 2, `Aimed Fire with ${wn}`),
+        recoil: null,
+      });
+      if (btns) wrap.append(btns);
     }
     return wrap;
   }
@@ -5159,6 +5162,159 @@ function heatSpec(row) {
   if (Number.isFinite(per) && Number.isFinite(max)) return { per, max };
   const m = /heat\s*(\d+)\s*\/\s*max\s*(\d+)/i.exec((row && row.Notes) || "");
   return m ? { per: +m[1], max: +m[2] } : null;
+}
+
+/* -------------------------------------------------------------- Issue #92
+ * Energy weapons never refuse to fire on Heat alone. A shot that would push
+ * Heat at or over the weapon's Max Heat still goes off — it just risks the
+ * gun exploding, and the player is warned and asked before anything (an
+ * action, a roll, a point of Heat) is spent.
+ *
+ * `isOverheated` covers both halves of the issue's own wording: a shot that
+ * would carry heat OVER the cap, and a gun that is already sitting AT the
+ * cap (relevant for a weapon whose per-shot Heat is 0, where firing again
+ * would never look "over" on its own). `overheatOverBy` is how many d6 the
+ * explosion check rolls — per the user's own worked example (2 Heat/shot,
+ * Max 5: at 4 heat, firing to 6 is 1 over → 1d6; at 6 heat, firing to 8 is
+ * 3 over → 3d6) — floored at 1 because a shot that reaches this code at all
+ * is always at least 1 over. */
+function isOverheated(cur, per, max) {
+  return max > 0 && (cur + per > max || cur >= max);
+}
+function overheatOverBy(cur, per, max) {
+  return Math.max(1, (cur + per) - max);
+}
+
+/* The warning itself: a real decision ("Continue to Fire" vs "Cancel"), not
+ * a toast, so it blocks the same way promptDisposal's sell-or-lose choice
+ * does. Resolves true ONLY on "Continue to Fire" — Escape, a backdrop click
+ * and "Cancel" all resolve false, and the caller must not spend an action,
+ * open the roller, or add Heat on false: the issue's own "do not charge
+ * actions, dice, or heat." */
+function promptOverheat(label, overBy) {
+  return new Promise(resolve => {
+    const backdrop = el("div", { class: "mount-modal-backdrop" });
+    const done = val => { document.removeEventListener("keydown", onKey); backdrop.remove(); resolve(val); };
+    const onKey = e => { if (e.key === "Escape") done(false); };
+    const modal = el("div", { class: "card mount-modal", style: "max-width:420px" },
+      el("h3", {}, `${label}: Gun Overheated`),
+      el("p", { class: "hint" },
+        `Gun Overheated, if you fire, roll ${overBy}d6 after the attack. `
+        + "If any dice come up a 1, it explodes dealing 18d6 damage."),
+      el("div", { style: "display:flex;gap:8px;flex-wrap:wrap;margin-top:14px" },
+        el("button", { class: "btn-add", onclick: () => done(true) }, "Continue to Fire"),
+        el("button", { class: "btn ghost", onclick: () => done(false) }, "Cancel")));
+    backdrop.append(modal);
+    backdrop.addEventListener("click", e => { if (e.target === backdrop) done(false); });
+    document.addEventListener("keydown", onKey);
+    document.body.append(backdrop);
+  });
+}
+
+/* The explosion check that follows an overheated shot: `overBy` raw d6, no
+ * pool and no skill involved — this is a straight risk check, not a test —
+ * shown the moment they land. Any 1 blows the gun, which rolls its own flat
+ * 18d6 damage right there rather than waiting on a second button: a gun that
+ * just detonated doesn't pause for the player to ask for the damage. Reuses
+ * the roller's own die styling (openKismetRoller, the queued roller panel)
+ * so an exploded gun's dice read like every other die on this sheet. */
+function overheatExplosionCheck(label, overBy) {
+  const dice = Array.from({ length: overBy }, rollerD6);
+  const exploded = dice.some(v => v === 1);
+  const damage = exploded ? Array.from({ length: 18 }, rollerD6) : null;
+  const backdrop = el("div", { class: "mount-modal-backdrop" });
+  const close = () => backdrop.remove();
+  const die = (v, bad) => el("span",
+    { class: "sh-roller-die static" + (bad ? " bad" : "") }, String(v));
+  const modal = el("div", { class: "card mount-modal", style: "max-width:420px" },
+    el("h3", {}, `${label}: Overheat Check`),
+    el("div", { class: "sh-roller-dice" }, ...dice.map(v => die(v, v === 1))),
+    el("p", { class: "hint" }, exploded
+      ? "A 1 came up — the gun explodes!"
+      : "No 1s — the gun holds together, hot as it runs."),
+    exploded ? el("div", { class: "sh-roller-dice" }, ...damage.map(v => die(v, false))) : null,
+    exploded
+      ? el("p", { class: "hint" }, `18d6 explosion damage: ${damage.reduce((a, b) => a + b, 0)} total.`)
+      : null,
+    el("div", { style: "display:flex;gap:8px;flex-wrap:wrap;margin-top:14px" },
+      el("button", { class: "btn", onclick: close }, "OK")));
+  backdrop.append(modal);
+  backdrop.addEventListener("click", e => { if (e.target === backdrop) close(); });
+  document.body.append(backdrop);
+}
+
+/* The shared "try to fire this Energy weapon" plumbing — one shot, whether
+ * it's the ordinary Fire button or Aimed Fire, a personal weapon or a
+ * drone/vehicle mount. Centralizing it here is what keeps the warn-before-
+ * spending rule from drifting between what would otherwise be four separate
+ * hand-written copies. Nothing is spent (no action, no roll, no Heat) unless
+ * the shot actually goes off: there was room under Max Heat, or the player
+ * chose "Continue to Fire" on the warning. */
+async function attemptEnergyShot({ label, cur, per, max, spendAction, openRoll, applyHeat }) {
+  if (isOverheated(cur, per, max)) {
+    const overBy = overheatOverBy(cur, per, max);
+    if (!(await promptOverheat(label, overBy))) return;
+    if (!spendAction()) return;
+    openRoll();
+    applyHeat();
+    overheatExplosionCheck(label, overBy);
+    return;
+  }
+  if (!spendAction()) return;
+  openRoll();
+  applyHeat();
+}
+
+/* Fire + Aimed Fire for an Energy weapon, shared by a personal weapon and a
+ * drone/vehicle mount — the only real differences between the two are how a
+ * shot is priced (a personal Simple/Complex Action vs a Rigging Exploit
+ * Action) and whether it feeds the character's own recoil tracker (a mount
+ * doesn't, same as the ballistic mount Fire button above). `recoil` is null
+ * for a mount; `{ calcRow }` for a personal weapon. `per`/`max` are 0 when
+ * the row rates no heat at all (the Dazzleray) — the buttons still fire,
+ * they just never warn or track Heat. */
+function energyFireButtons({ label, rollSpec, mode, per, max, cur, applyHeat,
+                             spendFire, spendAimed, recoil = null }) {
+  if (!rollSpec || rollSpec.locked
+      || (rollSpec.skillDice + rollSpec.bonus + rollSpec.acc) <= 0) return null;
+  const warnBit = isOverheated(cur(), per, max) ? " — WARNING: overheated, risks exploding" : "";
+  const fireBtn = el("button", { class: "btn small",
+    title: "Fire — a Simple Action"
+      + (max ? `; ${per} Heat (max ${max})` : "; this gun has no heat rating") + warnBit,
+    onclick: async () => {
+      if (recoil && recoilBlocked(label, recoil.calcRow)) return;
+      await attemptEnergyShot({
+        label, cur: cur(), per, max, spendAction: spendFire,
+        openRoll: () => {
+          openPoolRoller({ dice: rollSpec.limitDice, bonus: rollSpec.bonus, pool: rollSpec.pool, label,
+            note: `${rollSpec.skill}: ${rollSpec.skillDice} skill`
+              + (rollSpec.acc ? ` + ${rollSpec.acc} Accuracy` : "")
+              + (rollSpec.bonus ? ` + ${rollSpec.bonus} bonus${mode ? ` (${mode})` : ""}` : "") });
+          if (recoil) addRecoil(mode, recoil.calcRow);
+        },
+        applyHeat,
+      });
+      playChanged();
+    } }, "Fire");
+  const aimedBtn = el("button", { class: "btn small",
+    title: `Aimed Fire — a Complex Action; Accuracy (${rollSpec.acc}) becomes bonus dice `
+      + "instead of costing pool" + (recoil ? ", and steadies the gun (recoil back to 0)" : "") + warnBit,
+    onclick: async () => {
+      await attemptEnergyShot({
+        label, cur: cur(), per, max, spendAction: spendAimed,
+        openRoll: () => {
+          openPoolRoller({ dice: rollSpec.skillDice, bonus: rollSpec.bonus + rollSpec.acc,
+            pool: rollSpec.pool, label,
+            note: `${rollSpec.skill}: ${rollSpec.skillDice} skill`
+              + (rollSpec.bonus ? ` + ${rollSpec.bonus} bonus${mode ? ` (${mode})` : ""}` : "")
+              + (rollSpec.acc ? ` + ${rollSpec.acc} Accuracy (aimed — bonus, not limit)` : "") });
+          if (recoil) stabilizeRecoil(recoil.calcRow);
+        },
+        applyHeat,
+      });
+      playChanged();
+    } }, "Aimed Fire");
+  return el("div", { class: "sh-fire-btns" }, fireBtn, aimedBtn);
 }
 
 /* A weapon with no firing mode still makes an attack test — a blade, a fist, a
@@ -5394,24 +5550,28 @@ function firingModeControls(w, r, calcRow, modes, mode, kataOffered = false, rol
   // between them for the bonus dice.
   if (r.Type === "Energy") {
     const hs = heatSpec(r);
-    const cur = () => (w.heat == null ? 1 : Math.max(0, Math.floor(+w.heat) || 0));
+    const per = hs ? hs.per : 0, max = hs ? hs.max : 0;
+    // Defaults to 0, not 1 (#92) -- an Energy weapon nobody has fired yet
+    // hasn't generated any heat.
+    const cur = () => (w.heat == null ? 0 : Math.max(0, Math.floor(+w.heat) || 0));
     wrap.append(modeSelect(optLabelFor));
     if (ro) wrap.append(el("span", { class: "sub" }, `Heat ${cur()}`));
     else wrap.append(miniCounter("Heat", cur, v => { w.heat = v; }, 0, hs ? hs.max : 99));
     wrap.append(el("span", { class: "sub" }, hs
       ? ` ${hs.per} per shot · max ${hs.max}${cur() >= hs.max ? " — overheated" : ""}`
       : " no heat rating listed"));
-    // Energy weapons have no ordinary Fire button here — Heat is tracked by
-    // hand above — but Aimed Fire still applies, spending a point of Heat
-    // (when the row rates one) the same way Fire spends a round.
+    // Fire and Aimed Fire both go through energyFireButtons/attemptEnergyShot
+    // (#92): an overheated gun is never blocked, it warns first and only
+    // spends anything if the player says to keep firing.
     if (!ro) {
-      const overheated = !!(hs && cur() + hs.per > hs.max);
-      const aimed = aimedFireButton(rollSpec, fireLabel, mode, {
-        disabled: overheated,
-        disabledTitle: "Not enough heat capacity left for another shot",
-        spend: () => { if (hs) w.heat = cur() + hs.per; addRecoil(mode, calcRow); },
-      }, null, calcRow);
-      if (aimed) wrap.append(el("div", { class: "sh-fire-btns" }, aimed));
+      const btns = energyFireButtons({
+        label: fireLabel, rollSpec, mode, per, max, cur,
+        applyHeat: () => { if (hs) w.heat = cur() + per; },
+        spendFire: () => spendSimpleActions(1, `Firing ${fireLabel}`),
+        spendAimed: () => spendSimpleActions(2, `Aimed Fire with ${fireLabel}`),
+        recoil: { calcRow },
+      });
+      if (btns) wrap.append(btns);
     }
     return wrap;
   }
@@ -6765,14 +6925,39 @@ function actionRows() {
   }
   return rows;
 }
+/* Every Heat counter in the game (#92), decremented one point at New Round —
+ * the character's own weapons AND every drone/vehicle mount's guns. Each
+ * container stores its heat differently (see the .heat call sites in
+ * firingModeControls/unitGunControls: a held weapon's own entry, an
+ * underbarrel-granted gun's state on its host, a trait mount's state, a
+ * mount's per-gun state), so this is a sweep over all of them rather than
+ * one array — but every one is a bare `{heat}`-shaped object, so the actual
+ * decrement is the same one-liner everywhere. Left alone entirely when the
+ * slot has never tracked heat (an untouched Energy weapon defaults to 0
+ * without ever writing `.heat` at all, and a non-Energy weapon never gets
+ * one) — floored at 0 either way. */
+function decrementHeat(obj) {
+  if (obj && obj.heat != null) obj.heat = Math.max(0, (Math.floor(+obj.heat) || 0) - 1);
+}
+function decrementAllHeat() {
+  for (const en of ownedWeapons()) decrementHeat(en.ref);
+  for (const ub of underbarrelWeapons()) decrementHeat(ub.state);
+  for (const st of Object.values(CHAR.play.trait_mounts || {})) decrementHeat(st);
+  const units = (CHAR.play.rigging && CHAR.play.rigging.units) || {};
+  for (const slot of Object.values(units))
+    for (const g of Object.values(slot.guns || {})) decrementHeat(g);
+}
+
 /* Fresh round: every pool back to full, every action unspent, Beast and MCP
- * dice refreshed. Shared by actionsCard()'s "↻ New Round" button and
- * actionsStrip()'s copy of the same button, so both clear the same things. */
+ * dice refreshed, and every gun a point cooler (#92). Shared by
+ * actionsCard()'s "↻ New Round" button and actionsStrip()'s copy of the same
+ * button, so both clear the same things. */
 function newRound() {
   for (const p of POOL_ORDER) poolState(p).setUsed(0);
   CHAR.play.actions_used = {};
   refreshBeastDice();     // Wildling's Beast dice refresh each round too
   refreshMcpDice();       // ...and a deck's MCP dice, same deal (#79)
+  decrementAllHeat();
   playChanged();
 }
 /* What a round costs you, tracked as it's spent (issue #32).
