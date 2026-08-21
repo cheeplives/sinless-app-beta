@@ -2552,3 +2552,57 @@ reconciled a corrected chargen record, and a free `+` on the play counter
 sitting next to a button that charges for the same month. P06-016 is the one to
 watch — it is the only case that would notice the play sheet handing out paid
 goods for nothing.
+
+### P06-081: Chargen lifestyle months apply as a change, a move-out sticks, and prepaid months settle
+- **Type:** correctness
+- **Steps:** none.
+- **Check:**
+
+      (async () => { window.alert = () => {}; window.confirm = () => true; const mk = async (n, ls) => { const c = RULES.defaultCharacter(); c.name = n; c.priorities = { heritage: 1, magic: 0, attributes: 5, skills: 4, resources: 0 }; c.heritage.type = "Human"; c.finalized = true; c.lifestyles = ls; await openCharacter(c); }; const months = n => (CHAR.play.lifestyles.find(l => l.name === n) || {}).months; const names = () => CHAR.play.lifestyles.map(l => l.name); const modal = re => [...document.querySelectorAll(".mount-modal button")].find(x => re.test(x.textContent)).click(); await mk("QA LS Sync", [{ name: "Middle", months: 7 }]); CHAR.play.lifestyles.push({ name: "High", months: 0, active: false }); for (let i = 0; i < 3; i++) { CHAR.play.lifestyles.find(l => l.name === "High").months += 1; logCash("Prepaid 1 month of High lifestyle", -lifestyleMonthlyCost("High"), { kind: "lifestyle_month", name: "High" }); } playChanged(); CHAR.lifestyles.push({ name: "High", months: 0 }); syncChargenLifestyles(); const chargenZeroKeepsPlayMonths = months("High"); CHAR.lifestyles.find(l => l.name === "High").months = 2; syncChargenLifestyles(); const chargenBuysTwoMore = months("High"); syncChargenLifestyles(); const idempotentResync = months("High"); CHAR.play.lifestyles.find(l => l.name === "High").months = 1; syncChargenLifestyles(); const burntMonthsStayBurnt = months("High"); await closeTabByName("QA LS Sync"); await mk("QA LS Drop", [{ name: "Middle", months: 7 }, { name: "Wealthy", months: 2 }]); const at = CHAR.play.lifestyles.findIndex(l => l.active); const cashBefore = CHAR.play.cash; const p = removeLifestyle(at); await new Promise(r => setTimeout(r, 20)); modal(/^Refund/); await p; const refunded = CHAR.play.cash - cashBefore; const expectedRefund = 7 * lifestyleMonthlyCost("Middle"); const afterMoveOut = names(); const activeMovedOn = (CHAR.play.lifestyles.find(l => l.active) || {}).name; const droppedList = [...(CHAR.play.lifestyles_dropped || [])]; syncChargenLifestyles(); const stillGoneAfterResync = names(); await playChangedRecalc(); const etiquetteFollowsFlag = CALC.etiquette_points.adjust.Street || 0; const ledgerTop = CHAR.play.cash_log[0].label; await undoCashSpend(CHAR.play.cash_log[0]); const undoRestores = names(); const undoTakesCashBack = CHAR.play.cash === cashBefore; await closeTabByName("QA LS Drop"); return { chargenZeroKeepsPlayMonths, chargenBuysTwoMore, idempotentResync, burntMonthsStayBurnt, refunded, expectedRefund, afterMoveOut, activeMovedOn, droppedList, stillGoneAfterResync, etiquetteFollowsFlag, ledgerTop, undoRestores, undoTakesCashBack }; })()
+
+- **Expected:**
+
+      { "chargenZeroKeepsPlayMonths": 3, "chargenBuysTwoMore": 5,
+        "idempotentResync": 5, "burntMonthsStayBurnt": 1,
+        "refunded": 5600, "expectedRefund": 5600,
+        "afterMoveOut": ["Wealthy"], "activeMovedOn": "Wealthy",
+        "droppedList": ["Middle"], "stillGoneAfterResync": ["Wealthy"],
+        "etiquetteFollowsFlag": 1,
+        "ledgerTop": "Moved out of Middle lifestyle (7 mo refunded)",
+        "undoRestores": ["Middle", "Wealthy"], "undoTakesCashBack": true }
+
+- **Note:** Issue #93. `syncChargenLifestyles()` applies what CHANGED in the
+  chargen record, never the chargen total. The two numbers count different
+  things — chargen months are what creation cash bought, play months are what
+  is LEFT plus whatever play prepaid since — so overwriting one with the other
+  threw away every month bought on the Gear tab.
+  `chargenZeroKeepsPlayMonths` is the reported bug exactly: a chargen entry
+  sitting at 0 (the chargen stepper's own minimum, app.js) zeroed three
+  months that had been paid for, leaving the prepays visible in the Activity
+  log and `0 mo` in both the lifestyle card and the header.
+
+  The other three guard the delta rule's edges: a chargen purchase of 2 more
+  months ADDS to play's total rather than replacing it
+  (`chargenBuysTwoMore`), a re-sync with nothing changed in chargen is a
+  no-op (`idempotentResync` — what a re-finalize that didn't touch lifestyles
+  must do), and months burned in play are not handed back by the next sync
+  (`burntMonthsStayBurnt`).
+
+  Moving out is the second half. `droppedList` records it by name, which is
+  what makes `stillGoneAfterResync` hold — the chargen record still lists
+  Middle and always will, so without that record the next sync reads "chargen
+  has it, play doesn't" and hands the lifestyle straight back, which is the
+  "older/redundant lifestyles reappearing" users kept reporting.
+  `activeMovedOn` covers dropping the one being lived in: the header select,
+  the card's current-effect callout and the engine's lifestyle bonus all read
+  the active flag, and `etiquetteFollowsFlag` (Wealthy's +1 to every
+  etiquette, `CALC.etiquette_points.adjust`) confirms the flag's move is
+  mechanically live, not just cosmetic.
+
+  Prepaid months are money already handed over, so a move-out settles them
+  instead of binning them (the issue's own side note — its reporter had to
+  adjust their cash by hand). `refunded` matches 7 months × Middle's monthly
+  cost, and the whole thing rides the existing `lifestyle_restore` undo, so
+  one Undo puts the lifestyle back at its old index with its months intact
+  AND takes the refund away again (`undoRestores`, `undoTakesCashBack`).
+- **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED

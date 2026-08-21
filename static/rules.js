@@ -36,7 +36,7 @@ const BUNDLE = (typeof DATA_BUNDLE !== "undefined")
  * default fill claim this build made it: "unknown" is a fact worth keeping,
  * and a confidently wrong version is worse than none when you are working out
  * why an old file behaves oddly. */
-const APP_VERSION = "346";
+const APP_VERSION = "347";
 
 // ============================================================== game constants
 // The numeric knobs the engine reads; grouped by chargen step below.
@@ -970,6 +970,12 @@ function defaultCharacter() {
       // Cleared once a character finalized before 2026-08-05 has had its play
       // months reconciled with chargen. See reconcileLifestyles in sheet.js.
       lifestyles_reconciled: false,
+      // Lifestyle NAMES the player dropped during play. The chargen record
+      // still lists them -- moving out of the flat you paid creation cash for
+      // doesn't rewrite history -- so without this the next sync reads
+      // "chargen has it, play doesn't" and hands it straight back (#93).
+      // Same shape and purpose as spells_forgotten.
+      lifestyles_dropped: [],
       kismet: 0,
       kismet_earned: 0,
       kismet_log: [],

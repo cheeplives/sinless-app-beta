@@ -1370,6 +1370,81 @@ function seedLifestyles() {
   stampLifestyleBaseline(play);
 }
 
+/* Moving out (#93). Prepaid months are money already handed over, so dropping a
+ * lifestyle asks what happens to them instead of silently binning them — the
+ * same choice promptDisposal offers when parting with gear, and the reason the
+ * issue's reporter had to adjust their cash by hand.
+ *
+ * Resolves { refund: bool } or null for cancel. A lifestyle with no months left
+ * has nothing to decide, so it takes the plain confirm rather than putting an
+ * empty refund of ㄓ0 in front of the player. */
+function promptLifestyleRemoval(name, months, monthly) {
+  return new Promise(resolve => {
+    if (!months) {
+      resolve(confirm(`Remove ${name}? No prepaid months are left on it.`)
+        ? { refund: false } : null);
+      return;
+    }
+    const value = months * monthly;
+    const backdrop = el("div", { class: "mount-modal-backdrop" });
+    const done = val => { document.removeEventListener("keydown", onKey); backdrop.remove(); resolve(val); };
+    const onKey = e => { if (e.key === "Escape") done(null); };
+    const modal = el("div", { class: "card mount-modal", style: "max-width:420px" },
+      el("h3", {}, `Move out of ${name}?`),
+      el("p", { class: "hint" },
+        `${months} prepaid month${months === 1 ? "" : "s"} left, worth ${fmt(value)} `
+        + `at ${fmt(monthly)}/month. Take the balance back, or write it off — `
+        + "a landlord who keeps the deposit is a perfectly ordinary outcome."),
+      el("div", { style: "display:flex;gap:8px;flex-wrap:wrap;margin-top:14px" },
+        el("button", { class: "btn-add", onclick: () => done({ refund: true }) },
+          `Refund ${fmt(value)}`),
+        el("button", { class: "btn", onclick: () => done({ refund: false }) },
+          "Forfeit the balance"),
+        el("button", { class: "btn ghost", onclick: () => done(null) }, "Cancel")));
+    backdrop.append(modal);
+    backdrop.addEventListener("click", e => { if (e.target === backdrop) done(null); });
+    document.addEventListener("keydown", onKey);
+    document.body.append(backdrop);
+  });
+}
+
+/* Drop a lifestyle the character is living in, from the Gear tab's card.
+ *
+ * Three things have to happen together, and each was a separate bug before
+ * (#93): the drop is REMEMBERED so the next chargen sync doesn't hand it back;
+ * the current-lifestyle flag moves on if this was the one being lived in,
+ * because the etiquette bonus and the header both read that flag and a
+ * character who still owns a lifestyle should not silently lose both; and the
+ * remaining months are settled one way or the other.
+ *
+ * Logged with a `lifestyle_restore` undo, which already puts a lifestyle back
+ * at its old index with its months intact — so Undo reverses the move-out and
+ * the refund together, the same as every other cash row on this sheet. */
+async function removeLifestyle(index) {
+  const play = CHAR.play;
+  const ls = play.lifestyles[index];
+  if (!ls) return false;
+  const months = Math.max(0, +ls.months || 0);
+  const monthly = lifestyleMonthlyCost(ls.name);
+  const result = await promptLifestyleRemoval(ls.name, months, monthly);
+  if (!result) return false;
+  const refund = result.refund ? months * monthly : 0;
+  play.lifestyles.splice(index, 1);
+  // Remembered by name: chargen still lists it, and the sync reads this to
+  // know the player moved out rather than that play never had it.
+  play.lifestyles_dropped = play.lifestyles_dropped || [];
+  if (!play.lifestyles_dropped.includes(ls.name)) play.lifestyles_dropped.push(ls.name);
+  // Losing the one you were living in must not leave nobody current — the
+  // same fixup syncChargenLifestyles does after a chargen-side removal.
+  if (play.lifestyles.length && !play.lifestyles.some(l => l.active))
+    play.lifestyles[0].active = true;
+  logCash(`Moved out of ${ls.name} lifestyle`
+    + (months ? ` (${months} mo ${result.refund ? "refunded" : "forfeited"})` : ""),
+    refund, { kind: "lifestyle_restore", name: ls.name, months, at: index });
+  playChanged();
+  return true;
+}
+
 /* Merge chargen (prepaid) lifestyles into play at finalize. Adds any not present
  * by name, and — because chargen months are BOUGHT with creation cash — carries
  * a corrected month count across to the play balance too. Runs only at an
@@ -1391,22 +1466,46 @@ function seedLifestyles() {
 function syncChargenLifestyles() {
   const play = CHAR.play;
   play.lifestyles = play.lifestyles || [];
+  const dropped = play.lifestyles_dropped = play.lifestyles_dropped || [];
   const baseline = play.lifestyles_baseline = play.lifestyles_baseline || {};
   const now = chargenLifestyles();
   for (const ls of now) {
     const months = Math.max(0, +ls.months || 0);
     const existing = play.lifestyles.find(p => p.name === ls.name);
     if (!existing) {
+      // Dropped during play stays dropped (#93). The chargen record still
+      // lists it and always will, so without this check every later sync
+      // hands back the lifestyle the player moved out of -- months and all.
+      if (dropped.includes(ls.name)) continue;
       play.lifestyles.push({ name: ls.name, months, active: play.lifestyles.length === 0 });
-    } else if (baseline[ls.name] !== months && existing.months !== months) {
-      logCash(`${ls.name} lifestyle corrected in chargen: `
-        + `${existing.months} → ${months} mo`, 0,
-        { kind: "lifestyle_adjust", name: ls.name, from: existing.months });
-      existing.months = months;
+      continue;
     }
+    // Apply what CHANGED in chargen, never the chargen total (#93).
+    //
+    // The two numbers count different things: chargen months are what
+    // creation cash bought, play months are what is LEFT plus whatever play
+    // has prepaid since. Overwriting one with the other threw away every
+    // month bought on the Gear tab -- and a chargen entry sitting at 0
+    // (the chargen stepper's own minimum) zeroed the lot, which is exactly
+    // the "3 prepays in the log, 0 in the header" this issue opened with.
+    // A delta of 0 -- chargen untouched since the last sync -- leaves play
+    // strictly alone, which is what a re-finalize that didn't touch
+    // lifestyles should do.
+    const delta = months - (baseline[ls.name] === undefined ? 0 : baseline[ls.name]);
+    if (!delta) continue;
+    const from = existing.months || 0;
+    existing.months = Math.max(0, from + delta);
+    logCash(`${ls.name} lifestyle corrected in chargen: `
+      + `${from} → ${existing.months} mo`, 0,
+      { kind: "lifestyle_adjust", name: ls.name, from });
   }
   for (const name of Object.keys(baseline)) {           // dropped in chargen
     if (now.some(ls => ls.name === name)) continue;
+    // Chargen no longer lists it, so a play-side drop record has nothing left
+    // to suppress. Pruned rather than left to accumulate, and so that adding
+    // the lifestyle back in chargen later reads as the fresh purchase it is.
+    const wasDropped = dropped.indexOf(name);
+    if (wasDropped >= 0) dropped.splice(wasDropped, 1);
     const at = play.lifestyles.findIndex(p => p.name === name);
     if (at < 0) continue;
     const gone = play.lifestyles[at];
@@ -11443,11 +11542,8 @@ function lifestyleCard() {
             { kind: "lifestyle_month", name: ls.name });
           playChanged();
         }, "accent"),
-        el("button", { class: "row-del", title: "Remove lifestyle",
-          onclick: () => {
-            if (!confirm(`Remove ${ls.name}? Remaining prepaid months are lost.`)) return;
-            play.lifestyles.splice(i, 1); playChanged();
-          } }, "✕"))));
+        el("button", { class: "row-del", title: "Move out — settles any prepaid months",
+          onclick: () => { removeLifestyle(i); } }, "✕"))));
   });
   const activeLs = play.lifestyles.find(l => l.active);
   if (activeLs)
@@ -11464,6 +11560,10 @@ function lifestyleCard() {
       el("button", { class: "btn-add", onclick: () => {
         if (!addSel.value) return;
         play.lifestyles.push({ name: addSel.value, months: 0, active: !play.lifestyles.length });
+        // Moving back into somewhere you moved out of clears the drop record,
+        // so a chargen entry for it can top the months back up again (#93).
+        play.lifestyles_dropped = (play.lifestyles_dropped || [])
+          .filter(n => n !== addSel.value);
         playChanged();
       } }, "Add")));
   }
