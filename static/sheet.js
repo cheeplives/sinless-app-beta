@@ -3444,6 +3444,110 @@ function openAnchoredPopover({ kind, anchorSel, label, build, cls }) {
   return { refresh, close };
 }
 
+/* One modal dialog on document.body — the big-form sibling of
+ * openAnchoredPopover, for content too large for a 340px anchored box (a
+ * drone's full loadout, say) rather than a tile's popover.
+ *
+ * It borrows two things from two different places: the `.mount-modal`
+ * backdrop-and-card box (used at a dozen call sites, all copy-pasted, none of
+ * them accessible), and the popover's role/aria-modal, Tab trap, focus-in and
+ * focus-restore machinery (all of it, above). A dialog this size, opened from
+ * a button, is exactly the case where a keyboard user notices the gap.
+ *
+ * `restoreSel` is a SELECTOR, not a node, for the same reason `anchorSel` is
+ * on the popover: anything this dialog does re-renders the sheet behind it,
+ * so the button that opened it is a different node by the time we close.
+ *
+ * Unlike the popover, this does NOT close on page scroll or window resize —
+ * a form tall enough to need its own scrollbar is the point, not a reason to
+ * shut it. And it reuses `.mount-modal-backdrop`'s z-index (80), not the
+ * popover's (90), on purpose: `promptDisposal` opens its own z-80 backdrop
+ * from inside this one and relies on DOM order to paint above it. Raising
+ * this dialog's z-index would bury that prompt behind the dialog that opened
+ * it, so `isTop()` gates Escape/Tab/outside-click instead — the same problem
+ * a stack of promptDisposal-style dialogs would have if the popover's
+ * capture-phase Escape ever reached through them.
+ *
+ * `build(refresh, close)` returns the body's children and is called on open
+ * and on every `refresh()`; only `.sh-modal-body` is replaced, so the header
+ * and the box's own scroll position survive a redraw (openMountPicker's
+ * `card.innerHTML = ""` does not have this property).
+ *
+ * Returns { refresh, close }. */
+function openSheetModal({ title, sub, build, onClose, restoreSel, maxWidth }) {
+  const opener = document.activeElement;
+  const backdrop = el("div", { class: "mount-modal-backdrop" });
+  const modal = el("div", { class: "card mount-modal",
+    style: maxWidth ? `max-width:${maxWidth}` : "",
+    role: "dialog", "aria-modal": "true", tabindex: "-1" });
+  const isTop = () => {
+    const stack = document.querySelectorAll(".mount-modal-backdrop");
+    return stack.length && stack[stack.length - 1] === backdrop;
+  };
+
+  const focusables = () => Array.from(modal.querySelectorAll(POPOVER_FOCUS_SEL));
+  const focusInto = () => {
+    const first = focusables()[0];
+    (first || modal).focus({ preventScroll: true });
+  };
+
+  const close = () => {
+    const mine = modal.contains(document.activeElement)
+      || !document.activeElement || document.activeElement === document.body;
+    backdrop.remove();
+    document.removeEventListener("keydown", onKey, true);
+    document.removeEventListener("pointerdown", onOutside, true);
+    if (mine) {
+      const back = (opener && document.contains(opener)) ? opener
+        : (restoreSel ? document.querySelector(restoreSel) : null);
+      if (back && back.focus) back.focus({ preventScroll: true });
+    }
+    if (onClose) onClose();
+  };
+
+  const onKey = e => {
+    if (!isTop()) return;
+    if (e.key === "Escape") { close(); return; }
+    if (e.key !== "Tab") return;
+    const items = focusables();
+    if (!items.length) { e.preventDefault(); return; }
+    const active = document.activeElement;
+    const outside = !modal.contains(active);
+    const first = items[0], last = items[items.length - 1];
+    if (e.shiftKey ? (outside || active === first) : (outside || active === last)) {
+      e.preventDefault();
+      (e.shiftKey ? last : first).focus({ preventScroll: true });
+    }
+  };
+  // A pointerdown on the backdrop but outside the card closes it (the
+  // click-outside-to-dismiss every mount-modal site already has); `isTop()`
+  // stops a nested promptDisposal's own backdrop click from also closing us.
+  const onOutside = e => {
+    if (!isTop()) return;
+    if (e.target === backdrop) close();
+  };
+  document.addEventListener("keydown", onKey, true);
+  document.addEventListener("pointerdown", onOutside, true);
+
+  const head = el("div", { class: "sh-modal-head" },
+    el("h3", {}, title), el("button", { class: "row-del", title: "Close", onclick: close }, "✕"));
+  const body = el("div", { class: "sh-modal-body" });
+  modal.append(head);
+  appendIf(modal, sub ? el("p", { class: "hint" }, sub) : null);
+  modal.append(body);
+  backdrop.append(modal);
+  document.body.append(backdrop);
+
+  const refresh = () => {
+    const had = modal.contains(document.activeElement);
+    body.replaceChildren(...build(refresh, close));
+    if (had && !modal.contains(document.activeElement)) focusInto();
+  };
+  refresh();
+  focusInto();
+  return { refresh, close };
+}
+
 /* A popover's title bar, with the ✕ that closes it. */
 function popoverHead(title, close) {
   return el("div", { class: "sh-popover-head" }, title,
@@ -4861,11 +4965,7 @@ function unitGunControls(table, unit, wi, wn, wr, isEnergy, ammoMods = null,
  * (Oil Slick, Smokescreen). */
 function unitFireControls(table, u, wi, wn, hotseat) {
   const cfg = RIG_UNIT_CFG[table];
-  let wr = null;
-  for (const [tk, nc] of cfg.weaponTables) {
-    const found = DATA.tables[tk].find(x => x[nc] === wn);
-    if (found) { wr = found; break; }
-  }
+  const wr = unitFindWeaponRow(cfg, wn);
   if (!wr) return { wr: null, isEnergy: false, ammo: null, controls: null };
   // Energy mounts run on Heat and carry no Modes/Ammo columns at all.
   const isEnergy = wr["Heat Limit"] !== undefined || wr.Heat !== undefined;
@@ -11785,8 +11885,21 @@ function shDecking(body) {
  *
  * An unaffordable upgrade asks before overdrawing and snaps back if declined,
  * rather than leaving the unit improved and the balance negative. The previous
- * value rides in the ledger entry so Undo can put it back. */
-function unitConditionSelect(u, table, baseCost, mult) {
+ * value rides in the ledger entry so Undo can put it back.
+ *
+ * `after` is the commit hook (defaults to the old `playChangedRecalc`) so a
+ * caller embedding this in its own dialog — the Modify dialog (#87) — redraws
+ * itself rather than the whole sheet. A shared character gets plain text
+ * instead: `vehicleConditionSelect` renders a live, unguarded `<select>` (it
+ * has exactly one caller, this one), and bare selects are not in the
+ * `body.sheet-readonly` neutralize list the way `.btn-add`/`.row-del` are. */
+function unitConditionSelect(u, table, baseCost, mult, after = playChangedRecalc) {
+  const ro = !!(activeTabObj() && activeTabObj().readonly);
+  if (ro) {
+    const effect = RULES.VEHICLE_CONDITION_EFFECTS[u.condition || "Pristine"];
+    return el("div", { class: "sub" }, `Condition: ${u.condition || "Pristine"}`,
+      effect ? el("span", { style: "color:var(--manon)" }, ` — ${effect}`) : null);
+  }
   let previous = u.condition || "Pristine";
   const factor = c => RULES.VEHICLE_CONDITION_FACTORS[c] ?? 1;
   return vehicleConditionSelect(u, async () => {
@@ -11795,14 +11908,14 @@ function unitConditionSelect(u, table, baseCost, mult) {
         && !confirm(`Changing ${u.name} to ${u.condition} costs ${fmt(delta)} but you have `
           + `${fmt(CHAR.play.cash)}. Overdraw?`)) {
       u.condition = previous;
-      await playChangedRecalc();
+      await after();
       return;
     }
     if (delta !== 0)
       logCash(`${u.name}: condition ${previous} → ${u.condition}`, -delta,
         { kind: "unit_condition", table, name: u.name, from: previous });
     previous = u.condition;
-    await playChangedRecalc();
+    await after();
   });
 }
 /* ------------------------------------------------ rigging tab */
@@ -11866,20 +11979,29 @@ function removeUnitWeapon(u, wi, table) {
   playChangedRecalc();
 }
 
+// A unit's mounted weapon, found by name across its weapon tables (a drone's
+// two, ballistic and energy). Shared by unitAttachments, unitFireControls and
+// the Modify dialog, which all asked this same question with their own copy
+// of the loop.
+function unitFindWeaponRow(cfg, wn) {
+  for (const [tk, nc] of cfg.weaponTables) {
+    const wr = DATA.tables[tk].find(x => x[nc] === wn);
+    if (wr) return wr;
+  }
+  return null;
+}
+function unitFindModRow(cfg, mn) {
+  const [mtk, mnc] = cfg.modTable;
+  return DATA.tables[mtk].find(x => x[mnc] === mn) || null;
+}
+
 // Flatten a unit's fitted weapons + mods into one attachment list (each with its
 // effect) and tally the mod effects that change unit stats. Each name is
 // self-classified against the weapon/mod tables, so a mod that slipped into
 // u.weapons (older saves) still shows as a mod with the right effect.
 function unitAttachments(cfg, unit) {
-  const findWeapon = wn => {
-    for (const [tk, nc] of cfg.weaponTables) {
-      const wr = DATA.tables[tk].find(x => x[nc] === wn);
-      if (wr) return wr;
-    }
-    return null;
-  };
-  const [mtk, mnc] = cfg.modTable;
-  const findMod = mn => DATA.tables[mtk].find(x => x[mnc] === mn) || null;
+  const findWeapon = wn => unitFindWeaponRow(cfg, wn);
+  const findMod = mn => unitFindModRow(cfg, mn);
 
   const weapons = unit.weapons || [];
   const mods = unit.mods || [];
@@ -12114,14 +12236,16 @@ function unitRepairCostPerBox(cfg, unit) {
    box grid: vehicle Body reaches 48, which would be 96 clickable boxes and
    ~500px per unit. A counter is constant height at any Body, and typing "37"
    beats hunting for the 37th box. */
+/* The two damage bars for one unit. Marking damage is what you do constantly
+ * (in a chase, every hit), so both bars and their +/- counters stay on the
+ * Rigging tab's own card; buying the repair is what you do between runs, so
+ * that lives in the Modify dialog instead — see unitRepairControls. */
 function unitConditionTracks(cfg, unit, st, label) {
-  // A shared character is read-only: show both tracks, but no marking, no
-  // repairing and no cash movement.
+  // A shared character is read-only: show both tracks, but no marking.
   const ro = !!(activeTabObj() && activeTabObj().readonly);
   const max = unitEffectiveBody(cfg, unit);
   st.physical = Math.min(Math.max(0, toInt(st.physical)), max);
   st.integrity = Math.min(Math.max(0, toInt(st.integrity)), max);
-  const perBox = unitRepairCostPerBox(cfg, unit);
   const wrap = el("div", { class: "sh-unit-tracks" });
   if (!max) {
     wrap.append(el("p", { class: "hint" },
@@ -12129,28 +12253,48 @@ function unitConditionTracks(cfg, unit, st, label) {
     return wrap;
   }
 
-  /* One track: label, counter, "n / max", a proportional fill bar, and whatever
-     repair control the track uses. `kind` picks the colour (physical / integrity). */
-  const track = (kind, labelText, get, set, note, controls) => {
+  /* One track: label, counter, "n / max", a proportional fill bar. `kind`
+     picks the colour (physical / integrity). */
+  const track = (kind, labelText, get, set) => {
     const countText = el("span", { class: "sub sh-track-count" }, `${get()} / ${max}`);
     const fill = el("div", { class: `sh-bar-fill ${kind}`,
       style: `width:${max ? (get() / max) * 100 : 0}%` });
     const bar = el("div", { class: "sh-bar", role: "img",
       "aria-label": `${label} ${labelText.toLowerCase()} ${get()} of ${max}` }, fill);
     // miniCounter renders its own label and calls playChanged() itself, so pass
-    // an empty one (the coloured label above is ours) and leave the setter pure
-    // — matching the Damage / Inertia counters on the same row.
+    // an empty one (the coloured label above is ours) and leave the setter pure.
     const counter = ro ? null : miniCounter("", get, v => { set(v); }, 0, max);
     return el("div", { class: "sh-track" },
       el("div", { class: "sh-track-head" },
         el("span", { class: kind === "physical" ? "phys-lbl" : "stun-lbl" }, labelText),
-        counter, countText,
-        el("span", { class: "sub" }, `· ${note}`)),
-      bar,
-      ro ? null : controls);
+        counter, countText),
+      bar);
   };
 
-  // --- Physical Condition Track: repaired for cash, per box.
+  wrap.append(track("physical", "PHYSICAL CONDITION",
+    () => st.physical, v => { st.physical = v; }));
+  wrap.append(track("integrity", "VEHICLE INTEGRITY",
+    () => st.integrity, v => { st.integrity = v; }));
+  return wrap;
+}
+
+/* Repair (priced, per box) and Clear (free) — the half of the condition tracks
+ * that moves cash, split out for the Modify dialog (#87). `after` is the
+ * commit hook so the dialog redraws itself instead of the whole sheet; the
+ * card's own call sites never had a reason to pass one, so it defaults to the
+ * old behaviour. Re-derives `max`/`perBox`/`ro` rather than trusting
+ * unitConditionTracks to have run first — this can be the only thing on
+ * screen for a unit, inside the dialog. Returns null when there's nothing to
+ * show (no condition boxes, or read-only). */
+function unitRepairControls(cfg, unit, st, label, after = playChangedRecalc) {
+  const ro = !!(activeTabObj() && activeTabObj().readonly);
+  if (ro) return null;
+  const max = unitEffectiveBody(cfg, unit);
+  if (!max) return null;
+  st.physical = Math.min(Math.max(0, toInt(st.physical)), max);
+  st.integrity = Math.min(Math.max(0, toInt(st.integrity)), max);
+  const perBox = unitRepairCostPerBox(cfg, unit);
+
   const repairQty = el("input", { type: "number", min: "1", max: String(max),
     value: "1", class: "sv-edit", style: "width:56px",
     title: "How many boxes to repair" });
@@ -12164,7 +12308,7 @@ function unitConditionTracks(cfg, unit, st, label) {
   const repairBtn = el("button", { class: "btn small",
     disabled: st.physical ? null : "1",
     title: st.physical ? `Repair at ${fmt(perBox)} per box` : "No damage to repair",
-    onclick: () => {
+    onclick: async () => {
       const want = Math.max(1, Math.min(st.physical, parseInt(repairQty.value, 10) || 1));
       const cost = want * perBox;
       if (CHAR.play.cash < cost
@@ -12172,33 +12316,228 @@ function unitConditionTracks(cfg, unit, st, label) {
         return;
       st.physical -= want;
       logCash(`Repaired ${want} Physical Condition box(es) on ${label}`, -cost);
-      playChangedRecalc();
+      await after();
     } }, "Repair");
   const repairAllBtn = el("button", { class: "btn small",
     disabled: st.physical ? null : "1",
     title: st.physical ? `Repair all ${st.physical} — ${fmt(st.physical * perBox)}` : "No damage to repair",
-    onclick: () => {
+    onclick: async () => {
       const want = st.physical, cost = want * perBox;
       if (CHAR.play.cash < cost
           && !confirm(`Full repair costs ${fmt(cost)} but you have ${fmt(CHAR.play.cash)}. Overdraw?`))
         return;
       st.physical = 0;
       logCash(`Repaired ${want} Physical Condition box(es) on ${label}`, -cost);
-      playChangedRecalc();
+      await after();
     } }, "Repair all");
-  wrap.append(track("physical", "PHYSICAL CONDITION",
-    () => st.physical, v => { st.physical = v; },
-    `${fmt(perBox)} per box to repair`,
-    el("div", { class: "add-row" }, repairQty, repairBtn, repairPrice, repairAllBtn)));
+  const clearAllBtn = el("button", { class: "btn small", disabled: st.integrity ? null : "1",
+    title: "Clear the whole Integrity track (no cost)",
+    onclick: async () => { st.integrity = 0; await after(); } }, "Clear all");
 
-  // --- Vehicle Integrity Track: same size, free to clear.
-  wrap.append(track("integrity", "VEHICLE INTEGRITY",
-    () => st.integrity, v => { st.integrity = v; }, "free to repair",
-    el("div", { class: "add-row" },
-      el("button", { class: "btn small", disabled: st.integrity ? null : "1",
-        title: "Clear the whole Integrity track (no cost)",
-        onclick: () => { st.integrity = 0; playChangedRecalc(); } }, "Clear all"))));
-  return wrap;
+  return el("div", { class: "sh-unit-repair" },
+    el("div", { class: "sh-cal-legend" }, "Repair Physical Condition"),
+    el("div", { class: "sub" }, `${fmt(perBox)} per box`),
+    el("div", { class: "add-row" }, repairQty, repairBtn, repairPrice, repairAllBtn),
+    el("div", { class: "sh-cal-legend", style: "margin-top:10px" }, "Vehicle Integrity"),
+    el("div", { class: "sub" }, "Free to clear"),
+    el("div", { class: "add-row" }, clearAllBtn));
+}
+
+/* Small pieces the Modify dialog (below) shares with unitBlock, lifted to
+ * module scope so both can reach them without either closing over the
+ * other's state. */
+
+// Only a vehicle's base chassis carries the small-heritage surcharge; fitted
+// weapons/mods (and everything on a drone) pay face value — see unitBlock.
+function unitBaseMult(cfg) {
+  const base = CALC.budget.gear_cost_multiplier || 1;
+  return cfg.table === "vehicles" ? RULES.surchargeFor("vehicle", base) : 1;
+}
+
+/* The Modify dialog's body for one drone or vehicle (#87): everything about
+ * outfitting it that only occasionally comes up — rename, chassis condition,
+ * repair, weapons, and mods — moved off the always-visible Rigging-tab card
+ * and behind one button, which is what the card itself keeps: its stats, its
+ * damage bars, and its deploy toggles.
+ *
+ * Re-derives `en` (and through it, the joined-list index and `key`) on every
+ * call rather than capturing them once: `u` is the only thing guaranteed
+ * stable across a refresh (kitOf returns a persistent array, so identity
+ * survives), while a position in the joined list does not. If the unit is
+ * gone — sold from the card while this was open — the dialog closes itself
+ * rather than rendering against a unit that no longer exists.
+ *
+ * No `.sh-fire` here and no ammo picker: unitGunControls bundles the loaded-
+ * round select into the same block as Fire/Reload/Aimed Fire, and firing
+ * lives exclusively in the rollup and the Overview (#87) — this dialog never
+ * reads or writes unitGunState, which is what keeps the shared-magazine
+ * invariant (P06-067/068) untouched by this change. */
+function unitModifyBody(table, u, refresh, commit, close) {
+  const cfg = RIG_UNIT_CFG[table];
+  const entries = table === "drones" ? ownedDrones() : ownedVehicles();
+  const i = entries.findIndex(e => e.ref === u);
+  if (i < 0) { close(); return []; }
+  const en = entries[i];
+  const key = `${table}:${i}`;
+  const rg = rigFlags();
+  const st = rg.units[key] = rg.units[key] || { inertia: 0, physical: 0, integrity: 0 };
+  const r = DATA.tables[cfg.table].find(x => x[cfg.nameKey] === u.name) || {};
+  const ro = !!(activeTabObj() && activeTabObj().readonly);
+  const baseMult = unitBaseMult(cfg);
+  const mult = 1;   // fitted weapons & mods — never surcharged
+  u.weapons = u.weapons || []; u.mods = u.mods || [];
+
+  const [mtk, mnc] = cfg.modTable;
+  const weaponScopedMods = DATA.tables[mtk].filter(x => x.Target === "weapon");
+  const unitScopedMods = DATA.tables[mtk].filter(x => x.Target !== "weapon");
+  const buyMod = (name, targetLabel) => {
+    const mr = unitFindModRow(cfg, name) || {};
+    const cost = Math.round((+mr.Cost || 0) * mult);
+    if (CHAR.play.cash < cost
+        && !confirm(`${name} costs ${fmt(cost)} but you have ${fmt(CHAR.play.cash)}. Overdraw?`)) return false;
+    logCash(`Fitted ${name} to ${targetLabel}`, -cost);
+    return true;
+  };
+
+  // Classify existing mods: those attached to a weapon vs unit-scoped (which
+  // also catches legacy untargeted mods so they stay removable) — same split
+  // unitBlock makes, needed here for the same reason.
+  const weaponModIdx = u.weapons.map(() => []);
+  const unitModIdx = [];
+  u.mods.forEach((m, mi) => {
+    const wi = modWeaponIdx(m);
+    if (wi != null && wi >= 0 && wi < u.weapons.length) weaponModIdx[wi].push(mi);
+    else unitModIdx.push(mi);
+  });
+
+  const weaponRows = u.weapons.map((wn, wi) => {
+    const wr = unitFindWeaponRow(cfg, wn) || {};
+    const effect = wr.Effect || wr.ModeEffect || "";
+    const bits = [];
+    if (wr.Damage) bits.push(`DMG ${wr.Damage}`);
+    if (wr.Pen && wr.Pen !== "N/A") bits.push(`Pen ${wr.Pen}`);
+    if (wr.Ammo) bits.push(`Ammo ${wr.Ammo}`);
+    const modChips = weaponModIdx[wi].map(mi => {
+      const nm = modName(u.mods[mi]);
+      return el("span", { class: "chip", style: "margin:2px 4px 0 0;cursor:pointer",
+        title: "Sell or remove mod",
+        onclick: async () => {
+          if (await disposeOfUnitMod(en, mi, nm, wn,
+            Math.round((+(unitFindModRow(cfg, nm) || {}).Cost || 0) * mult))) refresh();
+        } }, nm + " ✕");
+    });
+    const addWeaponMod = (!ro && weaponScopedMods.length) ? fittedCategoryEditor({
+      id: `rig-dlg-wm-${wi}`, items: [],
+      groups: modGroups(weaponScopedMods, mnc, null, "Weapon mods"),
+      onAdd: name => { if (buyMod(name, wn)) u.mods.push({ name, weapon: wi }); },
+      onRemove: () => {}, rerender: refresh, afterAdd: commit,
+    }) : null;
+    return el("div", { class: "sub", style: "margin:4px 0" },
+      ro
+        ? el("b", {}, wn)
+        : el("span", { class: "chip", style: "cursor:pointer", title: "Sell or remove weapon",
+            onclick: async () => {
+              const result = await promptDisposal(wn,
+                Math.round((+(unitFindWeaponRow(cfg, wn) || {}).Cost || 0) * mult));
+              if (!result) return;
+              removeUnitWeapon(u, wi, cfg.table);   // re-keys unitGunState past this index
+              logCash(`${result.sold ? "Sold" : "Lost"} ${wn} (off ${u.label || u.name})`,
+                result.sold ? result.amount : 0);
+              await playChangedRecalc();
+              refresh();
+            } }, wn + " ✕"),
+      bits.length ? ` ${bits.join(" · ")}` : "",
+      effect ? el("div", { class: "sub", style: "margin:2px 0 0 4px;color:var(--manon)" }, effect) : null,
+      modChips.length ? el("div", { style: "margin:2px 0 0 4px" }, ...modChips) : null,
+      addWeaponMod ? el("div", { class: "sub", style: "margin:2px 0 0 4px" },
+        el("b", {}, "Weapon mod "), addWeaponMod) : null);
+  });
+
+  const modRows = unitModIdx.map(mi => {
+    const nm = modName(u.mods[mi]);
+    const mr = unitFindModRow(cfg, nm) || {};
+    const effect = mr.Effect || mr.ModeEffect || "";
+    return el("div", { class: "sub" },
+      ro
+        ? el("b", {}, nm)
+        : el("span", { class: "chip", style: "margin:2px 4px 0 0;cursor:pointer",
+            title: "Sell or remove mod",
+            onclick: async () => {
+              if (await disposeOfUnitMod(en, mi, nm, u.label || u.name,
+                Math.round((+mr.Cost || 0) * mult))) refresh();
+            } }, nm + " ✕"),
+      effect ? el("span", { style: "color:var(--manon)" }, effect) : null);
+  });
+
+  const weaponGroups = cfg.weaponTables.map(([tk, nc]) => ({
+    label: nc.replace(cfg.nameKey, "").trim() || nc,
+    items: DATA.tables[tk].map(x => ({ name: x[nc], cost: Math.round((+x.Cost || 0) * mult),
+      sub: `DMG ${x.Damage || "—"}${x.Ammo ? " · Ammo " + x.Ammo : ""}`
+        + ((x.Effect || x.ModeEffect) ? " · " + (x.Effect || x.ModeEffect) : "") })),
+  }));
+  const addWeapon = ro ? null : fittedCategoryEditor({
+    id: "rig-dlg-w", items: [], groups: weaponGroups,
+    onAdd: name => {
+      const wr = unitFindWeaponRow(cfg, name) || {};
+      const cost = Math.round((+wr.Cost || 0) * mult);
+      if (CHAR.play.cash < cost
+          && !confirm(`${name} costs ${fmt(cost)} but you have ${fmt(CHAR.play.cash)}. Overdraw?`)) return;
+      u.weapons.push(name);
+      logCash(`Mounted ${name} on ${u.label || u.name}`, -cost);
+    },
+    onRemove: () => {}, rerender: refresh, afterAdd: commit,
+  });
+  const addMod = ro ? null : fittedCategoryEditor({
+    id: "rig-dlg-m", items: [],
+    groups: modGroups(unitScopedMods, mnc, null, `${cfg.nameKey} Mods`),
+    onAdd: name => { if (buyMod(name, u.label || u.name)) u.mods.push(name); },
+    onRemove: () => {}, rerender: refresh, afterAdd: commit,
+  });
+
+  const nameRow = ro
+    ? el("div", { class: "sub" }, el("b", {}, u.label || u.name))
+    : el("div", { class: "sh-unit-title" },
+        el("input", { type: "text", class: "sh-unit-name",
+          value: u.label || "", placeholder: u.name,
+          title: `Rename this ${cfg.title.replace(/s$/, "").toLowerCase()} (blank uses "${u.name}")`,
+          onchange: async e => { u.label = e.target.value.trim(); await commit(); } }));
+
+  const summary = (table === "drones" ? CALC.drones : CALC.vehicles || [])[i] || {};
+  const summaryLine = el("p", { class: "hint" },
+    `${cfg.title.replace(/s$/, "")} · weapons `
+    + `${summary.weapon_count ?? u.weapons.length}/${summary.weapon_cap ?? cfg.capOf(r)}`
+    + ` · ${fmt(CHAR.play.cash)} on hand`);
+
+  return [
+    nameRow, summaryLine,
+    unitConditionSelect(u, cfg.table, +r.Cost || 0, baseMult, commit),
+    unitRepairControls(cfg, u, st, u.label || u.name, commit),
+    el("div", { class: "sh-cal-legend", style: "margin-top:10px" }, `Weapons (${u.weapons.length})`),
+    weaponRows.length ? el("div", {}, ...weaponRows) : el("p", { class: "hint" }, "Nothing mounted."),
+    addWeapon ? el("div", { class: "sh-unit-add" }, el("b", {}, "Add weapon"), addWeapon) : null,
+    el("div", { class: "sh-cal-legend", style: "margin-top:10px" }, `Mods (${u.mods.length})`),
+    modRows.length ? el("div", {}, ...modRows) : el("p", { class: "hint" }, "Nothing fitted."),
+    addMod ? el("div", { class: "sh-unit-add" }, el("b", {}, "Add unit mod"), addMod) : null,
+  ].filter(Boolean);
+}
+
+/* Opens the Modify dialog for one unit (#87). Writes route through `commit`
+ * rather than `playChangedRecalc`, so the dialog redraws itself instead of the
+ * whole sheet behind a 55%-black backdrop — `dirty` remembers whether anything
+ * actually changed, and the sheet catches up in one `renderSheet()` on close. */
+function openUnitModify(table, u) {
+  const key = unitStateKey(table, u);
+  const ro = !!(activeTabObj() && activeTabObj().readonly);
+  let dirty = false;
+  openSheetModal({
+    title: `${ro ? "View" : "Modify"} ${u.label || u.name}`,
+    restoreSel: `[data-modify-key="${CSS.escape(key)}"]`,
+    build: (refresh, close) => {
+      const commit = async () => { schedulePlaySave(); await recalc(); dirty = true; refresh(); };
+      return unitModifyBody(table, u, refresh, commit, close);
+    },
+    onClose: () => { if (dirty) renderSheet(); },
+  });
 }
 
 /* Unit | Stats | Attachments table for drones/vehicles. Shared by the Rigging
@@ -12215,7 +12554,14 @@ function unitLoadoutTable(entries, mode = "inventory") {
   const t = el("table");
   t.append(el("tr", {}, el("th", {}, "Unit"), el("th", {}, "Stats"),
     el("th", {}, "Weapons & mods")));
-  entries.forEach(({ table, u }) => {
+  const station = mode === "station";
+  // Seated units first: a Master VCR flying four things buries the one you're
+  // actually piloting among the ones just riding the link. Stable, and station
+  // mode only — the Gear tab's inventory order must not move.
+  const ordered = station
+    ? entries.slice().sort((a, b) => (b.hotseat ? 1 : 0) - (a.hotseat ? 1 : 0))
+    : entries;
+  ordered.forEach(({ table, u }) => {
     const cfg = RIG_UNIT_CFG[table];
     const r = DATA.tables[table].find(x => x[cfg.nameKey] === u.name) || {};
     const { items, statMods } = unitAttachments(cfg, u);
@@ -12248,7 +12594,6 @@ function unitLoadoutTable(entries, mode = "inventory") {
       ? `Physical ${Math.min(toInt(dst.physical), body)} / ${body}`
         + ` · Integrity ${Math.min(toInt(dst.integrity), body)} / ${body}`
       : "";
-    const station = mode === "station";
     const rg = station ? rigFlags() : null;
     // On station, every mount gets its Fire / Reload / Aimed Fire controls right
     // here. This rollup is the list of what is deployed, so it is where you look
@@ -12271,18 +12616,26 @@ function unitLoadoutTable(entries, mode = "inventory") {
             ? unitFireControls(table, u, it.wi, it.name, hotseated).controls
             : null)))
       : "—";
-    t.append(el("tr", {},
+    // State chips, AFTER the label/name/type lines so a reader (and P06-068's
+    // `innerText.split("\n")[0]`) still gets the label first. `SEAT — NO CORE`
+    // is the one genuinely new fact here: a VCR downgrade truncates seats
+    // (P06-066) and until now nothing on screen said which ones stopped
+    // flying — deployedUnits() is the one true answer (`hotseated` above),
+    // so a raw `rg.hotseat[key]` that disagrees with it is exactly that unit.
+    const wantsSeat = station && !!rg.hotseat[key];
+    const stateChips = station
+      ? el("div", { class: "sh-tagrow", style: "margin:3px 0" },
+          rg.linked[key] ? el("span", { class: "chip" }, "LINK") : null,
+          rg.active[key] ? el("span", { class: "chip ok" }, "ACTIVE") : null,
+          hotseated ? el("span", { class: "chip seat" }, "HOTSEAT") : null,
+          (wantsSeat && !hotseated) ? el("span", { class: "chip neg" }, "SEAT — NO CORE") : null)
+      : null;
+    t.append(el("tr", { class: station ? "sh-station-row" + (hotseated ? " seated" : " deployed") : "" },
       el("td", {}, el("b", {}, u.label || u.name),
         u.label ? el("div", { class: "sub" }, u.name) : null,
         el("div", { class: "sub" }, cfg.title.replace(/s$/, "")),
-        station
-          ? el("div", {},
-              el("div", { class: "sub" },
-                rg.linked[key] ? "VCR link" : null,
-                (rg.linked[key] && rg.active[key]) ? " · " : null,
-                rg.active[key] ? "Active" : null),
-              shHotseatToggle(key, u))
-          : shCarriedToggle(u)),
+        station ? stateChips : null,
+        station ? shHotseatToggle(key, u) : shCarriedToggle(u)),
       el("td", { class: "sub" }, stats,
         dmgLine ? el("div", { class: "sh-unit-dmg" }, dmgLine) : null),
       el("td", {}, attachCell)));
@@ -12382,25 +12735,36 @@ function shRigging(body) {
         CHAR.play.purchases.rigs.push({ name, mods: [] });
         logCash(`Bought ${name}`, -cost, { kind: "rig", name });
       } })));
-  body.append(rigCard);
-
   // On-station summary: everything riding a VCR link OR running Active.
   // Link keys index the joined list, the same one unitStateKey uses.
+  //
+  // Rendered FIRST, ahead of the VCR card (#87): this is the one card touched
+  // mid-scene — what's deployed, what's seated, what to fire — and it used to
+  // sit below a card you consult once a session. Renders only when something
+  // is actually deployed, so a rigger who hasn't launched anything still
+  // opens on the VCR card, which is the right screen for them.
   const activeUnits = deployedUnits();
   if (activeUnits.length) {
+    const cores = hotseatCapacity();
+    const seated = activeUnits.filter(d => d.hotseat).length;
     body.append(el("div", { class: "card sh-card" },
       el("h3", {}, "Active drones & vehicles"),
       el("p", { class: "hint" },
+        `${activeUnits.length} deployed`
+        + (cores ? ` · ${seated} of ${cores} core${cores === 1 ? "" : "s"} flying` : "")
+        + (activeRig ? ` · ${linkedCount()} of ${linkLimit} VCR link${linkLimit === 1 ? "" : "s"} used` : "")),
+      el("p", { class: "hint" },
         "Anything on a VCR link or ticked Active. "
-        + (hotseatCapacity()
+        + (cores
             ? `Hotseat marks the ones you're piloting — up to the ${rg.active_rig}'s `
-              + `${hotseatCapacity()} core${hotseatCapacity() === 1 ? "" : "s"}. `
+              + `${cores} core${cores === 1 ? "" : "s"}. `
               + "Each seat's stats and guns move to the Overview, above your own weapons"
               + (hotseatBonusDice() ? `, and its rolls gain +${hotseatBonusDice()}d.` : ".")
-            : "No VCR owned, so nothing can be hotseated — buy a rig above. "
+            : "No VCR owned, so nothing can be hotseated — buy a rig below. "
               + "A rig's cores are how many units you can pilot at once.")),
       unitLoadoutTable(activeUnits, "station")));
   }
+  body.append(rigCard);
 
   /* `entries` is the joined chargen-then-play list from ownedSplit, so `i` is
      the combined index every play-state key uses and `arr`/`localIndex` is
@@ -12418,162 +12782,17 @@ function shRigging(body) {
       const { arr: unitArr, i: localIndex, inPlay, category } = en;
       // The unit is play's own copy, so reads and writes are the same object.
       const u = en.ref;
-      const edit = () => u;
       const r = DATA.tables[cfg.table].find(x => x[cfg.nameKey] === u.name) || {};
       const summary = (calcArr || [])[i] || {};
       const key = `${cfg.table}:${i}`;
       const st = rg.units[key] = rg.units[key] || { inertia: 0, physical: 0, integrity: 0 };
       u.weapons = u.weapons || []; u.mods = u.mods || [];
 
-      // Editable custom name. `type: "text"` matters -- the global input styling
-      // is keyed on input[type=text], which a bare <input> does not match, so
-      // without it this fell through to the browser's white default box.
-      const nameInput = el("input", { type: "text", class: "sh-unit-name",
-        value: u.label || "", placeholder: u.name,
-        title: `Rename this ${cfg.title.replace(/s$/, "").toLowerCase()} (blank uses "${u.name}")`,
-        onchange: e => { u.label = e.target.value.trim(); playChanged(); } });
-
-      const findWeapon = wn => {
-        for (const [tk, nc] of cfg.weaponTables) {
-          const wr = DATA.tables[tk].find(x => x[nc] === wn);
-          if (wr) return wr;
-        }
-        return null;
-      };
-      const [mtk, mnc] = cfg.modTable;
-      const findMod = mn => DATA.tables[mtk].find(x => x[mnc] === mn) || null;
-      const weaponScopedMods = DATA.tables[mtk].filter(x => x.Target === "weapon");
-      const unitScopedMods = DATA.tables[mtk].filter(x => x.Target !== "weapon");
-      const buyMod = (name, targetLabel) => {
-        const mr = findMod(name) || {};
-        const cost = Math.round((+mr.Cost || 0) * mult);
-        if (CHAR.play.cash < cost
-            && !confirm(`${name} costs ${fmt(cost)} but you have ${fmt(CHAR.play.cash)}. Overdraw?`)) return false;
-        logCash(`Fitted ${name} to ${targetLabel}`, -cost);
-        return true;
-      };
-      // Classify existing mods: those attached to a weapon vs unit-scoped (which
-      // also catches legacy untargeted mods so they stay removable).
-      const weaponModIdx = u.weapons.map(() => []);
-      const unitModIdx = [];
-      u.mods.forEach((m, mi) => {
-        const wi = modWeaponIdx(m);
-        if (wi != null && wi >= 0 && wi < u.weapons.length) weaponModIdx[wi].push(mi);
-        else unitModIdx.push(mi);
-      });
-
-      // fitted weapons — each shows its stats, effect, its attached weapon-mods
-      // (with removal), doubled ammo when an ammo-mod is attached, and a picker
-      // for weapon-scoped mods bound to that specific weapon.
-      const weaponRows = u.weapons.map((wn, wi) => {
-        const wr = findWeapon(wn) || {};
-        const doubles = weaponModIdx[wi].some(mi => modDoublesAmmo(findMod(modName(u.mods[mi]))));
-        const effect = wr.Effect || wr.ModeEffect || "";
-        const modChips = weaponModIdx[wi].map(mi => {
-          const nm = modName(u.mods[mi]);
-          return el("span", { class: "chip", style: "margin:2px 4px 0 0;cursor:pointer",
-            title: "Sell or remove mod",
-            onclick: () => disposeOfUnitMod(en, mi, nm, wn,
-              Math.round((+(findMod(nm) || {}).Cost || 0) * mult)) },
-            nm + " ✕");
-        });
-        const addWeaponMod = weaponScopedMods.length ? fittedCategoryEditor({
-          id: `rig-wm-${key}-${wi}`, items: [],
-          groups: modGroups(weaponScopedMods, mnc, null, "Weapon mods"),
-          onAdd: name => { if (buyMod(name, wn)) edit().mods.push({ name, weapon: wi }); },
-          onRemove: () => {}, rerender: renderSheet, afterAdd: () => playChangedRecalc(),
-        }) : null;
-        // Energy mounts run on Heat and carry no Modes/Ammo columns at all.
-        const isEnergy = wr["Heat Limit"] !== undefined || wr.Heat !== undefined;
-        // The loaded round shifts what the mount actually puts downrange --
-        // resolved before the fire controls, which need it for the magazine
-        // and the firing modes it leaves the mount (#86).
-        const uAmmo = isEnergy ? { row: null, name: "", mods: RULES.ammoStatMods(""), notes: [] }
-                               : unitLoadedAmmo(cfg.table, u, wi, wn);
-        const fireCtl = unitGunControls(cfg.table, u, wi, wn, wr, isEnergy,
-          uAmmo.row ? uAmmo.mods : null, isHotseated(cfg.table, u));
-        // The round adjusts the magazine before the ammo-mod doubles it: the
-        // mount holds however many of THESE rounds, twice over.
-        const uMag = uAmmo.row
-          ? (RULES.applyAmmoToRow({ Ammo: wr.Ammo }, wr, uAmmo.mods).Ammo ?? wr.Ammo)
-          : wr.Ammo;
-        const ammo = uMag ? (doubles ? `${scaleAmmo(uMag, 2)} (×2)` : uMag) : "";
-        const uBase = { acc: wr.Accuracy || 0, damage: wr.Damage || "—", pen: wr.Pen || 0 };
-        const uShot = uAmmo.row ? RULES.applyAmmoStats(uBase, uAmmo.mods) : uBase;
-        const uBit = (label, key) => el("span",
-          (uAmmo.row && String(uShot[key]) !== String(uBase[key]))
-            ? { class: "wpn-ammo-mod", title: `${uAmmo.name} loaded` } : {},
-          `${label} ${uShot[key]}`);
-        return el("div", { class: "sub", style: "margin:4px 0" },
-          el("span", { class: "chip", style: "cursor:pointer", title: "Sell or remove weapon",
-            onclick: async () => {
-              const result = await promptDisposal(wn,
-                Math.round((+(findWeapon(wn) || {}).Cost || 0) * mult));
-              if (!result) return;
-              removeUnitWeapon(edit(), wi, cfg.table);
-              logCash(`${result.sold ? "Sold" : "Lost"} ${wn} (off ${u.label || u.name})`,
-                result.sold ? result.amount : 0);
-              await playChangedRecalc();
-            } }, wn + " ✕"),
-          " ", uBit("DMG", "damage"), " · ", uBit("Acc", "acc"),
-          (ammo ? ` · Mag ${ammo}` : ""),
-          wr.Pen ? el("span", {}, " · ") : null, wr.Pen ? uBit("Pen", "pen") : null,
-          fireCtl,
-          uAmmo.notes.length
-            ? el("div", { class: "sub wpn-ammo-note", style: "margin-left:4px" },
-                `${uAmmo.name}: ${uAmmo.notes.join(" · ")}`) : null,
-          effect ? el("div", { class: "sub", style: "margin:2px 0 0 4px;color:var(--manon)" }, effect) : null,
-          modChips.length ? el("div", { style: "margin:2px 0 0 4px" }, ...modChips) : null,
-          addWeaponMod ? el("div", { class: "sub", style: "margin:2px 0 0 4px" },
-            el("b", {}, "Weapon mod "), addWeaponMod) : null);
-      });
-
-      // unit-scoped mods (armor, hardening, …)
-      const modRows = unitModIdx.map(mi => {
-        const nm = modName(u.mods[mi]);
-        const mr = findMod(nm) || {};
-        const effect = mr.Effect || mr.ModeEffect || "";
-        return el("div", { class: "sub" },
-          el("span", { class: "chip", style: "margin:2px 4px 0 0;cursor:pointer",
-            title: "Sell or remove mod",
-            onclick: () => disposeOfUnitMod(en, mi, nm, u.label || u.name,
-              Math.round((+mr.Cost || 0) * mult)) }, nm + " ✕"),
-          effect ? el("span", { style: "color:var(--manon)" }, effect) : null);
-      });
-
-      // add-weapon picker (nested by weapon table)
-      const weaponGroups = cfg.weaponTables.map(([tk, nc]) => ({
-        label: nc.replace(cfg.nameKey, "").trim() || nc,
-        items: DATA.tables[tk].map(x => ({ name: x[nc], cost: Math.round((+x.Cost || 0) * mult),
-          sub: `DMG ${x.Damage || "—"}${x.Ammo ? " · Ammo " + x.Ammo : ""}`
-            + ((x.Effect || x.ModeEffect) ? " · " + (x.Effect || x.ModeEffect) : "") })),
-      }));
-      const addWeapon = fittedCategoryEditor({
-        id: `rig-w-${key}`, items: [], groups: weaponGroups,
-        onAdd: name => {
-          const wr = findWeapon(name) || {};
-          const cost = Math.round((+wr.Cost || 0) * mult);
-          if (CHAR.play.cash < cost
-              && !confirm(`${name} costs ${fmt(cost)} but you have ${fmt(CHAR.play.cash)}. Overdraw?`)) return;
-          edit().weapons.push(name);
-          logCash(`Mounted ${name} on ${u.label || u.name}`, -cost);
-        },
-        onRemove: () => {}, rerender: renderSheet, afterAdd: () => playChangedRecalc(),
-      });
-      // unit-level add-mod picker (unit-scoped mods only; weapon mods are added
-      // per-weapon above)
-      const addMod = fittedCategoryEditor({
-        id: `rig-m-${key}`, items: [],
-        groups: modGroups(unitScopedMods, mnc, null, `${cfg.nameKey} Mods`),
-        onAdd: name => { if (buyMod(name, u.label || u.name)) edit().mods.push(name); },
-        onRemove: () => {}, rerender: renderSheet, afterAdd: () => playChangedRecalc(),
-      });
-
       // link-to-VCR toggle (capped at the active VCR's links)
       const isLinked = !!rg.linked[key];
       const linkToggle = el("label", { class: "opt" },
         el("input", { type: "checkbox", ...(isLinked ? { checked: 1 } : {}),
-          disabled: (!activeRig || (!isLinked && linkedCount() >= linkLimit)) ? "1" : null,
+          disabled: (unitReadonly || !activeRig || (!isLinked && linkedCount() >= linkLimit)) ? "1" : null,
           onchange: e => {
             if (e.target.checked && linkedCount() >= linkLimit) {
               alert(`Active VCR links only ${linkLimit} unit(s).`); e.target.checked = false; return;
@@ -12591,25 +12810,46 @@ function shRigging(body) {
           title: passive ? `Deployed off-link — grants: ${passive}`
                          : "Deployed off-link (this drone has no passive effect of its own)" },
         el("input", { type: "checkbox", ...(isActive ? { checked: 1 } : {}),
+          disabled: unitReadonly ? "1" : null,
           onchange: e => {
             rg.active[key] = e.target.checked; playChanged();
             renderSheet();
           } }),
         el("span", {}, "Active")) : null;
 
-      // Weapons + mods live in their own column (below), so they're always
-      // visible alongside the condition tracks instead of collapsed.
-      const wCount = u.weapons.length, mCount = u.mods.length;
-      const attachments = el("div", { class: "sh-unit-attach" },
-        el("div", { class: "sh-attach-head" },
-          `Weapons & mods (${wCount} weapon${wCount === 1 ? "" : "s"}, ${mCount} mod${mCount === 1 ? "" : "s"})`),
-        weaponRows.length ? el("div", {}, ...weaponRows) : null,
-        modRows.length ? el("div", { class: "sub" }, el("b", {}, "Mods:"), ...modRows) : null,
-        (!weaponRows.length && !modRows.length)
-          ? el("p", { class: "hint" }, "Nothing fitted yet.") : null,
-        el("div", { class: "sh-unit-add" },
-          el("div", { class: "sub" }, el("b", {}, "Add weapon"), addWeapon),
-          el("div", { class: "sub" }, el("b", {}, "Add unit mod"), addMod)));
+      // Outfitting (weapons, mods, rename, chassis condition, repair) moved
+      // behind this button and into the Modify dialog (#87) — it's consulted
+      // between runs, not every round, and the card was paying its rent on
+      // every render. `data-modify-key` is how the dialog finds this button
+      // again to hand focus back on close, since the button itself is a
+      // different DOM node by the time that happens (a full sheet re-render
+      // sits between "click Modify" and "close the dialog").
+      const modifyBtn = counterBtn(unitReadonly ? "View loadout" : "Modify",
+        () => openUnitModify(cfg.table, u));
+      modifyBtn.dataset.modifyKey = key;
+
+      // A read-out of what's fitted, not an editor: the same unitAttachments()
+      // the rollup and the Gear tab already read, so the three can't disagree
+      // about what's actually mounted. Editing any of it happens in Modify.
+      const { items: fittedItems } = unitAttachments(cfg, u);
+      const weaponItems = fittedItems.filter(it => it.kind === "weapon");
+      const modItems = fittedItems.filter(it => it.kind !== "weapon");
+      const loadoutLine = it => el("div", { class: "sub", style: "margin:2px 0" },
+        el("b", {}, it.name), it.stats ? ` — ${it.stats}` : "",
+        it.effect ? el("span", { style: "color:var(--manon)" },
+          `${it.stats ? " · " : " — "}${it.effect}`) : null,
+        (it.mods && it.mods.length)
+          ? el("div", { style: "margin-left:14px;color:var(--manon)" }, "↳ " + it.mods.join(" · "))
+          : null);
+      const loadoutSummary = el("div", { class: "sh-unit-loadout" },
+        weaponItems.length ? el("div", {}, ...weaponItems.map(loadoutLine)) : null,
+        modItems.length
+          ? el("div", { class: "sub" }, el("b", {}, "Mods: "),
+              modItems.map(it => it.name).join(" · "))
+          : null,
+        (!weaponItems.length && !modItems.length)
+          ? el("p", { class: "hint" }, "Nothing fitted — open Modify to add a weapon or mod.")
+          : null);
 
       const removeBtn = el("button", { class: "row-del", title: "Sell / remove unit",
         onclick: async () => {
@@ -12638,8 +12878,11 @@ function shRigging(body) {
 
       card.append(el("div", { class: "sh-unit" },
         el("div", { class: "sh-unit-main" },
-          el("div", { class: "sh-unit-title" }, nameInput, removeBtn),
-          el("div", { class: "sub" }, el("b", {}, u.name), " · ",
+          el("div", { class: "sh-unit-title" },
+            el("b", {}, u.label || u.name),
+            modifyBtn, removeBtn),
+          u.label ? el("div", { class: "sub" }, u.name) : null,
+          el("div", { class: "sub" },
             (() => {
               // Move moved out to its own box beside Inertia — it's the stat you
               // reach for constantly in a chase, so it shouldn't be buried here.
@@ -12658,8 +12901,6 @@ function shRigging(body) {
                 + ` · Hardening ${unitHardening(r, sm, key)}`
                 + ` · weapons ${summary.weapon_count ?? u.weapons.length}/${summary.weapon_cap ?? cfg.capOf(r)}`;
             })()),
-          r.Effect ? el("div", { class: "sub", style: "color:var(--manon)" }, r.Effect) : null,
-          unitConditionSelect(u, cfg.table, +r.Cost || 0, baseMult),
           // Physical Condition + Vehicle Integrity tracks (issue #22), then
           // Inertia sitting with them. Inertia is a free-form tally the engine
           // never reads — it's a place to note momentum during a chase. The old
@@ -12686,12 +12927,13 @@ function shRigging(body) {
               // the condition tracks above.
               ? el("span", { class: "sub" }, `Inertia ${toInt(st.inertia)}`)
               : miniCounter("Inertia", () => st.inertia, v => { st.inertia = v; })),
-          // No effect text beside the box: the unit's own stat line above
-          // already carries it, and printing it twice on one row is the noise
-          // the armor rows were just cleaned up for. The tooltip says it.
-          activeRig ? linkToggle : null,
-          activeToggle),
-        attachments));
+          loadoutSummary,
+          // Deploy toggles on one row: Link and Active are the two ways a unit
+          // gets on station, and reading them takes one glance rather than two.
+          (activeRig || activeToggle)
+            ? el("div", { style: "display:flex;gap:14px;flex-wrap:wrap" },
+                activeRig ? linkToggle : null, activeToggle)
+            : null)));
     });
     if (!entries.length) card.append(el("p", { class: "hint" }, `No ${cfg.title.toLowerCase()} owned.`));
     body.append(card);

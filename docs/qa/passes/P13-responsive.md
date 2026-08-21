@@ -337,6 +337,83 @@ it was written to fix. One case keeps that promise honest.
 
 ---
 
+## The Modify dialog (#87)
+
+`openSheetModal`'s box (`.mount-modal`) lives on `document.body`, outside
+`#sheet` — so it is invisible to `window.__qaMeasure`, which scopes every
+query to `#sheet button` (setup script, top of this file) and whose `"play"`
+tab list doesn't include `rigging` at all. These three cases stand alone
+rather than extending that shared harness, so the already-recorded Overview/
+Gear/Kismet numbers in P13-004 stay exactly what they were measured against.
+
+**Section setup** (coarse pointer, 375×812 — `resize_window` to `mobile`,
+then reload so the `pointer:coarse` gate re-runs):
+
+      (async () => { window.confirm = () => true; const raw = await (await fetch("docs/qa/fixtures/kitchen-sink-final.json", { cache: "reload" })).json(); await openCharacter(RULES.mergeDefaults(raw)); rigFlags(); const p = CHAR.play.purchases, rg = CHAR.play.rigging; p.rigs.push({ name: "Master VCR", mods: [] }); rg.active_rig = "Master VCR"; p.drones.push({ name: "Disc", label: "Alpha", weapons: ["Mini Gun"], mods: [] }); rg.linked["drones:0"] = true; rg.hotseat["drones:0"] = true; await playChangedRecalc(); sheetTab = "rigging"; renderSheet(); const btn = [...document.querySelectorAll("button")].find(b => b.textContent === "Modify"); btn.click(); await new Promise(r => setTimeout(r, 30)); const head = document.querySelector(".mount-modal .cat-head"); head.click(); await new Promise(r => setTimeout(r, 30)); return { coarsePointer: matchMedia("(pointer: coarse)").matches, modalOpen: !!document.querySelector(".mount-modal") }; })()
+
+- **Expected:** `{ "coarsePointer": true, "modalOpen": true }`. If
+  `coarsePointer` is `false`, stop — you're measuring the desktop layout, same
+  caveat as P13-004.
+
+### P13-016: The Modify dialog clears the 32px touch floor
+- **Type:** usability
+- **Check:**
+
+      (() => { const modal = document.querySelector(".mount-modal"); const buttons = [...modal.querySelectorAll("button")].map(b => b.getBoundingClientRect()).filter(r => r.width > 0 && r.height > 0); return { count: buttons.length, minH: Math.round(Math.min(...buttons.map(r => r.height))), under32h: buttons.filter(r => r.height < 32).length }; })()
+
+- **Expected:** `under32h: 0`. Every control in the dialog lands on a selector
+  the coarse-pointer block already covers (`.btn`/`.btn-add`/`.row-del`/
+  `.btn.small`, `static/style.css` — search `@media(pointer:coarse)`) — the
+  state chips added to the rollup in the same change are non-interactive
+  `<span>`s and don't appear in this query at all.
+- **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
+
+### P13-017: One scroller, not two
+- **Type:** usability
+- **Check:**
+
+      (() => { const modal = document.querySelector(".mount-modal"); const catItems = modal.querySelector(".cat-items"); return { catItemsIsScroller: catItems.scrollHeight > catItems.clientHeight + 1, modalIsScroller: modal.scrollHeight > modal.clientHeight + 1, modalWidth: Math.round(modal.getBoundingClientRect().width), pageOverflowsX: document.documentElement.scrollWidth > window.innerWidth }; })()
+
+- **Expected:** `{ "catItemsIsScroller": false, "modalIsScroller": true, "modalWidth": 343, "pageOverflowsX": false }`
+- **Note:** `.cat-items` is `max-height:420px;overflow-y:auto` (style.css) —
+  fine as a standalone picker, but nested inside the modal's own
+  `max-height:82vh;overflow:auto` on a 812px-tall phone that's two scrollbars
+  fighting for one thumb. `@media(max-width:700px){ .mount-modal .cat-items{max-height:none} }`
+  unclamps the inner one so the modal is the only scroller left. `modalWidth:
+  343` (viewport 375 minus the backdrop's 16px gutter each side) confirms the
+  dialog isn't itself overflowing sideways.
+- **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
+
+### P13-018: The Rigging tab's height, as a ceiling
+- **Type:** usability
+- **Steps:** **desktop width, not a phone** — the number below moves with
+  viewport width (narrower wraps more and reads taller: the same fixture is
+  3105px at an 877px-wide desktop pane and 4206px at 375px), so pin the width
+  or the ceiling is meaningless. `resize_window` to `desktop` (or don't touch
+  it — this is the default). Uses the P06-066/067/068 section setup (Master
+  VCR, five armed Discs, four seated), not the two-unit setup above the
+  previous two cases; re-run that block first.
+- **Check:**
+
+      (async () => { sheetTab = "rigging"; renderSheet(); await new Promise(r => setTimeout(r, 60)); return { viewportWidth: window.innerWidth, heightPx: document.getElementById("sh-tabpanel").scrollHeight, cardOrder: [...document.querySelectorAll("#sh-tabpanel .sh-card h3")].map(x => x.textContent) }; })()
+
+- **Expected:** `heightPx` under **3400** at an ~877px-wide viewport (observed
+  3105 immediately after the #87 restructure — leaving headroom rather than
+  pinning the exact figure, since minor content changes shift it a little);
+  `cardOrder` is
+  `["Active drones & vehicles", "Vehicle Control Rigs", "Drones", "Vehicles", "Buy rigs, drones & vehicles"]`.
+- **Note:** No case anywhere in this pass measured a TAB's height before this
+  one — only individual controls and horizontal overflow — which is exactly
+  how the same fixture reached **5538px** (6.1 screens at an 877px-wide pane)
+  before #87 went unnoticed for as long as it did. This is the number the
+  whole restructure exists to move, and the one a future feature will quietly
+  undo if nothing keeps watch on it. Treat the 3400px line as a ceiling to
+  re-set deliberately (recording the viewport width alongside it), not a
+  target to shrink further for its own sake.
+- **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
+
+---
+
 ## Wrapping up
 
 Report a table of the five viewports against P13-001, P13-004 and P13-008 — those

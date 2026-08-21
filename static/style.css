@@ -387,6 +387,9 @@ h2 .chip{margin-left:10px}
 .chip.magic{color:var(--manon)}
 .chip.neg{color:var(--bad);border-color:var(--bad)}
 .chip.ok{color:var(--ok)}
+/* Hotseat, on the on-station rollup (#87) — distinct from .ok (Active) so the
+   two deployment states read apart from across the room. */
+.chip.seat{color:var(--manon);border-color:var(--manon-dim)}
 /* MCP dice and the −/+ pill that adjusts them, so the pair reads as one
    control rather than a coloured chip beside a grey stepper. The buttons keep
    --dim's weight until hover, one step down from the number they change. */
@@ -1335,24 +1338,26 @@ label.opt input{margin-top:3px}
 .sh-bar-fill.physical{background:var(--pool-brawn)}
 .sh-bar-fill.integrity{background:var(--pool-focus)}
 .sh-unit-dmg{color:var(--dim);font-size:11.5px;margin-top:3px;font-family:var(--mono)}
-/* A unit is two top-aligned columns: identity + condition tracks on the left,
-   fitted weapons/mods on the right. Both stay open at once (the attachment list
-   used to be a <details> purely to save vertical space). Stacks on narrow
-   screens via flex-wrap. */
-.sh-unit{display:flex;align-items:flex-start;gap:14px;flex-wrap:wrap;
+/* On-station rollup rows (#87): a colour rail scannable without reading a
+   word — green for a hotseated unit, dim ok-tone for merely deployed. */
+.sh-station-row td:first-child{border-left:3px solid transparent;padding-left:7px}
+.sh-station-row.seated td:first-child{border-left-color:var(--ok)}
+.sh-station-row.deployed td:first-child{border-left-color:var(--manon-dim)}
+/* A unit's card on the Rigging tab: identity, condition tracks, a read-only
+   loadout summary and its deploy toggles. Outfitting (weapons, mods, rename,
+   chassis condition, repair) moved to the Modify dialog (#87) — this used to
+   be a second column of that same UI, always open, taking as much height as
+   the identity column beside it. One column now, so .sh-unit-main is the
+   card's only child. */
+.sh-unit{display:flex;align-items:flex-start;flex-wrap:wrap;
   border:1px solid var(--line);border-radius:6px;background:var(--panel-2);padding:8px 10px;margin-bottom:8px}
-/* Bases are generous on purpose: below roughly 820px of card width the two
-   columns wrap to stacked rather than squeezing the condition tracks. */
-.sh-unit-main{flex:1 1 400px;min-width:0}
-.sh-unit-attach{flex:1 1 380px;min-width:0;border:1px solid var(--line);border-radius:6px;
-  background:var(--panel);padding:6px 10px 8px}
-.sh-attach-head{font-size:12px;color:var(--dim);padding:2px 0 5px;
-  border-bottom:1px solid var(--line);margin-bottom:6px}
-.sh-unit-title{display:flex;align-items:center;gap:8px}
-/* The unit's custom-name field: a always-visible shaded box so it's obvious the
-   name is editable, but bold and roomy enough to still read as the card's title.
-   --panel against the card's --panel-2 reads as an inset well in dark mode and a
-   white field in light mode, matching every other input in the app.
+.sh-unit-main{flex:1 1 auto;min-width:0}
+.sh-unit-title{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+/* The unit's custom-name field, used in the Modify dialog (renaming moved off
+   the card itself). An always-visible shaded box so it's obvious the name is
+   editable, but bold and roomy enough to still read as a title. --panel
+   against the modal's --panel reads as an inset well in dark mode and a white
+   field in light mode, matching every other input in the app.
    Selectors are `input.sh-unit-name` on purpose: the generic `input[type=text]`
    rule above is (0,1,1), so a bare class would lose to it. */
 input.sh-unit-name{flex:1 1 auto;min-width:0;max-width:260px;font-weight:600;font-size:14px;
@@ -1361,6 +1366,12 @@ input.sh-unit-name{flex:1 1 auto;min-width:0;max-width:260px;font-weight:600;fon
 input.sh-unit-name:hover{border-color:var(--manon-dim)}
 input.sh-unit-name:focus{border-color:var(--manon);background:var(--panel-2)}
 input.sh-unit-name::placeholder{color:var(--dim);font-weight:600}
+/* The read-only "what's fitted" summary that replaced the always-open
+   attachments column — same unitAttachments() data, no editors. */
+.sh-unit-loadout{margin-top:8px}
+/* Repair controls, moved into the Modify dialog (#87) — same spacing rhythm
+   as the calendar modal's labelled sections. */
+.sh-unit-repair{margin-top:10px}
 .sh-unit-ctr{display:flex;gap:8px}
 .sh-unit-inertia{margin-top:8px;align-items:center}
 /* Derived read-out tile sitting with the unit's counters (Move). Boxed and
@@ -1541,6 +1552,15 @@ input.sh-unit-name::placeholder{color:var(--dim);font-weight:600}
   display:flex;align-items:center;justify-content:center;padding:16px}
 .mount-modal{max-width:600px;width:100%;max-height:82vh;overflow:auto;margin:0;
   box-shadow:0 12px 28px rgba(0,0,0,.5)}
+/* openSheetModal's header row (title + close), shared by every big-form dialog
+ * built on it. */
+.sh-modal-head{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.sh-modal-head h3{margin:0}
+/* A cat-browser's expanded list is its own scroller (max-height:420px above),
+ * which on a phone nests inside the modal's own 82vh scroller -- two scrollbars
+ * fighting for one thumb. Unclamp the inner one below the modal's own scroll
+ * becomes the only one that matters. */
+@media(max-width:700px){ .mount-modal .cat-items{max-height:none} }
 .chip .chip-btn{background:none;border:0;cursor:pointer;font:inherit;color:inherit;
   padding:0 2px;opacity:.65}
 .chip .chip-btn:hover{opacity:1}

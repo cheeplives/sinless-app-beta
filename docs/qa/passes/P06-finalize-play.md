@@ -2133,6 +2133,180 @@ an object there renders as `[object Object]` with no stats.
 
 ---
 
+## The Rigging tab restructure: a Modify dialog, and a readable rollup
+
+A UX pass (still #87), separate from the mechanics above: the per-unit card was
+doing two jobs at once — the garage (own it, name it, outfit it, repair it,
+sell it) and the cockpit (what's deployed, what's damaged, shoot with it) —
+and the outfitting half, consulted between runs, was paying rent on every
+render. Measured against the section setup's rigger (one Master VCR, five armed
+Discs), the Rigging tab was **5538px** with every picker collapsed — 6.1
+screens at a 910px viewport, three quarters of it the Drones card alone.
+
+**Section setup**, on top of the P06-066/067/068 setup already in this
+character (re-run that section's block first if starting fresh):
+
+      (() => { sheetTab = "rigging"; renderSheet(); return { cardOrder: [...document.querySelectorAll("#sh-tabpanel .sh-card h3")].map(x => x.textContent), heightPx: document.getElementById("sh-tabpanel").scrollHeight }; })()
+
+**Expected:**
+
+      { "cardOrder": ["Active drones & vehicles", "Vehicle Control Rigs", "Drones", "Vehicles", "Buy rigs, drones & vehicles"],
+        "heightPx": 3105 }
+
+**Note:** 5538px → 3105px (3.4 screens), and the rollup — the one card touched
+mid-scene — now renders first instead of below a card consulted once a
+session.
+
+### P06-069: The garage is a garage — outfitting moved to Modify, firing did not move at all
+- **Type:** correctness
+- **Check:**
+
+      (() => { sheetTab = "rigging"; renderSheet(); const droneCard = [...document.querySelectorAll(".sh-card")].find(c => c.querySelector("h3")?.textContent === "Drones"); const rollup = [...document.querySelectorAll(".sh-card")].find(c => /Active drones/.test(c.querySelector("h3")?.textContent||"")); return { cardFire: droneCard.querySelectorAll(".sh-fire").length, cardBrowsers: droneCard.querySelectorAll(".cat-browser").length, cardRepairButtons: [...droneCard.querySelectorAll("button")].filter(b => /^Repair/.test(b.textContent)).length, cardConditionSelects: droneCard.querySelectorAll("select").length, cardNameInputs: droneCard.querySelectorAll("input.sh-unit-name").length, bars: droneCard.querySelectorAll(".sh-bar").length, modifyButtons: [...droneCard.querySelectorAll("button")].filter(b => /^(Modify|View loadout)$/.test(b.textContent)).length, rollupFire: rollup.querySelectorAll(".sh-fire").length }; })()
+
+- **Expected:**
+
+      { "cardFire": 0, "cardBrowsers": 0, "cardRepairButtons": 0, "cardConditionSelects": 0,
+        "cardNameInputs": 0, "bars": 10, "modifyButtons": 5, "rollupFire": 5 }
+
+- **Note:** `bars: 10` is the one thing that DIDN'T move, in one number — 5
+  drones × 2 tracks (Physical, Integrity) still on the card, because marking
+  damage is frequent and only the *purchase* of a repair moved to the dialog.
+  Everything else in this check is a 0 that used to be non-zero: name input,
+  condition select, repair buttons, fire controls and category browsers are
+  all gone from the card. `cardBrowsers: 0` is scoped to the **Drones** card
+  specifically — the VCR row above it keeps its own rig-mod `.cat-browser`
+  unchanged, since VCR editing wasn't part of this restructure.
+
+  `modifyButtons: 5` and `rollupFire: 5` are the same number for a different
+  reason: one Modify button per unit (outfitting, one place), and one set of
+  fire controls per deployed mount in the rollup (firing, the other place).
+- **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
+
+### P06-070: The Modify dialog survives the re-render its own buttons cause
+- **Type:** correctness
+- **Steps:** open Modify on Alpha (`drones:0`) from the Drones card.
+- **Check:**
+
+      (async () => { const btn = [...document.querySelectorAll("button")].find(b => b.textContent === "Modify" && b.dataset.modifyKey === "drones:0"); btn.click(); await new Promise(r => setTimeout(r, 30)); const head = [...document.querySelectorAll(".mount-modal .cat-head")].find(h => /Mods/.test(h.textContent) && !/Weapon/.test(h.textContent)); head.click(); await new Promise(r => setTimeout(r, 30)); const addBtn = [...document.querySelectorAll(".mount-modal .btn-add")].find(b => b.closest(".cat-item")); const addedName = addBtn.closest(".cat-item").querySelector("b").textContent; addBtn.click(); await new Promise(r => setTimeout(r, 60)); const modal = document.querySelector(".mount-modal"); const out = { stillOpen: !!modal, focusInside: modal.contains(document.activeElement), modsLegend: [...modal.querySelectorAll(".sh-cal-legend")].find(l => /^Mods/.test(l.textContent)).textContent, charMods: CHAR.play.purchases.drones[0].mods, noLiteralNull: !/(^|\n)null(\n|$)/.test(modal.innerText) }; return { addedName, out }; })()
+
+- **Expected:** `addedName` is whatever the first collapsed unit-mod group's
+  first item is (`"Hardening"` against this fixture); `out` is
+
+      { "stillOpen": true, "focusInside": true, "modsLegend": "Mods (1)",
+        "charMods": ["Hardening"], "noLiteralNull": true }
+
+- **Note:** The `openSheetModal` analogue of P06-033. `focusInside` is the
+  load-bearing assertion — `commit()` runs `recalc()` then the dialog's own
+  `refresh()`, which replaces only `.sh-modal-body`, never the header; a
+  version that rebuilt the whole box would drop focus to `<body>` on every
+  add, same as the bug P06-033 pins for the popover.
+
+  `noLiteralNull` guards a real bug this restructure shipped and then fixed in
+  the same pass: `Element.append()` (not `el()`'s own child handling)
+  stringifies a bare `null` argument into the literal text "null" on the page.
+  `openSheetModal`'s header-then-optional-sub-then-body assembly did exactly
+  that when no `sub` was passed; the fix routes it through the existing
+  `appendIf()` helper (app.js) instead of a raw `.append(a, b, c)` call.
+- **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
+
+### P06-071: Repair moved into Modify; marking damage stayed on the card
+- **Type:** correctness
+- **Steps:** close any open dialog first. Reload the fixture's drone state if a
+  prior case left Alpha damaged (`CHAR.play.rigging.units["drones:0"]`).
+- **Check:**
+
+      (async () => { document.querySelector(".mount-modal-backdrop")?.remove(); sheetTab = "rigging"; renderSheet(); const card = [...document.querySelectorAll(".sh-unit")].find(u => /Alpha/.test(u.querySelector(".sh-unit-title b")?.textContent||"")); const physTrack = [...card.querySelectorAll(".sh-track")].find(t => /PHYSICAL/.test(t.textContent)); const plus = [...physTrack.querySelectorAll(".mini-btn")].find(b => b.textContent === "+"); plus.click(); plus.click(); await new Promise(r => setTimeout(r, 60)); const markedFromCard = CHAR.play.rigging.units["drones:0"].physical; const btn = [...document.querySelectorAll("button")].find(b => b.textContent === "Modify" && b.dataset.modifyKey === "drones:0"); btn.click(); await new Promise(r => setTimeout(r, 30)); const modal = document.querySelector(".mount-modal"); const qty = modal.querySelector('input[type="number"].sv-edit'); qty.value = "2"; qty.dispatchEvent(new Event("input", { bubbles: true })); const repairBtn = [...modal.querySelectorAll("button")].find(b => b.textContent === "Repair"); const cashBefore = CHAR.play.cash; repairBtn.click(); await new Promise(r => setTimeout(r, 60)); const physicalAfterRepair = CHAR.play.rigging.units["drones:0"].physical; const cashSpent = cashBefore - CHAR.play.cash; const stillOpen = !!document.querySelector(".mount-modal"); document.querySelector(".mount-modal-backdrop")?.remove(); return { markedFromCard, physicalAfterRepair, cashSpent, stillOpen }; })()
+
+- **Expected:** `{ "markedFromCard": 2, "physicalAfterRepair": 0, "cashSpent": 24, "stillOpen": true }`
+- **Note:** `markedFromCard` is the card's own `+`/`−` mini-counter, untouched
+  by this change — marking damage is what you do constantly, so it never left.
+  `cashSpent: 24` is `2 boxes × unitRepairCostPerBox` (1/100th of the Disc's
+  face cost); `stillOpen` shows the dialog redrew itself through `commit()`
+  rather than the card's own `playChangedRecalc()` closing everything.
+- **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
+
+### P06-072: Removing a weapon in Modify still renumbers unitGunState correctly
+- **Type:** correctness
+- **Steps:** gives Bravo (`drones:1`) a second mount, fires the SECOND one from
+  the rollup, then removes the FIRST one from Modify — the exact shape that
+  breaks if `removeUnitWeapon`'s re-keying is ever dropped from the move.
+- **Check:**
+
+      (async () => { window.confirm = () => true; CHAR.play.purchases.drones[1].weapons = ["Mini Gun", "Autocannon"]; await playChangedRecalc(); sheetTab = "rigging"; renderSheet(); const rollup = () => [...document.querySelectorAll(".sh-card")].find(c => /Active drones/.test(c.querySelector("h3")?.textContent||"")); const bravoRow = [...rollup().querySelectorAll("tr")].find(tr => /Bravo/.test(tr.cells[0].innerText)); const fireButtons = [...bravoRow.cells[2].querySelectorAll("button")].filter(b => b.textContent === "Fire"); fireButtons[1].click(); document.querySelector(".sh-roller, .sh-popover")?._close?.(); const gunsBefore = JSON.parse(JSON.stringify(CHAR.play.rigging.units["drones:1"].guns)); const btn = [...document.querySelectorAll("button")].find(b => b.textContent === "Modify" && b.dataset.modifyKey === "drones:1"); btn.click(); await new Promise(r => setTimeout(r, 30)); const modal = document.querySelector(".mount-modal"); const miniGunChip = [...modal.querySelectorAll(".chip")].find(c => /Mini Gun/.test(c.textContent)); miniGunChip.click(); await new Promise(r => setTimeout(r, 60)); const disposal = document.querySelectorAll(".mount-modal")[1]; [...disposal.querySelectorAll("button")].find(b => b.textContent === "Sell").click(); await new Promise(r => setTimeout(r, 100)); const gunsAfter = JSON.parse(JSON.stringify(CHAR.play.rigging.units["drones:1"].guns)); const weaponsAfter = CHAR.play.purchases.drones[1].weapons; document.querySelector(".mount-modal-backdrop")?.remove(); return { gunsBefore, gunsAfter, weaponsAfter }; })()
+
+- **Expected:**
+
+      { "gunsBefore": { "0": {}, "1": { "loaded": 119 } },
+        "gunsAfter": { "0": { "loaded": 119 } },
+        "weaponsAfter": ["Autocannon"] }
+
+- **Note:** Autocannon (mount index 1) fired an FA burst down to 119/120,
+  Mini Gun (index 0) was untouched. Removing Mini Gun must shift Autocannon's
+  firing state from key `"1"` down to `"0"` — `gunsAfter` shows it landed with
+  its OWN magazine (119), not a fresh or inherited one. This is
+  `removeUnitWeapon(u, wi, cfg.table)`'s third argument doing its job (sheet.js,
+  search `removeUnitWeapon`) — drop that argument when a weapon-sell handler
+  moves to a new dialog and the survivor silently inherits the dead gun's
+  magazine and firing mode instead.
+- **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
+
+### P06-073: A nested disposal prompt closes on its own Escape; a second Escape closes Modify
+- **Type:** accessibility
+- **Check:**
+
+      (async () => { document.querySelector(".mount-modal-backdrop")?.remove(); sheetTab = "rigging"; renderSheet(); const btn = [...document.querySelectorAll("button")].find(b => b.textContent === "Modify" && b.dataset.modifyKey === "drones:0"); btn.focus(); btn.click(); await new Promise(r => setTimeout(r, 30)); const modal = document.querySelector(".mount-modal"); const modChip = [...modal.querySelectorAll(".chip")].find(c => /Hardening/.test(c.textContent)); if (!modChip) return { skipped: "no Hardening mod fitted — run P06-070 first, or fit one" }; modChip.click(); await new Promise(r => setTimeout(r, 60)); const stacked = document.querySelectorAll(".mount-modal-backdrop").length; document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); await new Promise(r => setTimeout(r, 30)); const afterEscape1 = { backdrops: document.querySelectorAll(".mount-modal-backdrop").length, modifyStillOpen: !!document.querySelector(".mount-modal") }; document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); await new Promise(r => setTimeout(r, 30)); const afterEscape2 = { backdrops: document.querySelectorAll(".mount-modal-backdrop").length, focusedIsModifyBtn: document.activeElement && document.activeElement.dataset.modifyKey === "drones:0" }; return { stacked, afterEscape1, afterEscape2 }; })()
+
+- **Expected:**
+
+      { "stacked": 2,
+        "afterEscape1": { "backdrops": 1, "modifyStillOpen": true },
+        "afterEscape2": { "backdrops": 0, "focusedIsModifyBtn": true } }
+
+- **Note:** `promptDisposal`'s own Escape handler is bubble-phase;
+  `openSheetModal`'s is capture-phase and would fire first on every nested
+  dialog otherwise — closing Modify out from under the disposal prompt it just
+  opened. `isTop()` (checks whether this dialog's backdrop is the LAST
+  `.mount-modal-backdrop` in the document) gates it: the first Escape reaches
+  `promptDisposal`'s own listener untouched; only the second, once Modify's
+  backdrop is again the topmost, closes Modify and hands focus back to the
+  button via `restoreSel`.
+- **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
+
+### P06-074: A seat truncated by a VCR downgrade now says so
+- **Type:** UX
+- **Steps:** companion to P06-066, which proves the engine truncates seats
+  past the new rig's cores. This proves the rollup finally SHOWS it. Restores
+  the Master VCR at the end.
+- **Check:**
+
+      (() => { const rg = CHAR.play.rigging; CHAR.play.purchases.rigs = [{ name: "Basic VCR", mods: [] }]; rg.active_rig = "Basic VCR"; sheetTab = "rigging"; renderSheet(); const rollup = [...document.querySelectorAll(".sh-card")].find(c => /Active drones/.test(c.querySelector("h3")?.textContent||"")); const rows = [...rollup.querySelectorAll("tr")].slice(1).map(tr => ({ unit: tr.cells[0].innerText.split("\n")[0], chips: [...tr.querySelectorAll(".sh-tagrow .chip")].map(c => c.textContent) })); const out = { rows, countsLine: rollup.querySelector(".hint").textContent }; CHAR.play.purchases.rigs = [{ name: "Master VCR", mods: [] }]; rg.active_rig = "Master VCR"; renderSheet(); return out; })()
+
+- **Expected:**
+
+      { "rows": [{ "unit": "Alpha",   "chips": ["LINK", "HOTSEAT"] },
+                 { "unit": "Bravo",   "chips": ["LINK", "SEAT — NO CORE"] },
+                 { "unit": "Charlie", "chips": ["LINK", "SEAT — NO CORE"] },
+                 { "unit": "Delta",   "chips": ["LINK", "SEAT — NO CORE"] },
+                 { "unit": "Echo",    "chips": ["LINK"] }],
+        "countsLine": "5 deployed · 1 of 1 core flying · 5 of 1 VCR link used" }
+
+- **Note:** Before this change, a seat truncated by a VCR downgrade
+  (P06-066's `deployedUnits()` truncation) was **invisible in the UI** —
+  Bravo/Charlie/Delta's flags were still set, but nothing on screen said they
+  had stopped flying. `SEAT — NO CORE` is the one genuinely new fact this
+  restructure adds: `rg.hotseat[key]` is true but `deployedUnits()`'s
+  `hotseat` came back false for that unit.
+
+  `countsLine` reads `"5 of 1 VCR link"` because the section setup links all
+  five Discs directly through `rigging.linked`, bypassing the `linkToggle`'s
+  own cap check (which would refuse a 5th link at the table in ordinary play,
+  alerting `"Active VCR links only N unit(s)."`) — the over-cap link count is
+  the counts line honestly reporting a state the setup script forced, not a
+  bug in the count.
+- **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
+
+---
+
 ## Wrapping up
 
 Every case should PASS. P06-001, P06-005, P06-009, P06-010 and P06-011 were all
