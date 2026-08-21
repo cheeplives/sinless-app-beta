@@ -175,6 +175,12 @@ let expandedPool = null;      // pool card the user clicked open on Overview
 let poolTempOpen = new Set();
 let imagesCollapsed = false;  // Images section folded shut on the Notes tab
 let calendarCollapsed = false;  // Calendar section folded shut on the Notes tab
+// Drones/Vehicles cards on the Rigging tab (#87 follow-up). `null` means "the
+// player hasn't touched this" -- the card then defaults to collapsed when
+// nothing of that kind is owned and open once something is, tracking
+// ownership live. Once toggled by hand it's a plain boolean and stays exactly
+// where the player left it regardless of what gets bought or sold afterward.
+const unitGroupCollapsed = { drones: null, vehicles: null };
 let playSaveTimer = null;
 let sheetMenuOpen = false;    // hamburger menu (Back to Chargen / Homebrew / Export / …)
 let sheetHeadObserver = null; // IntersectionObserver toggling the compact sticky strip
@@ -12777,8 +12783,32 @@ function shRigging(body) {
     const baseMult = cfg.table === "vehicles" ? RULES.surchargeFor("vehicle", base) : 1;
     const mult = 1;   // fitted weapons & mods — never surcharged
     const unitReadonly = !!(activeTabObj() && activeTabObj().readonly);
-    const card = el("div", { class: "card sh-card" }, el("h3", {}, cfg.title));
+    // See unitGroupCollapsed above: an explicit toggle wins, otherwise the
+    // card opens exactly when there's something in it to see.
+    const manualState = unitGroupCollapsed[cfg.table];
+    const collapsed = manualState !== null ? manualState : entries.length === 0;
+    const card = el("div", { class: "card sh-card" },
+      el("div", { class: "sh-card-head" },
+        el("h3", {}, cfg.title, entries.length ? el("span", { class: "sub" }, ` ${entries.length}`) : null),
+        counterBtn(collapsed ? "Show ▾" : "Hide ▴", () => {
+          unitGroupCollapsed[cfg.table] = !collapsed;
+          renderSheet();
+        })));
+    if (collapsed) {
+      card.append(el("p", { class: "hint", style: "margin:2px 0 0" },
+        entries.length
+          ? `${entries.length} ${cfg.title.toLowerCase()} — hidden.`
+          : `No ${cfg.title.toLowerCase()} owned.`));
+    }
+    // Units at half a card's width apiece: each is ~265px now that outfitting
+    // moved to Modify (was ~817px with the attachments column open), so two
+    // side by side reads better than one marching down the page. auto-fit +
+    // minmax collapses to one column on its own once a card gets narrow (a
+    // phone, or a single owned unit stretching to fill it) -- no media query.
+    const grid = el("div", { class: "sh-unit-grid" });
+    if (!collapsed) card.append(grid);
     entries.forEach((en, i) => {
+      if (collapsed) return;   // buying below still needs `entries`/`i` intact
       const { arr: unitArr, i: localIndex, inPlay, category } = en;
       // The unit is play's own copy, so reads and writes are the same object.
       const u = en.ref;
@@ -12876,7 +12906,7 @@ function shRigging(body) {
           await playChangedRecalc();
         } }, "✕");
 
-      card.append(el("div", { class: "sh-unit" },
+      grid.append(el("div", { class: "sh-unit" },
         el("div", { class: "sh-unit-main" },
           el("div", { class: "sh-unit-title" },
             el("b", {}, u.label || u.name),
@@ -12935,7 +12965,8 @@ function shRigging(body) {
                 activeRig ? linkToggle : null, activeToggle)
             : null)));
     });
-    if (!entries.length) card.append(el("p", { class: "hint" }, `No ${cfg.title.toLowerCase()} owned.`));
+    if (!collapsed && !entries.length)
+      card.append(el("p", { class: "hint" }, `No ${cfg.title.toLowerCase()} owned.`));
     body.append(card);
 
     // buy a new unit — rendered in the bottom Buy section

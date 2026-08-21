@@ -2305,6 +2305,55 @@ session.
   bug in the count.
 - **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
 
+### P06-075: Drones/Vehicles lay out two-up, and each card collapses on its own
+- **Type:** correctness
+- **Steps:** the section setup's five Discs, at a 900px-wide viewport
+  (`resize_window` to `{width:900, height:900}` — the grid column count is
+  viewport-dependent, so pin it before reading `gridCols`).
+- **Check:**
+
+      (() => { sheetTab = "rigging"; renderSheet(); const droneCard = [...document.querySelectorAll(".sh-card")].find(c => c.querySelector("h3")?.textContent.startsWith("Drones")); const vehCard = [...document.querySelectorAll(".sh-card")].find(c => c.querySelector("h3")?.textContent.startsWith("Vehicles")); return { droneToggle: [...droneCard.querySelectorAll("button")].find(b => /Hide|Show/.test(b.textContent)).textContent, vehToggle: [...vehCard.querySelectorAll("button")].find(b => /Hide|Show/.test(b.textContent)).textContent, vehHint: vehCard.querySelector(".hint")?.textContent, gridCols: getComputedStyle(droneCard.querySelector(".sh-unit-grid")).gridTemplateColumns.split(" ").length, heightPx: document.getElementById("sh-tabpanel").scrollHeight }; })()
+
+- **Expected:**
+
+      { "droneToggle": "Hide ▴", "vehToggle": "Show ▾", "vehHint": "No vehicles owned.",
+        "gridCols": 2, "heightPx": 2558 }
+
+- **Note:** Drones defaults OPEN (5 owned) and Vehicles defaults COLLAPSED
+  (none owned) from the same rule: `unitGroupCollapsed[table]` starts `null`
+  ("the player hasn't touched this"), and the card reads
+  `entries.length === 0` for its default every render until a manual toggle
+  turns it into a fixed boolean. `heightPx: 2558` is the two-column payoff on
+  top of the Modify-dialog restructure (P06-069) — the same fixture was 3105px
+  in one column and 5538px before either change, all at a comparable width.
+  `gridCols: 2` at 900px confirms `auto-fit`/`minmax(360px,1fr)` is doing the
+  packing with no media query; a single owned unit, or a narrow phone width,
+  folds the same grid to one column on its own.
+- **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
+
+### P06-076: A manual collapse/expand sticks regardless of what's bought or sold afterward
+- **Type:** correctness
+- **Check:**
+
+      (async () => { const droneCard = () => [...document.querySelectorAll(".sh-card")].find(c => c.querySelector("h3")?.textContent.startsWith("Drones")); const vehCard = () => [...document.querySelectorAll(".sh-card")].find(c => c.querySelector("h3")?.textContent.startsWith("Vehicles")); [...droneCard().querySelectorAll("button")].find(b => /Hide/.test(b.textContent)).click(); const collapsedWithFive = { toggle: [...droneCard().querySelectorAll("button")].find(b => /Hide|Show/.test(b.textContent)).textContent, hint: droneCard().querySelector(".hint")?.textContent, gridPresent: !!droneCard().querySelector(".sh-unit-grid") }; renderSheet(); const survivesRerender = [...droneCard().querySelectorAll("button")].find(b => /Hide|Show/.test(b.textContent)).textContent; unitGroupCollapsed.vehicles = null; CHAR.play.purchases.vehicles.push({ name: DATA.tables.vehicles[0][RIG_UNIT_CFG.vehicles.nameKey], weapons: [], mods: [] }); await playChangedRecalc(); sheetTab = "rigging"; renderSheet(); const vehAutoOpensOnFirstBuy = { toggle: [...vehCard().querySelectorAll("button")].find(b => /Hide|Show/.test(b.textContent)).textContent, unitCount: vehCard().querySelectorAll(".sh-unit").length }; [...droneCard().querySelectorAll("button")].find(b => /Show/.test(b.textContent)).click(); CHAR.play.purchases.vehicles.pop(); await playChangedRecalc(); return { collapsedWithFive, survivesRerender, vehAutoOpensOnFirstBuy }; })()
+
+- **Expected:**
+
+      { "collapsedWithFive": { "toggle": "Show ▾", "hint": "5 drones — hidden.", "gridPresent": false },
+        "survivesRerender": "Show ▾",
+        "vehAutoOpensOnFirstBuy": { "toggle": "Hide ▴", "unitCount": 1 } }
+
+- **Note:** `collapsedWithFive`/`survivesRerender` prove the override is a
+  plain boolean once set — collapsing a card with 5 units owned doesn't
+  reopen itself on the next `renderSheet()` just because there's something to
+  show. `vehAutoOpensOnFirstBuy` is the companion case: reset
+  `unitGroupCollapsed.vehicles` to `null` (simulating a player who never
+  touched the toggle) and the first Vehicle purchase opens the card on its
+  own, same as P06-075's `vehHint` default. The two together are the whole
+  contract: untouched tracks ownership live, touched stays exactly where the
+  player left it.
+- **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
+
 ---
 
 ## Wrapping up

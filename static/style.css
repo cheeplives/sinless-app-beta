@@ -1349,8 +1349,15 @@ label.opt input{margin-top:3px}
    be a second column of that same UI, always open, taking as much height as
    the identity column beside it. One column now, so .sh-unit-main is the
    card's only child. */
+/* Two units side by side once outfitting left the card (#87 follow-up): each
+   is ~265px tall now, down from ~817px with the attachments column open, so
+   one marching down the page wasted the width the shrink bought back.
+   auto-fit + minmax folds to a single column on its own -- a narrow card, a
+   phone, or just one unit stretching to fill the row -- with no media query. */
+.sh-unit-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:10px}
 .sh-unit{display:flex;align-items:flex-start;flex-wrap:wrap;
   border:1px solid var(--line);border-radius:6px;background:var(--panel-2);padding:8px 10px;margin-bottom:8px}
+.sh-unit-grid .sh-unit{margin-bottom:0}   /* the grid's own `gap` replaces it */
 .sh-unit-main{flex:1 1 auto;min-width:0}
 .sh-unit-title{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 /* The unit's custom-name field, used in the Modify dialog (renaming moved off
