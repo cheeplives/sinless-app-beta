@@ -2392,6 +2392,45 @@ session.
   read-only branch already had, now applied to the editable one too.
 - **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
 
+### P06-078: Running a program without a Nerve Rig carries a −2d penalty
+- **Type:** correctness
+- **Steps:** none.
+- **Check:**
+
+      (async () => { window.alert = () => {}; const c = RULES.defaultCharacter(); c.name = "QA Nerve Rig"; c.priorities = { heritage: 1, magic: 0, attributes: 5, skills: 4, resources: 0 }; c.heritage.type = "Human"; c.skills = { "Computer: Hacking": 4 }; c.decks = [{ name: "MasterDeck", mods: [] }]; c.programs = ["Attack Dog"]; c.play = c.play || {}; c.play.decking = { active_deck: "MasterDeck", loaded: ["Attack Dog"], jacked_out: false }; c.finalized = true; c.lifestyles = [{ name: "Squatter", months: 1 }]; await openCharacter(c); sheetTab = "decking"; renderSheet(); const btn = () => [...document.querySelectorAll("button")].find(b => /^Run \(/.test(b.textContent)); const noRig = deckingNerveRigPenalty(); const titleNoRig = btn().title; btn().click(); const rollerNoRig = { penalty: rollerState.penalty, label: rollerState.penaltyLabel }; closeSheetPopover(); rollerState.open = false; CHAR.play.kit.augments.push({ name: "Nerve Rig", count: 1 }); playChanged(); const withRig = deckingNerveRigPenalty(); const titleWithRig = btn().title; btn().click(); const rollerWithRig = { penalty: rollerState.penalty, label: rollerState.penaltyLabel }; closeSheetPopover(); rollerState.open = false; await closeTabByName("QA Nerve Rig"); return { noRig, titleNoRig, rollerNoRig, withRig, titleWithRig, rollerWithRig }; })()
+
+- **Expected:**
+
+      { "noRig": 2,
+        "titleNoRig": "Roll 4d6 — Computer: Hacking 4 + Attack Dog rating 0. Costs 4 dice: 3 MCP available, then Focus · −2d, no Nerve Rig",
+        "rollerNoRig": { "penalty": 2, "label": "No Nerve Rig" },
+        "withRig": 0,
+        "titleWithRig": "Roll 4d6 — Computer: Hacking 4 + Attack Dog rating 0. Costs 4 dice: 0 MCP available, then Focus",
+        "rollerWithRig": { "penalty": 0, "label": "Wound" } }
+
+- **Note:** Issue #90. Nerve Rig's own data-row description already said it's
+  "necessary for direct control-hotseating while rigging or decking" — nothing
+  enforced it. `deckingNerveRigPenalty()` follows the exact shape
+  `castingZrPenalty()` established for the ZR house rule and `TWIN_FIRE_PENALTY`
+  established for dual-wielding: a fixed penalty the TEST carries, applied at
+  roll time via `openPoolRoller`'s `extraPenalty`/`penaltyLabel`, not a note
+  parked on the deck or program — there's no `CALC.decking` object to hang a
+  note on, and the penalty depends on the character's own augment loadout, not
+  either item's stats.
+
+  `noRig`/`withRig` are the direct check: `allAugmentsOwned().some(a => a.name
+  === "Nerve Rig")` gates it, same idiom as the existing Hyperthyroid surcharge
+  check. `titleNoRig`/`titleWithRig` confirm the penalty is on the button's
+  face before the click, not just inside the roller after — the same reasoning
+  the MCP/pool cost breakdown is already there for. `rollerNoRig`/`rollerWithRig`
+  confirm the roller itself actually carries `extraPenalty: 2` (not just a
+  cosmetic label) when the rig is missing, and drops to a plain `0`/"Wound"
+  once it's installed — `withRig`'s roll happens second, after the first
+  `Run` already drained this character's 3 MCP dice, which is why its title
+  reads "0 MCP available" rather than 3; that's the state the test sequence
+  leaves behind, not a second bug.
+- **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
+
 ---
 
 ## Wrapping up

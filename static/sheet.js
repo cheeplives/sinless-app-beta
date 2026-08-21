@@ -11912,6 +11912,20 @@ async function raiseProgramRating(en, upgrade) {
   await playChangedRecalc();
 }
 
+/* Nerve Rig penalty on Run Program rolls, in dice, or 0.
+ *
+ * Nerve Rig's own data-row description says it's "necessary for direct
+ * control-hotseating while rigging or decking" — without one, jacking in is a
+ * clumsier, indirect interface. Same shape as castingZrPenalty(): a fixed
+ * penalty the TEST carries, applied at roll time via openPoolRoller's
+ * extraPenalty rather than as a note on the deck or program, because it
+ * depends on the character's own augment loadout, not on either item's
+ * stats — there is no CALC.decking object to hang a note on in the first
+ * place, unlike the skill rows the ZR penalty rides on. */
+function deckingNerveRigPenalty() {
+  return allAugmentsOwned().some(a => a.name === "Nerve Rig") ? 0 : 2;
+}
+
 /* Run a program: charge the action, charge the dice, open the roller loaded.
  *
  * The dice are spent HERE rather than handed to the roller as a `pool`, which
@@ -11951,16 +11965,22 @@ function runProgram(name, row) {
   const paidBits = [];
   if (fromMcp) paidBits.push(`${fromMcp} MCP`);
   if (fromPool) paidBits.push(`${fromPool} ${spec.pool}`);
+  const nerveRigPenalty = deckingNerveRigPenalty();
   openPoolRoller({
     dice: paid, bonus: spec.bonusDice, pool: "",
     label: `Run ${name}`,
     note: `${spec.skill}: ${spec.skillDice} skill + ${spec.rating} rating`
       + (spec.bonusDice ? ` + ${spec.bonusDice} bonus` : "")
-      + (paidBits.length ? ` · paid ${paidBits.join(" + ")}` : " · nothing to pay with"),
+      + (paidBits.length ? ` · paid ${paidBits.join(" + ")}` : " · nothing to pay with")
+      + (nerveRigPenalty ? ` · −${nerveRigPenalty} no Nerve Rig` : ""),
     // The roller opens pool-less because the cost is already settled above;
     // this is what says so on the pool row, which otherwise reads "no pool
     // spent" over a Focus pool that just went down.
     prepaid: paidBits.length ? paidBits.join(" + ") : null,
+    extraPenalty: nerveRigPenalty,
+    penaltyLabel: nerveRigPenalty
+      ? (woundPenalty().size > 0 ? "Wound + No Nerve Rig" : "No Nerve Rig")
+      : null,
   });
   playChanged();
 }
@@ -12261,6 +12281,11 @@ function shDecking(body) {
             + ` then ${runSpec.pool}`
             + (runSpec.actionUnits
                 ? ` · ${runSpec.actionType} Action (Decking Exploit first, then Simple)`
+                : "")
+            // Shown before the click, not just after — the same reason the
+            // MCP/pool cost is on the face and not just the roller.
+            + (deckingNerveRigPenalty()
+                ? ` · −${deckingNerveRigPenalty()}d, no Nerve Rig`
                 : ""),
           onclick: () => runProgram(name, r) }, `Run (${runSpec.cost}d)`)
       : el("span", { class: "sh-prog-cell-empty", "aria-hidden": "true" });
