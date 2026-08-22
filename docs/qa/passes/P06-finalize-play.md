@@ -757,27 +757,40 @@ path by which play could reach into the creation record.
   case per path is the point, not one per row.
 - **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
 
-### P06-031: New Round refills the four pools and leaves Kismet dice alone
+### P06-031: New Round refills the four pools, clears hand-tracked dodge dice, and leaves Kismet dice alone
 - **Type:** correctness
 - **Steps:** Any finalized character, Overview tab. The check spends dice,
-  clicks the real New Round button, and reads the result.
+  ticks up the Dodge card's hand-tracked counter, clicks the real New Round
+  button, and reads the result.
 - **Check:**
 
-      (() => { const c = CHAR; ensurePlay(); c.play.kismet_earned = 25; recalc(); kismetPoolState().setUsed(0); for (const p of POOL_ORDER) poolState(p).setUsed(2); kismetPoolState().setUsed(2); renderSheet(); const before = { pools: POOL_ORDER.map(p => poolState(p).remaining), kismet: kismetPoolState().remaining, kismetMax: kismetPoolState().max }; [...document.querySelectorAll("button")].find(b => b.textContent.includes("New Round")).click(); const after = { pools: POOL_ORDER.map(p => poolState(p).remaining), kismet: kismetPoolState().remaining }; return { before, after, refilled: POOL_ORDER.every(p => poolState(p).remaining === poolState(p).max) }; })()
+      (() => { const c = CHAR; ensurePlay(); c.play.kismet_earned = 25; c.play.dodge_dice = 3; recalc(); kismetPoolState().setUsed(0); for (const p of POOL_ORDER) poolState(p).setUsed(2); kismetPoolState().setUsed(2); renderSheet(); const before = { pools: POOL_ORDER.map(p => poolState(p).remaining), kismet: kismetPoolState().remaining, kismetMax: kismetPoolState().max, dodge: c.play.dodge_dice }; [...document.querySelectorAll("button")].find(b => b.textContent.includes("New Round")).click(); const after = { pools: POOL_ORDER.map(p => poolState(p).remaining), kismet: kismetPoolState().remaining, dodge: c.play.dodge_dice }; return { before, after, refilled: POOL_ORDER.every(p => poolState(p).remaining === poolState(p).max) }; })()
 
 - **Expected:** `before.kismet` is 1 (of 3), and **`after.kismet` is still 1**.
-  `refilled` is `true` — every attribute pool comes back to its own max.
-- **Note:** The two halves of this are one rule: New Round means a fresh round,
-  and Kismet dice are not a per-round resource. They're 1 to start plus 1 per 10
+  `before.dodge` is 3 and **`after.dodge` is 0**. `refilled` is `true` — every
+  attribute pool comes back to its own max.
+- **Note:** Three halves, one rule: New Round means a fresh round, and each
+  resource here answers differently to that.
+
+  Kismet dice are NOT a per-round resource. They're 1 to start plus 1 per 10
   Kismet earned across the character's life, and spending one is meant to sting
   until you deliberately reset it. If `after.kismet` ever equals `before.kismetMax`,
   Kismet has silently become free.
 
-  `refilled` is the other half, and it has to be checked in the same case: it
-  would be trivially easy to "fix" a Kismet reset by narrowing what New Round
-  touches and take an attribute pool out with it. The button walks `POOL_ORDER`
+  `play.dodge_dice` (the Dodge card's legacy hand-tracked counter, `openDodgePopover`'s
+  "Tracked dodge dice" +/-) IS a per-round resource, or at least the only sane
+  reading of what a player ticks it up for — "Full Defense this round," a GM's
+  one-off bonus — and until this ruling it was the one thing on the Overview
+  that outlived New Round entirely: nothing but its own +/- ever touched it, so
+  a die added in round 3 was still there in round 30 unless someone remembered
+  to zero it by hand. `after.dodge: 0` is the fix.
+
+  `refilled` is the third, and it has to be checked in the same case: it would
+  be trivially easy to "fix" a Kismet reset by narrowing what New Round touches
+  and take an attribute pool out with it. The button walks `POOL_ORDER`
   (`["Brawn","Finesse","Focus","Resolve"]`), which is the entire mechanism —
-  Kismet is excluded by not being in that list, not by a special case.
+  Kismet is excluded by not being in that list, dodge dice by a dedicated line,
+  neither by a special case in the pool loop itself.
 
   Kismet's own used-count does live in `play.pool_used.Kismet`, alongside the
   four, which is why this is worth a standing test rather than an obvious truth:

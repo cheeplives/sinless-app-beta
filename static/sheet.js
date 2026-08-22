@@ -7057,6 +7057,13 @@ function newRound() {
   refreshBeastDice();     // Wildling's Beast dice refresh each round too
   refreshMcpDice();       // ...and a deck's MCP dice, same deal (#79)
   decrementAllHeat();
+  // The Dodge card's legacy hand-tracked counter (see dodgeCard/
+  // openDodgePopover) is exactly the kind of situational bonus New Round
+  // exists to clear -- it was left out only because nothing ever wrote it but
+  // its own +/-, not because it's meant to survive a round. A player who
+  // ticks it up for "Full Defense this round" and forgets to zero it by hand
+  // would otherwise carry the bonus into every roll from then on.
+  CHAR.play.dodge_dice = 0;
   playChanged();
 }
 /* What a round costs you, tracked as it's spent (issue #32).
