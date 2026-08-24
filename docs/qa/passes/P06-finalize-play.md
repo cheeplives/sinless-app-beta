@@ -2685,3 +2685,50 @@ goods for nothing.
   render, proving it follows `isLinked` reactively rather than only at
   card-build time, and that vehicles get it exactly like drones do.
 - **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
+
+### P06-083: Owned and carried track separately for a Thrown weapon, and Attack spends only what's carried
+- **Type:** correctness
+- **Steps:** none.
+- **Check:**
+
+      (async () => { const c = RULES.defaultCharacter(); c.name = "QA Thrown95"; c.priorities = { heritage: 2, magic: 0, attributes: 3, skills: 2, resources: 3 }; c.heritage.type = "Human"; c.skills = { "Throwing Weapons": 3 }; c.weapons = [{ name: "Explosive Grenade", mods: [], equipped: true, qty: 3, carried_qty: 2, hand: 0 }]; c.finalized = true; c.lifestyles = [{ name: "Squatter", months: 1 }]; await openCharacter(c); sheetTab = "overview"; renderSheet(); const gren = () => allWeapons()[0]; const findAttack = () => [...document.querySelectorAll(".sh-hand-card button")].find(b => b.textContent.trim() === "Attack"); const closeRoller = () => { const d = document.querySelector(".sh-roller"); if (d) { const x = [...d.querySelectorAll("button")].find(b => b.title === "Close"); if (x) x.click(); } }; const before = { owned: ownedQty(gren()), carried: carriedQty(gren()) }; findAttack().click(); closeRoller(); renderSheet(); const afterFirst = { owned: ownedQty(gren()), carried: carriedQty(gren()) }; findAttack().click(); closeRoller(); renderSheet(); const afterSecond = { owned: ownedQty(gren()), carried: carriedQty(gren()) }; const dryBtn = findAttack(); const dry = { disabled: dryBtn.disabled, title: dryBtn.title }; sheetTab = "gear"; renderSheet(); const row = [...document.querySelectorAll("#gear-weapons table tr")].find(tr => tr.textContent.includes("Explosive Grenade")); const steppers = [...row.querySelectorAll(".stepper")]; const gearReadout = { qty: steppers[0].querySelector(".sv").textContent, carried: steppers[1].querySelector(".sv").textContent }; steppers[1].querySelectorAll("button")[1].click(); renderSheet(); const restored = { owned: ownedQty(gren()), carried: carriedQty(gren()) }; sheetTab = "overview"; renderSheet(); const reenabled = !findAttack().disabled; sheetTab = "gear"; renderSheet(); const tab = activeTabObj(); tab.readonly = true; renderSheet(); const roRow = [...document.querySelectorAll("#gear-weapons table tr")].find(tr => tr.textContent.includes("Explosive Grenade")); const roText = roRow.textContent.includes("Qty 3 (1 carried)"); const roNoControls = roRow.querySelectorAll(".stepper").length === 0; tab.readonly = false; await closeTabByName("QA Thrown95"); return { before, afterFirst, afterSecond, dry, gearReadout, restored, reenabled, roText, roNoControls }; })()
+
+- **Expected:**
+
+      { "before": { "owned": 3, "carried": 2 },
+        "afterFirst": { "owned": 3, "carried": 1 },
+        "afterSecond": { "owned": 3, "carried": 0 },
+        "dry": { "disabled": true,
+          "title": "None carried — carry one on the Gear tab before throwing another" },
+        "gearReadout": { "qty": "3", "carried": "0" },
+        "restored": { "owned": 3, "carried": 1 },
+        "reenabled": true, "roText": true, "roNoControls": true }
+
+- **Note:** Reported gap: a Thrown weapon (grenade, knife, shuriken) only had
+  a Qty stepper, so there was no way to say "I own 3 but I'm only carrying 2
+  today" — and pressing Attack didn't touch either number, so a thrown
+  grenade never actually left the stack.
+
+  Qty and Carried are now the same pair a stacked misc-gear row already gets
+  (`shUsesStepper` / `shCarriedStepper`, `ownedQty` / `carriedQty` in
+  app.js) — Qty is the total owned, Carried is what's on you and is what
+  Attack draws from. `before`→`afterFirst`→`afterSecond` presses the
+  Overview hand card's Attack button twice: `owned` never moves, `carried`
+  drops 2→1→0. This is deliberate, not an oversight — see
+  `attackButton`'s `consumeCarried`: what stays in a locker at the safehouse
+  isn't in your hand to throw, but it's still yours, so Qty is untouched and
+  only Carried spends.
+
+  `dry` is the empty-carried state: the button disables (rather than
+  vanishing) once nothing is left in hand, the same "still there as a
+  reminder to restock" idiom `shUseDoseBtn` uses for an empty dose stack —
+  and its title says why. `gearReadout` confirms the Gear tab's Weapons
+  table shows the same two numbers live (Qty 3 unmoved, Carried 0). Clicking
+  Carried's own `+` there (not Qty) restores it to 1 (`restored`) and the
+  Overview button re-enables on its own (`reenabled`) — Qty and Carried
+  never touch each other except that Carried can't exceed Qty.
+
+  `roText`/`roNoControls` is the read-only reader's view: a plain "Qty 3 (1
+  carried)" line, no steppers — matching how every other owned/carried gear
+  row degrades for a shared read-only character.
+- **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED

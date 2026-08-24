@@ -5419,15 +5419,29 @@ function energyFireButtons({ label, rollSpec, mode, per, max, cur, applyHeat,
 /* A weapon with no firing mode still makes an attack test — a blade, a fist, a
  * thrown grenade — so it gets the same one-press roll the guns' Fire button
  * gives, minus the ammo. Returns "—" when there's nothing to roll (an untrained
- * trained-only skill), which is what the cell used to show for all of them. */
+ * trained-only skill), which is what the cell used to show for all of them.
+ *
+ * `opts.consumeCarried`, when passed, is the weapon entry a thrown attack is
+ * drawn from -- a grenade, knife or shuriken is gone the moment it's thrown,
+ * so the button spends one off what's actually CARRIED (not the total owned;
+ * the rest of the stack is still yours, just not in hand -- see carriedQty/
+ * setCarriedQty in app.js). An empty carried count disables the button rather
+ * than hiding it, the same "still there as a reminder to restock" idiom
+ * shUseDoseBtn uses for an empty dose stack. */
 function attackButton(label, rs, opts = {}) {
   if (!rs || rs.locked || (rs.limitDice + rs.bonus) <= 0) return "—";
   const total = rs.limitDice + rs.bonus;
+  const carried = opts.consumeCarried ? carriedQty(opts.consumeCarried) : null;
+  const dry = opts.consumeCarried && carried <= 0;
   return el("div", { class: "sh-fire-btns" },
     el("button", { class: "btn small",
-      title: opts.title || (`Roll ${total}d6 — ${rs.why.join(" ")}`
-        + (rs.bwhy.length ? `, bonus ${rs.bwhy.join(" + ")}` : "")),
+      ...(dry ? { disabled: 1 } : {}),
+      title: dry
+        ? `None carried — carry one on the Gear tab before throwing another`
+        : (opts.title || (`Roll ${total}d6 — ${rs.why.join(" ")}`
+          + (rs.bwhy.length ? `, bonus ${rs.bwhy.join(" + ")}` : ""))),
       onclick: () => {
+        if (dry) return;
         // Melee/unarmed (opts.melee) prefers a Melee Exploit Action and only
         // reaches for a Simple Action once those are gone. Everything else
         // this button covers — thrown weapons, fixed-pool ranged implants
@@ -5435,6 +5449,7 @@ function attackButton(label, rs, opts = {}) {
         // spends a Simple Action directly, same as any other shot fired.
         const spent = opts.melee ? spendMeleeAttack() : spendSimpleActions(1, `Attacking with ${label}`);
         if (!spent) return;
+        if (opts.consumeCarried) setCarriedQty(opts.consumeCarried, carried - 1);
         openPoolRoller({ dice: rs.limitDice, bonus: rs.bonus,
           pool: rs.pool, label,
           note: opts.note
@@ -6720,7 +6735,8 @@ function shOverview(body) {
             tile.append(el("div", { class: "sh-fire" }, modes.length
               ? firingModeControls(held, r, effRow, modes, mode, kataOffered, rs,
                   null, { braceOffered })
-              : attackButton(held.name, rs, { melee: r.Type === "Melee" })));
+              : attackButton(held.name, rs, { melee: r.Type === "Melee",
+                  consumeCarried: r.Type === "Thrown" ? held : null })));
             tile.append(munitionPicker(held, r));
           }
           for (const ub of (ubByHost.get(held) || [])) tile.append(renderUnderbarrel(ub));
@@ -10718,6 +10734,14 @@ function shGear(body) {
       const r = DATA.tables.weapons.find(x => x.Weapon === w.name) || {};
       const canMod = !NO_WEAPON_MOD_TYPES.includes(r.Type);
       const calcRow = (CALC.weapons || []).find(x => x.Weapon === w.name) || {};
+      // Owned vs carried only means anything for a stack -- a Thrown weapon
+      // (grenade, knife, shuriken) is single-use, so "how many do I have
+      // total" and "how many are on me right now" are different questions
+      // (previously conflated: only Qty existed, so there was no way to say
+      // "I own 6 but I'm only carrying 2 today"). Attack draws from Carried,
+      // not Qty -- see attackButton's consumeCarried.
+      const thrownOwned = r.Type === "Thrown" ? ownedQty(w) : 0;
+      const thrownCarried = r.Type === "Thrown" ? carriedQty(w) : 0;
       t.append(el("tr", {},
         el("td", {},
           // Reordering stays inside the owning array — dragging a play purchase
@@ -10747,12 +10771,28 @@ function shGear(body) {
           el("input", { type: "checkbox", ...(w.equipped !== false ? { checked: 1 } : {}),
             onchange: async e => { w.equipped = e.target.checked; await playChangedRecalc(); } }),
           shMinStrControl(w, r),
-          // Thrown weapons stack, and a thrown grenade is gone. Same −/+ the
-          // gear rows carry, so the stack can run down without deleting it.
-          (!ro && r.Type === "Thrown")
-            ? el("div", { class: "sub", style: "margin-top:4px" },
-                el("span", { class: "sub" }, "Qty "),
-                shUsesStepper(w, playChangedRecalc, "grenade"))
+          // Thrown weapons stack, and a throw uses one up for good. Same
+          // Qty/Carried pair a stacked gear row gets (shUsesStepper /
+          // shCarriedStepper): Qty is the −/+ that runs the owned stack
+          // down without deleting the row; Carried is what's actually on
+          // you, which is what Attack spends against.
+          (r.Type === "Thrown")
+            ? el("div", { style: "margin-top:4px" },
+                ro
+                  ? el("div", { class: "sub" }, `Qty ${thrownOwned} (${thrownCarried} carried)`)
+                  : [el("div", { class: "sub" },
+                       el("span", { class: "sub" }, "Qty "),
+                       shUsesStepper(w, playChangedRecalc, "grenade")),
+                     el("div", { class: "sub", style: "margin-top:2px" },
+                       el("span", { class: "sub" }, "Carried "),
+                       thrownOwned > 1
+                         ? shCarriedStepper(w, playChangedRecalc)
+                         : el("input", { type: "checkbox",
+                             ...(w.carried !== false ? { checked: 1 } : {}),
+                             onchange: async e => {
+                               setCarriedQty(w, e.target.checked ? thrownOwned : 0);
+                               await playChangedRecalc();
+                             } }))])
             : null),
         el("td", {}, el("button", { class: "row-del", title: "Sell / remove weapon",
           onclick: () => {
