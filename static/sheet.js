@@ -5843,9 +5843,17 @@ function weaponSkillDice(name, type, accuracy, bonuses = [], reach = null) {
  *
  * Cyberguns are deliberately excluded: they are inside the body, and nothing on
  * the surface is what Subterfuge is hiding. Returns null when the character is
- * carrying nothing, since there is no question to answer. */
+ * carrying nothing, since there is no question to answer.
+ *
+ * A Thrown weapon (grenade, knife, shuriken) stacks in one entry with its own
+ * Qty/Carried split -- what's sitting in a locker at the safehouse isn't part
+ * of today's silhouette, so `equipped` alone (which only says the stack is
+ * part of the loadout at all) isn't enough here the way it is for a gun; a
+ * stack with nothing actually carried is dropped from the check entirely. */
 function concealCallout() {
-  const carried = allWeapons().filter(w => w.equipped !== false);
+  const row = w => DATA.tables.weapons.find(x => x.Weapon === w.name) || {};
+  const carried = allWeapons().filter(w =>
+    w.equipped !== false && (row(w).Type !== "Thrown" || carriedQty(w) > 0));
   if (!carried.length) return null;
   // Resolved by position, not by name: two identical guns are two silhouettes
   // and both have to count. See calcRowFor for why a name-find is wrong here.
