@@ -2171,9 +2171,8 @@ body.sheet-readonly .sh-readonly-banner .btn{pointer-events:auto;opacity:1}
    as .sh-hand-cards: they pair up when there is room and stack when there is
    not, so nothing changes on a phone. align-items:start because Armor is much
    the taller of the two and Ammo should not be stretched to match it. */
-.sh-loadout-boxes{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));
-  gap:12px;margin-top:10px;align-items:start}
-.sh-loadout-box{border:1px solid var(--line);border-radius:8px;padding:10px 12px;
+.sh-loadout-boxes{display:flex;flex-wrap:wrap;gap:12px;margin-top:10px;align-items:start}
+.sh-loadout-box{flex:1 1 300px;border:1px solid var(--line);border-radius:8px;padding:10px 12px;
   min-width:0;background:var(--panel);overflow-wrap:anywhere}
 .sh-loadout-box > .k{font-family:var(--disp);font-size:12px;letter-spacing:.12em;
   text-transform:uppercase;color:var(--manon);margin-bottom:6px}
