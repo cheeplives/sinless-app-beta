@@ -36,7 +36,7 @@ const BUNDLE = (typeof DATA_BUNDLE !== "undefined")
  * default fill claim this build made it: "unknown" is a fact worth keeping,
  * and a confidently wrong version is worse than none when you are working out
  * why an old file behaves oddly. */
-const APP_VERSION = "355";
+const APP_VERSION = "356";
 
 // ============================================================== game constants
 // The numeric knobs the engine reads; grouped by chargen step below.
@@ -393,9 +393,27 @@ const HOUSE_RULE_DEFS = [
       { value: "houserule", label: "No Recoil",
         help: "Recoil stops existing — no Recoil Capacity, no tokens, nothing to stabilize. The gear that used to soak it pays out bonus dice instead: Bi-pod +1b braced; Gyro-mount and Gas Vent +1b; the Gyromount augment +3b; Gun-Kata 3 +3b — each on any firing mode that isn't SS." },
     ] },
+  { id: "conceal", label: "Concealability", default: "classic",
+    options: [
+      { value: "classic", label: "Classic Conceal",
+        help: "Every weapon's Conceal rating is exactly what the table lists." },
+      { value: "houserule", label: "Conceal Tweaks",
+        help: "Thrown weapons (grenades, knives, shuriken) read 1 easier to hide — Conceal −1, floored at 0. More weapon types may join this rule later." },
+    ] },
 ];
 
-// House rule: the single Engineering skill can split into a six-skill group.
+/* House rule: "Conceal Tweaks" (#96) shaves a flat 1 off the listed Conceal
+ * of every weapon Type named here, floored at 0 so nothing reads negative.
+ * Applied once in priceWeapons() onto item.Conceal, so every consumer — the
+ * Gear tab row, the Overview hand card, concealCallout()'s carried-weight
+ * check — sees the adjusted number without knowing this rule exists, the
+ * same "resolve once in the engine" shape syncNoRecoilText() uses.
+ *
+ * Only Thrown for now (grenades, knives, shuriken); the player asked for
+ * room to add more weapon types to the same rule later without a second
+ * rule/branch, so extend this list rather than adding another `id`. */
+const CONCEAL_TWEAK_TYPES = ["Thrown"];
+function concealTweaksActive() { return houseRule("conceal") === "houserule"; }
 const ENGINEERING_GROUP = "engineering";
 const ENGINEERING_SPLIT_SKILLS = [
   "Engineering: Aeronautics", "Engineering: Armory", "Engineering: Electronics",
@@ -4119,6 +4137,14 @@ function priceWeapons(character, data, gearCostMultiplier, warnings, strength, e
       item.Conceal = String(toInt(asNumber(item.Conceal)) + toInt(concealMod));
       item.conceal_mod = concealMod;
     }
+    // House rule: Conceal Tweaks (#96) shaves 1 off a listed weapon Type's
+    // Conceal, floored at 0. Runs after the mod total above so a homebrew
+    // Thrown weapon with a (currently impossible, but not data-enforced)
+    // fitted mod still gets the flat -1 on top rather than instead of it.
+    if (concealTweaksActive() && CONCEAL_TWEAK_TYPES.includes(row.Type)
+        && item.Conceal !== "" && item.Conceal != null) {
+      item.Conceal = String(Math.max(0, toInt(asNumber(item.Conceal)) - 1));
+    }
     // Just the mods' contribution. The character's own capacity is added in
     // calculate(), which is also where Gun-Kata's "Ignore Recoil" is resolved —
     // pricing a gun shouldn't need to know what martial art its owner studies.
@@ -6435,8 +6461,38 @@ function calculate(character) {
   };
 }
 
+/* calculate() on a THROWAWAY character -- a budget snapshot, a markdown-
+ * import dry run, anything built from a clone that is never going to become
+ * CHAR -- without leaking that clone's house_rules into the module-level
+ * `activeHouseRules` pointer that calculate() sets as a side effect and that
+ * houseRule()/setHouseRule()/currencyName() etc. keep reading long after
+ * calculate() has returned.
+ *
+ * Without this, the LAST calculate() call wins regardless of which one was a
+ * probe: run one on a clone, and every house-rule read anywhere in the app
+ * -- including the ⚙ panel's own onchange handler, which calls setHouseRule()
+ * BEFORE its own recalc() -- silently reads and writes the discarded clone's
+ * rules instead of the real character's, until something happens to call
+ * calculate() on the real character again. snapshotCreationBudget() hits
+ * this on the very first render of a finalized character (its budget probe
+ * runs after the real calculate() already has), which used to make a
+ * player's first house-rule change after opening a save a silent no-op.
+ *
+ * Every call site that calculates a clone/draft/trial/probe rather than the
+ * live CHAR should route through here instead of calling calculate()
+ * directly. */
+function calculateProbe(character) {
+  const saved = activeHouseRules;
+  try {
+    return calculate(character);
+  } finally {
+    activeHouseRules = saved;
+  }
+}
+
 return {
   calculate,
+  calculateProbe,
   defaultCharacter,
   mergeDefaults,
   validateCharacterShape,

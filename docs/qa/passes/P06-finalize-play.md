@@ -2764,3 +2764,62 @@ goods for nothing.
   isn't a stack and keeps the old one-copy-per-entry rule untouched; this
   case only reaches Thrown-type rows.
 - **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
+
+### P06-085: "Conceal Tweaks" shaves 1 off a Thrown weapon's Conceal, and switching it on actually sticks
+- **Type:** correctness
+- **Steps:** none.
+- **Check:**
+
+      (async () => { const def = RULES.HOUSE_RULE_DEFS.find(d => d.id === "conceal"); const defInfo = { label: def.label, default: def.default, options: def.options.map(o => o.value) }; const c = RULES.defaultCharacter(); c.name = "QA ConcealHR97"; c.priorities = { heritage: 2, magic: 0, attributes: 3, skills: 2, resources: 3 }; c.heritage.type = "Human"; c.skills = { "Subterfuge": 3 }; c.weapons = [{ name: "Explosive Grenade", mods: [], equipped: true, qty: 10, carried_qty: 4 }, { name: "Ares TAG-1 Taser", mods: [], equipped: true }]; c.finalized = true; c.lifestyles = [{ name: "Squatter", months: 1 }]; await openCharacter(c); sheetTab = "overview"; renderSheet(); const conc = () => (CALC.weapons.find(w => w.Weapon === "Explosive Grenade") || {}).Conceal; const taser = () => (CALC.weapons.find(w => w.Weapon === "Ares TAG-1 Taser") || {}).Conceal; const total = () => { const el = document.querySelector(".sh-conceal b"); return el ? el.textContent.trim() : "gone"; }; const classic = { grenade: conc(), taser: taser(), total: total(), rule: RULES.houseRule("conceal") }; document.querySelector("#settings-btn").click(); const sel = [...document.querySelectorAll(".settings-rule")].find(r => r.querySelector("span").textContent === "Concealability").querySelector("select"); sel.value = "houserule"; sel.dispatchEvent(new Event("change")); await new Promise(r => setTimeout(r, 30)); const tweaked = { grenade: conc(), taser: taser(), total: total(), rule: RULES.houseRule("conceal"), persisted: CHAR.house_rules.conceal }; document.querySelector("#settings-btn").click(); sel.value = "classic"; sel.dispatchEvent(new Event("change")); await new Promise(r => setTimeout(r, 30)); const reverted = { grenade: conc(), taser: taser(), total: total(), persisted: CHAR.house_rules.conceal }; await closeTabByName("QA ConcealHR97"); return { defInfo, classic, tweaked, reverted }; })()
+
+- **Expected:**
+
+      { "defInfo": { "label": "Concealability", "default": "classic", "options": ["classic", "houserule"] },
+        "classic": { "grenade": "2", "taser": "2", "total": "6 / 3", "rule": "classic" },
+        "tweaked": { "grenade": "1", "taser": "2", "total": "4 / 3", "rule": "houserule", "persisted": "houserule" },
+        "reverted": { "grenade": "2", "taser": "2", "total": "6 / 3", "persisted": "classic" } }
+
+- **Note:** Player request: a new house rule, "Conceal Tweaks" (rule id
+  `conceal`, options `classic` / `houserule`, defaulting `classic` like
+  every other rule) — under it, every weapon Type in `CONCEAL_TWEAK_TYPES`
+  (`rules.js`, Thrown-only for now — grenades, knives, shuriken; "other
+  weapons may also be added to this later" per the request, which is why
+  it's a list to extend rather than a second rule id) reads 1 easier to hide,
+  floored at 0, applied once in `priceWeapons()` onto `item.Conceal` so every
+  consumer (Gear tab row, Overview hand card, `concealCallout()`'s carried-
+  weight math from P06-084) sees the adjusted number for free. The Taser
+  (not Thrown) is unaffected throughout — `taser` stays `2` in every state —
+  proving the −1 is scoped to the listed Types, not global.
+
+  `classic` → `tweaked` is the grenade's own Conceal dropping 2→1
+  (`"grenade"`), which cascades into P06-084's weight math: 4 carried at
+  0.5 wt each is 2.0 wt either way, but `floor(2) × 2 = 4` under Classic
+  becomes `floor(2) × 1 = 2` under the tweak, so the callout's `total`
+  drops from `6 / 3` to `4 / 3` (Taser's 2 plus the grenades' share).
+  `reverted` flips the select back and confirms both numbers return exactly
+  to their `classic` values — nothing is a one-way conversion.
+
+  **This case is also the regression guard for a bug the request surfaced
+  while testing it.** The check drives the change through the real ⚙
+  settings-panel `<select>` — `sel.dispatchEvent(new Event("change"))`,
+  the actual onchange handler `initHouseRules()` wires up — rather than
+  calling `RULES.setHouseRule()` directly, and that distinction is what
+  catches it: `RULES.calculate()` re-points a module-level "active house
+  rules" pointer as a side effect, and `snapshotCreationBudget()`
+  (`ensureCreationBudget()`, run once per character on `ensurePlay()`) used
+  to call `RULES.calculate()` on a **throwaway clone** to price the frozen
+  creation budget — which silently re-pointed that same pointer at the
+  clone and left it there. The very next house-rule change (`setHouseRule`
+  runs *before* its own `recalc()`) then wrote onto the discarded clone
+  instead of `CHAR`, and the following `recalc()` read `CHAR.house_rules`
+  back unchanged — a **silent no-op** on the first house-rule toggle of
+  every finalized character's first render, for every rule, not just this
+  one. `tweaked.persisted` (read from `CHAR.house_rules.conceal` itself,
+  not from `RULES.houseRule()`) is the direct assertion that the write
+  landed on the real character. Fixed with `RULES.calculateProbe()`, a
+  save/restore wrapper around `calculate()` for exactly this "probe a clone,
+  discard it" shape; `snapshotCreationBudget()` now routes through it. A
+  regression here would most likely reappear as `tweaked.persisted` reading
+  `"classic"` despite `tweaked.rule` reading `"houserule"` — the pointer
+  says the panel take effect, `CHAR` itself says it didn't.
+- **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED

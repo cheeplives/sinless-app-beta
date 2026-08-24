@@ -880,7 +880,11 @@ function pruneLoadedPrograms() {
 function snapshotCreationBudget() {
   const c = JSON.parse(JSON.stringify(CHAR));
   c.finalized = false;
-  const b = RULES.calculate(c).budget;
+  // calculateProbe, not calculate: this clone is thrown away the moment this
+  // function returns, and calculate() would otherwise leave the module's
+  // "active" house rules pointed at it instead of CHAR (see calculateProbe's
+  // own doc comment in rules.js).
+  const b = RULES.calculateProbe(c).budget;
   return { starting_cash: b.starting_cash, categories: b.categories,
            spent: b.spent, remaining: b.remaining };
 }
