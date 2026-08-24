@@ -2733,35 +2733,34 @@ goods for nothing.
   row degrades for a shared read-only character.
 - **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
 
-### P06-084: A Thrown weapon's Conceal follows what's carried, not the whole owned stack
+### P06-084: A Thrown weapon's Conceal follows carried WEIGHT, not owned count or a flat per-entry rating
 - **Type:** correctness
 - **Steps:** none.
 - **Check:**
 
-      (async () => { const c = RULES.defaultCharacter(); c.name = "QA Conceal96"; c.priorities = { heritage: 2, magic: 0, attributes: 3, skills: 2, resources: 3 }; c.heritage.type = "Human"; c.skills = { "Firearms": 3, "Subterfuge": 3 }; c.weapons = [{ name: "Ares TAG-1 Taser", mods: [], equipped: true }, { name: "Explosive Grenade", mods: [], equipped: true, qty: 5, carried_qty: 3 }]; c.finalized = true; c.lifestyles = [{ name: "Squatter", months: 1 }]; await openCharacter(c); sheetTab = "overview"; renderSheet(); const readConceal = () => { const el = document.querySelector(".sh-conceal b"); return el ? el.textContent.trim() : null; }; const withStash = readConceal(); const gren = allWeapons().find(w => w.name === "Explosive Grenade"); setCarriedQty(gren, 0); playChanged(); renderSheet(); const withNoneCarried = readConceal(); setCarriedQty(gren, 2); playChanged(); renderSheet(); const restored = readConceal(); await closeTabByName("QA Conceal96"); return { withStash, withNoneCarried, restored }; })()
+      (async () => { const c = RULES.defaultCharacter(); c.name = "QA Conceal96"; c.priorities = { heritage: 2, magic: 0, attributes: 3, skills: 2, resources: 3 }; c.heritage.type = "Human"; c.skills = { "Subterfuge": 3 }; c.weapons = [{ name: "Explosive Grenade", mods: [], equipped: true, qty: 10, carried_qty: 1 }]; c.finalized = true; c.lifestyles = [{ name: "Squatter", months: 1 }]; await openCharacter(c); sheetTab = "overview"; renderSheet(); const readConceal = () => { const el = document.querySelector(".sh-conceal b"); return el ? el.textContent.trim() : "gone"; }; const gren = allWeapons()[0]; const at = n => { setCarriedQty(gren, n); playChanged(); renderSheet(); return readConceal(); }; const byCount = { 0: at(0), 1: at(1), 2: at(2), 3: at(3), 4: at(4), 5: at(5), 10: at(10) }; await closeTabByName("QA Conceal96"); return byCount; })()
 
 - **Expected:**
 
-      { "withStash": "4 / 3", "withNoneCarried": "2 / 3", "restored": "4 / 3" }
+      { "0": "gone", "1": "0 / 3", "2": "2 / 3", "3": "2 / 3",
+        "4": "4 / 3", "5": "4 / 3", "10": "10 / 3" }
 
-- **Note:** Reported gap: Conceal read as if it were based on how many
-  grenades were *owned*, not how many were actually *carried* — because
-  `concealCallout()` only ever checked `equipped !== false`, and for a
-  Thrown weapon's single stacked entry that flag says "this stack is part
-  of the loadout at all," not "one of these is on me right now." Setting
-  Carried to 0 left the entry still equipped, so its Conceal kept counting.
+- **Note:** Player-reported: carrying a single grenade still read as a full
+  +2 Conceal, the same as an entire fistful of them — `concealCallout()`
+  billed a Thrown weapon's whole carried stack once at its flat table
+  rating, ignoring how many were actually on hand. Ruled: bill it by
+  WEIGHT, not by copy or by the stack as a whole — one whole point of
+  carried weight (floored) buys one copy of the grenade's own Conceal
+  rating. The Explosive Grenade is Weight 0.5, Conceal 2, so it takes 2 to
+  cross 1.0 wt and print the first +2; the table above is that curve: 1
+  grenade (0.5 wt) shows nothing, 2 (1.0 wt) is one lump and reads `2 / 3`,
+  3 (1.5 wt, still one lump) reads the same, 4 (2.0 wt, two lumps) doubles
+  to `4 / 3`, and it keeps climbing from there (`10` → `10 / 3`) — never a
+  fixed per-entry number again.
 
-  The Taser (Conceal 2, always genuinely carried — a gun has no owned/
-  carried split) and the grenade stack (Conceal 2, carried_qty 3 of 5
-  owned) both count while something is carried: `withStash` is `4 / 3`, the
-  sum of both. Zeroing the grenade's Carried count — leaving `equipped`
-  untouched, only `carried_qty` changes — drops the total to just the
-  Taser's 2 (`withNoneCarried`), proving the stash sitting at home no
-  longer contributes. Setting Carried back to 2 restores `4 / 3`
-  (`restored`), confirming it tracks live rather than latching.
-
-  A character carrying nothing at all still returns `null` from
-  `concealCallout()` (no card at all — see the function's own doc comment),
-  which this case doesn't re-litigate; it's the *partial* case — one gun
-  worn, one stack left home — that the old code got wrong.
+  `0` still returns `"gone"` (`concealCallout()` returns `null`, no card at
+  all) — a stack with nothing carried has nothing on you to weigh, the same
+  case P06-083 exercises from the Attack side. A held weapon (gun, blade)
+  isn't a stack and keeps the old one-copy-per-entry rule untouched; this
+  case only reaches Thrown-type rows.
 - **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED

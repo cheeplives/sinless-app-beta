@@ -5849,7 +5849,15 @@ function weaponSkillDice(name, type, accuracy, bonuses = [], reach = null) {
  * Qty/Carried split -- what's sitting in a locker at the safehouse isn't part
  * of today's silhouette, so `equipped` alone (which only says the stack is
  * part of the loadout at all) isn't enough here the way it is for a gun; a
- * stack with nothing actually carried is dropped from the check entirely. */
+ * stack with nothing actually carried is dropped from the check entirely.
+ *
+ * It's also billed by WEIGHT, not by copy or by the stack as a whole (player
+ * request): a single 0.5-Weight grenade is small enough to not print on its
+ * own, but the pocketful you get to once you're carrying enough of them does
+ * -- one whole point of carried weight (floored) buys one copy of the
+ * grenade's own Conceal rating. Two 0.5-Weight grenades (1.0 wt) count once;
+ * four (2.0 wt) count twice. A held weapon (gun, blade) isn't a stack and
+ * keeps the old one-copy-per-entry rule. */
 function concealCallout() {
   const row = w => DATA.tables.weapons.find(x => x.Weapon === w.name) || {};
   const carried = allWeapons().filter(w =>
@@ -5857,7 +5865,13 @@ function concealCallout() {
   if (!carried.length) return null;
   // Resolved by position, not by name: two identical guns are two silhouettes
   // and both have to count. See calcRowFor for why a name-find is wrong here.
-  const conceal = w => toIntSafe(calcRowFor(w, carried).Conceal);
+  const conceal = w => {
+    const calc = calcRowFor(w, carried);
+    const base = toIntSafe(calc.Conceal);
+    if (row(w).Type !== "Thrown") return base;
+    const carriedWeight = (+calc.Weight || 0) * carriedQty(w);
+    return Math.floor(carriedWeight) * base;
+  };
   const total = carried.reduce((n, w) => n + conceal(w), 0);
   const sub = ((CALC.skills || {}).Subterfuge || {}).final || 0;
   // Subterfuge 0 can't cover anything, so any bulk at all is showing. Guarded
