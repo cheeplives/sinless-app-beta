@@ -2685,3 +2685,141 @@ goods for nothing.
   render, proving it follows `isLinked` reactively rather than only at
   card-build time, and that vehicles get it exactly like drones do.
 - **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
+
+### P06-083: Owned and carried track separately for a Thrown weapon, and Attack spends only what's carried
+- **Type:** correctness
+- **Steps:** none.
+- **Check:**
+
+      (async () => { const c = RULES.defaultCharacter(); c.name = "QA Thrown95"; c.priorities = { heritage: 2, magic: 0, attributes: 3, skills: 2, resources: 3 }; c.heritage.type = "Human"; c.skills = { "Throwing Weapons": 3 }; c.weapons = [{ name: "Explosive Grenade", mods: [], equipped: true, qty: 3, carried_qty: 2, hand: 0 }]; c.finalized = true; c.lifestyles = [{ name: "Squatter", months: 1 }]; await openCharacter(c); sheetTab = "overview"; renderSheet(); const gren = () => allWeapons()[0]; const findAttack = () => [...document.querySelectorAll(".sh-hand-card button")].find(b => b.textContent.trim() === "Attack"); const closeRoller = () => { const d = document.querySelector(".sh-roller"); if (d) { const x = [...d.querySelectorAll("button")].find(b => b.title === "Close"); if (x) x.click(); } }; const before = { owned: ownedQty(gren()), carried: carriedQty(gren()) }; findAttack().click(); closeRoller(); renderSheet(); const afterFirst = { owned: ownedQty(gren()), carried: carriedQty(gren()) }; findAttack().click(); closeRoller(); renderSheet(); const afterSecond = { owned: ownedQty(gren()), carried: carriedQty(gren()) }; const dryBtn = findAttack(); const dry = { disabled: dryBtn.disabled, title: dryBtn.title }; sheetTab = "gear"; renderSheet(); const row = [...document.querySelectorAll("#gear-weapons table tr")].find(tr => tr.textContent.includes("Explosive Grenade")); const steppers = [...row.querySelectorAll(".stepper")]; const gearReadout = { qty: steppers[0].querySelector(".sv").textContent, carried: steppers[1].querySelector(".sv").textContent }; steppers[1].querySelectorAll("button")[1].click(); renderSheet(); const restored = { owned: ownedQty(gren()), carried: carriedQty(gren()) }; sheetTab = "overview"; renderSheet(); const reenabled = !findAttack().disabled; sheetTab = "gear"; renderSheet(); const tab = activeTabObj(); tab.readonly = true; renderSheet(); const roRow = [...document.querySelectorAll("#gear-weapons table tr")].find(tr => tr.textContent.includes("Explosive Grenade")); const roText = roRow.textContent.includes("Qty 3 (1 carried)"); const roNoControls = roRow.querySelectorAll(".stepper").length === 0; tab.readonly = false; await closeTabByName("QA Thrown95"); return { before, afterFirst, afterSecond, dry, gearReadout, restored, reenabled, roText, roNoControls }; })()
+
+- **Expected:**
+
+      { "before": { "owned": 3, "carried": 2 },
+        "afterFirst": { "owned": 3, "carried": 1 },
+        "afterSecond": { "owned": 3, "carried": 0 },
+        "dry": { "disabled": true,
+          "title": "None carried — carry one on the Gear tab before throwing another" },
+        "gearReadout": { "qty": "3", "carried": "0" },
+        "restored": { "owned": 3, "carried": 1 },
+        "reenabled": true, "roText": true, "roNoControls": true }
+
+- **Note:** Reported gap: a Thrown weapon (grenade, knife, shuriken) only had
+  a Qty stepper, so there was no way to say "I own 3 but I'm only carrying 2
+  today" — and pressing Attack didn't touch either number, so a thrown
+  grenade never actually left the stack.
+
+  Qty and Carried are now the same pair a stacked misc-gear row already gets
+  (`shUsesStepper` / `shCarriedStepper`, `ownedQty` / `carriedQty` in
+  app.js) — Qty is the total owned, Carried is what's on you and is what
+  Attack draws from. `before`→`afterFirst`→`afterSecond` presses the
+  Overview hand card's Attack button twice: `owned` never moves, `carried`
+  drops 2→1→0. This is deliberate, not an oversight — see
+  `attackButton`'s `consumeCarried`: what stays in a locker at the safehouse
+  isn't in your hand to throw, but it's still yours, so Qty is untouched and
+  only Carried spends.
+
+  `dry` is the empty-carried state: the button disables (rather than
+  vanishing) once nothing is left in hand, the same "still there as a
+  reminder to restock" idiom `shUseDoseBtn` uses for an empty dose stack —
+  and its title says why. `gearReadout` confirms the Gear tab's Weapons
+  table shows the same two numbers live (Qty 3 unmoved, Carried 0). Clicking
+  Carried's own `+` there (not Qty) restores it to 1 (`restored`) and the
+  Overview button re-enables on its own (`reenabled`) — Qty and Carried
+  never touch each other except that Carried can't exceed Qty.
+
+  `roText`/`roNoControls` is the read-only reader's view: a plain "Qty 3 (1
+  carried)" line, no steppers — matching how every other owned/carried gear
+  row degrades for a shared read-only character.
+- **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
+
+### P06-084: A Thrown weapon's Conceal follows carried WEIGHT, not owned count or a flat per-entry rating
+- **Type:** correctness
+- **Steps:** none.
+- **Check:**
+
+      (async () => { const c = RULES.defaultCharacter(); c.name = "QA Conceal96"; c.priorities = { heritage: 2, magic: 0, attributes: 3, skills: 2, resources: 3 }; c.heritage.type = "Human"; c.skills = { "Subterfuge": 3 }; c.weapons = [{ name: "Explosive Grenade", mods: [], equipped: true, qty: 10, carried_qty: 1 }]; c.finalized = true; c.lifestyles = [{ name: "Squatter", months: 1 }]; await openCharacter(c); sheetTab = "overview"; renderSheet(); const readConceal = () => { const el = document.querySelector(".sh-conceal b"); return el ? el.textContent.trim() : "gone"; }; const gren = allWeapons()[0]; const at = n => { setCarriedQty(gren, n); playChanged(); renderSheet(); return readConceal(); }; const byCount = { 0: at(0), 1: at(1), 2: at(2), 3: at(3), 4: at(4), 5: at(5), 10: at(10) }; await closeTabByName("QA Conceal96"); return byCount; })()
+
+- **Expected:**
+
+      { "0": "gone", "1": "0 / 3", "2": "2 / 3", "3": "2 / 3",
+        "4": "4 / 3", "5": "4 / 3", "10": "10 / 3" }
+
+- **Note:** Player-reported: carrying a single grenade still read as a full
+  +2 Conceal, the same as an entire fistful of them — `concealCallout()`
+  billed a Thrown weapon's whole carried stack once at its flat table
+  rating, ignoring how many were actually on hand. Ruled: bill it by
+  WEIGHT, not by copy or by the stack as a whole — one whole point of
+  carried weight (floored) buys one copy of the grenade's own Conceal
+  rating. The Explosive Grenade is Weight 0.5, Conceal 2, so it takes 2 to
+  cross 1.0 wt and print the first +2; the table above is that curve: 1
+  grenade (0.5 wt) shows nothing, 2 (1.0 wt) is one lump and reads `2 / 3`,
+  3 (1.5 wt, still one lump) reads the same, 4 (2.0 wt, two lumps) doubles
+  to `4 / 3`, and it keeps climbing from there (`10` → `10 / 3`) — never a
+  fixed per-entry number again.
+
+  `0` still returns `"gone"` (`concealCallout()` returns `null`, no card at
+  all) — a stack with nothing carried has nothing on you to weigh, the same
+  case P06-083 exercises from the Attack side. A held weapon (gun, blade)
+  isn't a stack and keeps the old one-copy-per-entry rule untouched; this
+  case only reaches Thrown-type rows.
+- **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
+
+### P06-085: "Conceal Tweaks" shaves 1 off a Thrown weapon's Conceal, and switching it on actually sticks
+- **Type:** correctness
+- **Steps:** none.
+- **Check:**
+
+      (async () => { const def = RULES.HOUSE_RULE_DEFS.find(d => d.id === "conceal"); const defInfo = { label: def.label, default: def.default, options: def.options.map(o => o.value) }; const c = RULES.defaultCharacter(); c.name = "QA ConcealHR97"; c.priorities = { heritage: 2, magic: 0, attributes: 3, skills: 2, resources: 3 }; c.heritage.type = "Human"; c.skills = { "Subterfuge": 3 }; c.weapons = [{ name: "Explosive Grenade", mods: [], equipped: true, qty: 10, carried_qty: 4 }, { name: "Ares TAG-1 Taser", mods: [], equipped: true }]; c.finalized = true; c.lifestyles = [{ name: "Squatter", months: 1 }]; await openCharacter(c); sheetTab = "overview"; renderSheet(); const conc = () => (CALC.weapons.find(w => w.Weapon === "Explosive Grenade") || {}).Conceal; const taser = () => (CALC.weapons.find(w => w.Weapon === "Ares TAG-1 Taser") || {}).Conceal; const total = () => { const el = document.querySelector(".sh-conceal b"); return el ? el.textContent.trim() : "gone"; }; const classic = { grenade: conc(), taser: taser(), total: total(), rule: RULES.houseRule("conceal") }; document.querySelector("#settings-btn").click(); const sel = [...document.querySelectorAll(".settings-rule")].find(r => r.querySelector("span").textContent === "Concealability").querySelector("select"); sel.value = "houserule"; sel.dispatchEvent(new Event("change")); await new Promise(r => setTimeout(r, 30)); const tweaked = { grenade: conc(), taser: taser(), total: total(), rule: RULES.houseRule("conceal"), persisted: CHAR.house_rules.conceal }; document.querySelector("#settings-btn").click(); sel.value = "classic"; sel.dispatchEvent(new Event("change")); await new Promise(r => setTimeout(r, 30)); const reverted = { grenade: conc(), taser: taser(), total: total(), persisted: CHAR.house_rules.conceal }; await closeTabByName("QA ConcealHR97"); return { defInfo, classic, tweaked, reverted }; })()
+
+- **Expected:**
+
+      { "defInfo": { "label": "Concealability", "default": "classic", "options": ["classic", "houserule"] },
+        "classic": { "grenade": "2", "taser": "2", "total": "6 / 3", "rule": "classic" },
+        "tweaked": { "grenade": "1", "taser": "2", "total": "4 / 3", "rule": "houserule", "persisted": "houserule" },
+        "reverted": { "grenade": "2", "taser": "2", "total": "6 / 3", "persisted": "classic" } }
+
+- **Note:** Player request: a new house rule, "Conceal Tweaks" (rule id
+  `conceal`, options `classic` / `houserule`, defaulting `classic` like
+  every other rule) — under it, every weapon Type in `CONCEAL_TWEAK_TYPES`
+  (`rules.js`, Thrown-only for now — grenades, knives, shuriken; "other
+  weapons may also be added to this later" per the request, which is why
+  it's a list to extend rather than a second rule id) reads 1 easier to hide,
+  floored at 0, applied once in `priceWeapons()` onto `item.Conceal` so every
+  consumer (Gear tab row, Overview hand card, `concealCallout()`'s carried-
+  weight math from P06-084) sees the adjusted number for free. The Taser
+  (not Thrown) is unaffected throughout — `taser` stays `2` in every state —
+  proving the −1 is scoped to the listed Types, not global.
+
+  `classic` → `tweaked` is the grenade's own Conceal dropping 2→1
+  (`"grenade"`), which cascades into P06-084's weight math: 4 carried at
+  0.5 wt each is 2.0 wt either way, but `floor(2) × 2 = 4` under Classic
+  becomes `floor(2) × 1 = 2` under the tweak, so the callout's `total`
+  drops from `6 / 3` to `4 / 3` (Taser's 2 plus the grenades' share).
+  `reverted` flips the select back and confirms both numbers return exactly
+  to their `classic` values — nothing is a one-way conversion.
+
+  **This case is also the regression guard for a bug the request surfaced
+  while testing it.** The check drives the change through the real ⚙
+  settings-panel `<select>` — `sel.dispatchEvent(new Event("change"))`,
+  the actual onchange handler `initHouseRules()` wires up — rather than
+  calling `RULES.setHouseRule()` directly, and that distinction is what
+  catches it: `RULES.calculate()` re-points a module-level "active house
+  rules" pointer as a side effect, and `snapshotCreationBudget()`
+  (`ensureCreationBudget()`, run once per character on `ensurePlay()`) used
+  to call `RULES.calculate()` on a **throwaway clone** to price the frozen
+  creation budget — which silently re-pointed that same pointer at the
+  clone and left it there. The very next house-rule change (`setHouseRule`
+  runs *before* its own `recalc()`) then wrote onto the discarded clone
+  instead of `CHAR`, and the following `recalc()` read `CHAR.house_rules`
+  back unchanged — a **silent no-op** on the first house-rule toggle of
+  every finalized character's first render, for every rule, not just this
+  one. `tweaked.persisted` (read from `CHAR.house_rules.conceal` itself,
+  not from `RULES.houseRule()`) is the direct assertion that the write
+  landed on the real character. Fixed with `RULES.calculateProbe()`, a
+  save/restore wrapper around `calculate()` for exactly this "probe a clone,
+  discard it" shape; `snapshotCreationBudget()` now routes through it. A
+  regression here would most likely reappear as `tweaked.persisted` reading
+  `"classic"` despite `tweaked.rule` reading `"houserule"` — the pointer
+  says the panel take effect, `CHAR` itself says it didn't.
+- **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
