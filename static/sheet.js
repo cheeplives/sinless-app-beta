@@ -38,6 +38,9 @@ const ATTR_ABBR = [["Strength", "STR"], ["Body", "BOD"], ["Reaction", "REA"],
   ["Intelligence", "INT"], ["Willpower", "WIL"], ["Charisma", "CHA"]];
 const PLAY_SAVE_DEBOUNCE_MS = 600;
 const SKILL_KISMET_CAP = 6;        // Kismet raises stop at 6; mastery boon reaches 7
+// Brand stats for the "Increase Brand stat" minor boon (Kismet tab). Tracked
+// as a log entry only — the Brand itself is scored outside this app.
+const BRAND_STATS = ["Magic", "Muscle", "Media", "Grid", "Espionage"];
 const NEW_SKILL_KISMET_COST = 4;
 const KNOWLEDGE_RANK_CAP = 6;      // mirrors rules.js KNOWLEDGE_ETIQUETTE_RANK_CAP
 
@@ -9613,6 +9616,22 @@ function shKismet(body) {
       applyRankAdvance(kind, name);
       await playChangedRecalc();
     } }, "Mastery 6→7 (boon)")));
+
+  // Increase Brand stat: purely a log entry, no mechanical effect on the
+  // sheet — the Brand track itself is kept elsewhere. Repeatable, and each
+  // pick still costs a regular boon milestone like the others above.
+  const brandSel = el("select", {}, el("option", { value: "" }, "Brand stat…"),
+    ...BRAND_STATS.map(s => el("option", {}, s)));
+  boons.append(el("div", { class: "add-row" }, brandSel,
+    el("button", { class: "btn-add", onclick: () => {
+      const stat = brandSel.value;
+      if (!stat) return;
+      if (econ.regularsAvail < 1) { alert("No regular boons available."); return; }
+      play.boons_spent++;
+      play.kismet_log.unshift({ label: `Boon redeemed: increase Brand ${stat}`,
+        delta: 0, undo: { kind: "boon" } });
+      playChanged();
+    } }, "Increase Brand stat (boon)")));
 
   // --- specific MAJOR boon options
   play.pool_kismet = play.pool_kismet || {};
