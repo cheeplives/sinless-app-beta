@@ -6309,6 +6309,15 @@ function calculate(character) {
     armor.ballistic_armor, armor.impact_armor,
     armor.ballistic_armor_max);
 
+  // Bonus Physical/Stun boxes an Asset grants (#97): a flat hand-tracked add
+  // the player dials in with a spinner on the Condition card, the same shape
+  // play.dodge_dice is for a bonus that comes from outside the character's
+  // own derivation. Folded in here so the wound penalty and every other
+  // consumer of CALC.condition.{physical,stun} sees the bumped max without
+  // needing to know this exists.
+  combat.physical += toInt(asNumber((character.play || {}).bonus_physical_boxes));
+  combat.stun += toInt(asNumber((character.play || {}).bonus_stun_boxes));
+
   // Bling's etiquette rider, collapsed to the best single source per etiquette
   // — a blinged gun and a blinged ride are one look, not two bonuses.
   combat.bling_etiquette = blingEtiquette(character, data);

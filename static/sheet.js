@@ -2487,6 +2487,18 @@ function conditionCard() {
   const ro = !!(activeTabObj() && activeTabObj().readonly);
   // --- condition (wound penalty folded in — it's derived straight from these tracks)
   const { raw: rawWound, negated: woundNegated, doubled: woundDoubled, dice: wound } = woundPenalty();
+  // Bonus boxes an Asset grants beyond the derived track (#97): a flat
+  // hand-tracked add, folded into CALC.condition.{physical,stun} in rules.js
+  // so the max shown here, the wound penalty and everything else downstream
+  // all already see the bumped number.
+  const assetStepper = (label, field) => ro ? null : el("span", { class: "stepper sh-asset-boxes",
+    title: `Bonus ${label} boxes from Assets` },
+    el("span", { class: "sub" }, "Assets "),
+    el("button", { class: "btn small", title: `−1 bonus ${label} box`,
+      onclick: async () => { play[field] = Math.max(0, (play[field] || 0) - 1); await playChangedRecalc(); } }, "–"),
+    el("span", { class: "sv" }, String(play[field] || 0)),
+    el("button", { class: "btn small", title: `+1 bonus ${label} box`,
+      onclick: async () => { play[field] = (play[field] || 0) + 1; await playChangedRecalc(); } }, "+"));
   return el("div", { class: "card sh-card" },
     el("div", { class: "sh-card-head" }, el("h3", {}, "Condition"),
       el("span", {},
@@ -2498,8 +2510,10 @@ function conditionCard() {
         }, "good"))),
     conditionTrack("Physical", CALC.condition.physical,
       () => play.physical_damage, v => { play.physical_damage = v; }),
+    assetStepper("Physical", "bonus_physical_boxes"),
     conditionTrack("Stun", CALC.condition.stun,
       () => play.stun_damage, v => { play.stun_damage = v; }),
+    assetStepper("Stun", "bonus_stun_boxes"),
     el("p", { class: "hint", style: "margin:8px 0 0" },
       `Every 3 boxes marked on either track: ${woundDoubled ? "−2 dice" : "−1 die"} on tasks, `
       + "cumulative. Biotech can remove these penalties during combat."),
