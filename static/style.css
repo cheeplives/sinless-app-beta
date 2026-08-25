@@ -432,6 +432,15 @@ select,input[type=text]{background:var(--panel);border:1px solid var(--line);col
 input[type=checkbox]{accent-color:var(--manon)}
 .stepper{display:inline-flex;align-items:center;gap:4px}
 .sh-asset-boxes{display:flex;margin:2px 0 8px;font-size:11px}
+/* Folded Assets spinner on the Condition card (#103). Deliberately holds no
+   <button>: that is what keeps it clear of the 32px coarse-pointer tap floor
+   the ± buttons carry, which is the whole reason the row folds at all. Same
+   trade .sh-pool-temp.collapsed makes for the pool tiles' temp row. */
+.sh-asset-boxes.collapsed{align-items:center;gap:4px;width:fit-content;
+  padding:1px 5px;border-radius:4px;cursor:pointer;color:var(--dim)}
+.sh-asset-boxes.collapsed:hover{color:var(--text);background:var(--panel-2)}
+.sh-asset-boxes.collapsed:focus-visible{outline:1px solid var(--line);color:var(--text)}
+.sh-asset-plus{font-family:var(--mono);font-size:13px;line-height:1}
 .sh-unskilled-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:6px 0 10px}
 .sh-unskilled-result{font-family:var(--mono);font-size:11px}
 .stepper button{width:22px;height:22px;border-radius:4px;background:var(--panel-2);border:1px solid var(--line);

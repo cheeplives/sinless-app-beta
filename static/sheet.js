@@ -176,6 +176,12 @@ let expandedPool = null;      // pool card the user clicked open on Overview
 // is nothing yet to show. Per-pool (a Set of pool names), not one flag for
 // all four, so opening Brawn's doesn't also open Finesse's.
 let poolTempOpen = new Set();
+// Condition card: which Assets bonus-box spinners have been manually opened
+// (#103). Same shape and lifetime as poolTempOpen above, and per FIELD rather
+// than one flag for both, so opening Physical's doesn't also open Stun's. A
+// nonzero value shows its spinner regardless -- this only covers the "let me
+// add one" case, where the row starts folded because there is nothing yet.
+let assetBoxesOpen = new Set();
 let imagesCollapsed = false;  // Images section folded shut on the Notes tab
 let calendarCollapsed = false;  // Calendar section folded shut on the Notes tab
 // Drones/Vehicles cards on the Rigging tab (#87 follow-up). `null` means "the
@@ -2495,14 +2501,49 @@ function conditionCard() {
   // hand-tracked add, folded into CALC.condition.{physical,stun} in rules.js
   // so the max shown here, the wound penalty and everything else downstream
   // all already see the bumped number.
-  const assetStepper = (label, field) => ro ? null : el("span", { class: "stepper sh-asset-boxes",
-    title: `Bonus ${label} boxes from Assets` },
-    el("span", { class: "sub" }, "Assets "),
-    el("button", { class: "btn small", title: `−1 bonus ${label} box`,
-      onclick: async () => { play[field] = Math.max(0, (play[field] || 0) - 1); await playChangedRecalc(); } }, "–"),
-    el("span", { class: "sv" }, String(play[field] || 0)),
-    el("button", { class: "btn small", title: `+1 bonus ${label} box`,
-      onclick: async () => { play[field] = (play[field] || 0) + 1; await playChangedRecalc(); } }, "+"));
+  //
+  // Folded away at 0 (#103). Bonus boxes are set once when the Asset is taken
+  // and then essentially never touched, so three permanent tap targets per
+  // track was ease of access spent on the wrong control -- and each of those
+  // buttons costs a hard 32px under the coarse-pointer floor (JC-017).
+  // Collapsed it is one buttonless line, so that floor doesn't apply; opening
+  // it and pressing + is the two clicks the issue asked for. Same shape as the
+  // pool tiles' temp row (poolBoostRow), including its one firm rule: a live
+  // value always shows itself and can be reset but never folded away.
+  const assetStepper = (label, field) => {
+    if (ro) return null;
+    const val = Math.max(0, play[field] || 0);
+    const set = async n => { play[field] = Math.max(0, n); await playChangedRecalc(); };
+    if (val === 0 && !assetBoxesOpen.has(field)) {
+      const open = () => { assetBoxesOpen.add(field); renderSheet(); };
+      return el("span", { class: "sh-asset-boxes collapsed", role: "button", tabindex: "0",
+          title: `No bonus ${label} boxes from Assets — click to add some`,
+          onclick: open,
+          onkeydown: e => {
+            if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); }
+          } },
+        el("span", { class: "sub" }, "Assets"),
+        el("span", { class: "sh-asset-plus" }, "+"));
+    }
+    return el("span", { class: "stepper sh-asset-boxes",
+        title: `Bonus ${label} boxes from Assets` },
+      el("span", { class: "sub" }, "Assets "),
+      el("button", { class: "btn small", title: `−1 bonus ${label} box`,
+        onclick: () => set(val - 1) }, "–"),
+      el("span", { class: "sv" }, String(val)),
+      el("button", { class: "btn small", title: `+1 bonus ${label} box`,
+        onclick: () => set(val + 1) }, "+"),
+      // At 0 there is nothing to reset, so that slot folds the row away
+      // instead -- opening it to look and changing your mind is not a one-way
+      // door. A live value keeps the reset and loses the fold: those boxes are
+      // in the track and in the wound penalty, and hiding them would be hiding
+      // an effect that is actually running.
+      val
+        ? el("button", { class: "btn small", title: `Reset bonus ${label} boxes to 0`,
+            onclick: () => set(0) }, "↺")
+        : el("button", { class: "btn small", title: "Fold this away",
+            onclick: () => { assetBoxesOpen.delete(field); renderSheet(); } }, "▴"));
+  };
   return el("div", { class: "card sh-card" },
     el("div", { class: "sh-card-head" }, el("h3", {}, "Condition"),
       el("span", {},

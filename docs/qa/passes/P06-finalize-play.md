@@ -2941,3 +2941,63 @@ goods for nothing.
   only renders when carried and owned actually differ, and at ten of ten they
   do not.
 - **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
+
+### P06-088: The Condition card's Assets spinners fold away at 0, and a live value refuses to hide
+- **Type:** correctness
+- **Steps:** none.
+- **Check:**
+
+      (async () => { const c = RULES.defaultCharacter(); c.name = "QA Assets103"; c.priorities = { heritage: 2, magic: 0, attributes: 3, skills: 2, resources: 3 }; c.heritage.type = "Human"; c.finalized = true; c.lifestyles = [{ name: "Squatter", months: 1 }]; await openCharacter(c); sheetTab = "overview"; renderSheet(); const rows = () => [...document.querySelectorAll(".sh-asset-boxes")]; const phys = () => rows()[0], stun = () => rows()[1]; const desc = n => ({ collapsed: n.classList.contains("collapsed"), text: n.textContent.trim(), buttons: [...n.querySelectorAll("button")].map(b => b.textContent) }); const maxes = () => `${CALC.condition.physical}/${CALC.condition.stun}`; const start = { phys: desc(phys()), stunCollapsed: stun().classList.contains("collapsed"), maxes: maxes() }; phys().click(); renderSheet(); const opened = { phys: desc(phys()), stunStillCollapsed: stun().classList.contains("collapsed") }; [...phys().querySelectorAll("button")].find(b => b.textContent === "▴").click(); renderSheet(); const refolded = desc(phys()); phys().click(); renderSheet(); [...phys().querySelectorAll("button")].find(b => b.textContent === "+").click(); await new Promise(r => setTimeout(r, 40)); const live = { phys: desc(phys()), maxes: maxes(), stored: CHAR.play.bonus_physical_boxes }; assetBoxesOpen.clear(); renderSheet(); const staysOpenWhileLive = desc(phys()); [...phys().querySelectorAll("button")].find(b => b.textContent === "↺").click(); await new Promise(r => setTimeout(r, 40)); const afterReset = { phys: desc(phys()), maxes: maxes(), stored: CHAR.play.bonus_physical_boxes }; phys().dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); renderSheet(); const viaKeyboard = desc(phys()); assetBoxesOpen.clear(); renderSheet(); const tab = activeTabObj(); tab.readonly = true; renderSheet(); const readonlyRows = rows().length; tab.readonly = false; await closeTabByName("QA Assets103"); return { start, opened, refolded, live, staysOpenWhileLive, afterReset, viaKeyboard, readonlyRows }; })()
+
+- **Expected:**
+
+      { "start": { "phys": { "collapsed": true, "text": "Assets+", "buttons": [] },
+                   "stunCollapsed": true, "maxes": "7/7" },
+        "opened": { "phys": { "collapsed": false, "text": "Assets –0+▴",
+                              "buttons": ["–", "+", "▴"] },
+                    "stunStillCollapsed": true },
+        "refolded": { "collapsed": true, "text": "Assets+", "buttons": [] },
+        "live": { "phys": { "collapsed": false, "text": "Assets –1+↺",
+                            "buttons": ["–", "+", "↺"] },
+                  "maxes": "8/7", "stored": 1 },
+        "staysOpenWhileLive": { "collapsed": false, "text": "Assets –1+↺",
+                                "buttons": ["–", "+", "↺"] },
+        "afterReset": { "phys": { "collapsed": true, "text": "Assets+", "buttons": [] },
+                        "maxes": "7/7", "stored": 0 },
+        "viaKeyboard": { "collapsed": false, "text": "Assets –0+▴",
+                         "buttons": ["–", "+", "▴"] },
+        "readonlyRows": 0 }
+
+- **Note:** [#103](https://github.com/cheeplives/sinless-app-beta/issues/103) —
+  the bonus-box spinners added for #97 sat open permanently on both tracks, and
+  on a coarse pointer each of their three buttons is a hard 32×32
+  (`.stepper button`, `style.css` under `@media(pointer:coarse)` — the JC-017
+  floor). Six always-on tap targets for a number that is set once when the
+  Asset is taken and then essentially never touched. Measured at 1194×834 with
+  touch emulation, folding both takes the Condition card from 395px to 367px.
+
+  `poolBoostRow`'s shape is copied deliberately rather than invented: folded is
+  one **buttonless** line (`buttons: []`), which is what keeps it clear of the
+  32px floor entirely — a folded row that still held a button would save
+  nothing. `start` is the default at 0; `opened` shows the click revealing
+  `−`/`+` plus `▴` in the slot that has nothing to reset yet, and
+  `stunStillCollapsed` proves the fold is per-track (`assetBoxesOpen` is keyed
+  by field, exactly as `poolTempOpen` is by pool) — opening Physical must not
+  open Stun. `refolded` confirms `▴` closes it again: looking and changing your
+  mind is not a one-way door.
+
+  `live` is the rule that matters. With a value the row auto-expands and the
+  `▴` is **replaced** by `↺` — a bonus box is folded into
+  `CALC.condition.physical` (7/7 → 8/7) and therefore into the wound penalty,
+  so folding it would hide an effect that is actually running. You may reset it
+  to nothing, which is honest, but you may not tuck it out of sight while it
+  bites. `staysOpenWhileLive` is the direct guard: it clears the manual-open
+  set and re-renders, and the row is still open on the strength of its value
+  alone. `afterReset` closes the loop — 0 restores 7/7 and folds it away again.
+
+  `viaKeyboard` covers the `role="button"` + `tabindex="0"` path (Enter opens
+  it): a div that only answers to a mouse is not a control. `readonlyRows: 0`
+  is unchanged behaviour rather than an oversight — a shared read-only
+  character renders no spinner at all and needs none, because the bonus is
+  already counted in the track it is looking at.
+- **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
