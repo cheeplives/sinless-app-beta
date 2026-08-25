@@ -1114,12 +1114,14 @@ function promptDisposal(name, value, modsValue) {
     };
     const onKey = e => { if (e.key === "Escape") done(null); };
 
-    // Base scaled by condition, fitted kit added back whole (#81).
-    const amountOf = pct => Math.round(base * (Math.max(0, Math.min(100, pct)) / 100)) + mods;
+    // Base scaled by condition, fitted kit added back whole (#81). No upper
+    // clamp — a hyped/rare item can fetch more than its base price, so 100%
+    // is the slider's starting point, not its ceiling.
+    const amountOf = pct => Math.round(base * (Math.max(0, pct) / 100)) + mods;
     // Both fields sit inside a sentence ("Sell at [ ] % of base -> [ ] Woolongs"),
     // so the words around them are their only label — spelled out here because
     // a screen reader reads the field, not the sentence it is embedded in.
-    const pctInput = el("input", { type: "number", min: "0", max: "100", step: "5",
+    const pctInput = el("input", { type: "number", min: "0", step: "5",
       "aria-label": "Sell at percent of base price",
       value: String(lastResalePct), style: "width:74px" });
     const amtInput = el("input", { type: "number", min: "0", step: "1",
@@ -1130,7 +1132,7 @@ function promptDisposal(name, value, modsValue) {
     pctInput.addEventListener("input", syncFromPct);
 
     sellBtn.onclick = () => {
-      lastResalePct = Math.max(0, Math.min(100, +pctInput.value || 0));
+      lastResalePct = Math.max(0, +pctInput.value || 0);
       done({ sold: true, amount: Math.max(0, Math.round(+amtInput.value || 0)) });
     };
 
