@@ -510,6 +510,27 @@ const NO_RECOIL_EFFECTS = [
       && toInt(asNumber(row.Level)) === 3,
     text: "Can split fire with no penalty. +3b when a fire mode that's not SS.",
     dice: 3, when: "nonss", types: RECOIL_IGNORED_WEAPON_TYPES },
+  // Five weapons' own recoil-soaking upgrades (#101), same treatment as the
+  // generic mods above but matched by weapon name against the "weapons" table
+  // instead of "weapon_mods" — each is a fixed Upgrade 1/2 slot on one gun,
+  // not a fittable part. noRecoilBonuses() checks the owning entry's upgr1/
+  // upgr2 purchase flag before crediting these; syncNoRecoilText() retargets
+  // their Upgr*_Eff text the same as any other row here.
+  { id: "wpn:boomerbuster", table: "weapons", col: "Upgr2_Eff", label: "Folding Stock",
+    match: row => row.Weapon === ".477 Boomer Buster",
+    text: `+1b ${NO_RECOIL_NONSS}.`, dice: 1, when: "nonss" },
+  { id: "wpn:fnral", table: "weapons", col: "Upgr1_Eff", label: "Gyroscopic shocks",
+    match: row => row.Weapon === "FN-RAL Heavy Assault",
+    text: `+1b ${NO_RECOIL_NONSS}.`, dice: 1, when: "nonss" },
+  { id: "wpn:goliath", table: "weapons", col: "Upgr2_Eff", label: "Gyroscopic shocks",
+    match: row => row.Weapon === "Goliath Highwayman",
+    text: `+1b ${NO_RECOIL_NONSS}.`, dice: 1, when: "nonss" },
+  { id: "wpn:ingram", table: "weapons", col: "Upgr2_Eff", label: "Gyroscopic Core",
+    match: row => row.Weapon === "Ingram MAC 14",
+    text: `+1b ${NO_RECOIL_NONSS}.`, dice: 1, when: "nonss" },
+  { id: "wpn:gtiger", table: "weapons", col: "Upgr2_Eff", label: "Gyroscopic Core",
+    match: row => row.Weapon === "G-Tiger Beat",
+    text: `+1b ${NO_RECOIL_NONSS}.`, dice: 1, when: "nonss" },
 ];
 // row object -> the Effect text the data actually ships, captured the first time
 // that row is retargeted. Keyed by row identity so a homebrew row that happens
@@ -560,12 +581,16 @@ function noRecoilCharacterSources(augments, martialArt) {
 }
 
 /* Every bonus-dice source this rule gives ONE gun: whatever is bolted to it,
- * plus the character-wide sources that reach a weapon of this type.
- * `modNames` is the fitted + integrated mod names; `combat` is CALC.combat.
+ * plus the character-wide sources that reach a weapon of this type, plus
+ * (#101) any of the gun's own Upgrade 1/2 slots this rule retargeted.
+ * `modNames` is the fitted + integrated mod names; `combat` is CALC.combat;
+ * `weaponName`/`upgrFlags` ({upgr1, upgr2}) identify a purchased weapon-native
+ * upgrade — both optional, so callers with no owned entry (cyberguns) can omit
+ * them and just get the fitted/character-wide sources as before.
  * Returns [{ id, label, dice, when }] — the caller decides which are live,
  * because "nonss" is a fact about the selected mode and "braced" is a
  * declaration only the player can make. Empty under the Classic rule. */
-function noRecoilBonuses(weaponType, modNames, combat, hands = 1) {
+function noRecoilBonuses(weaponType, modNames, combat, hands = 1, weaponName, upgrFlags) {
   if (!noRecoilActive()) return [];
   const fitted = new Set((modNames || []).map(n => String(n || "").trim()));
   const out = [];
@@ -576,6 +601,15 @@ function noRecoilBonuses(weaponType, modNames, combat, hands = 1) {
         out.push({ id: spec.id, label: spec.label, dice: spec.dice, when: spec.when });
         break;   // one row per spec; a mod fitted and integrated is still one mod
       }
+  }
+  if (weaponName) {
+    for (const spec of NO_RECOIL_EFFECTS) {
+      if (spec.table !== "weapons") continue;
+      const flag = spec.col === "Upgr1_Eff" ? "upgr1" : "upgr2";
+      if (!(upgrFlags || {})[flag]) continue;
+      if (spec.match({ Weapon: weaponName }))
+        out.push({ id: spec.id, label: spec.label, dice: spec.dice, when: spec.when });
+    }
   }
   for (const src of ((combat || {}).no_recoil_sources) || []) {
     // A typed source is Gun-Kata, which is one-handed pistols and SMGs both.
@@ -4003,6 +4037,42 @@ function weaponModCostPercent(modRow) {
   return pct ? Number(pct[1]) : null;
 }
 
+/* A weapon's own Upgr1_Eff/Upgr2_Eff text ("Targeting Grid (+2 Acc)",
+ * "Electrothermal Ammo Enhancement (+2 Pen)") was, until now, display-only:
+ * buying the upgrade set a flag and showed the sentence, but nothing read it
+ * (#99). This pulls out every flat "+N <stat>" it names so priceWeapons() can
+ * fold it into the same running totals a fitted mod uses. Effects that name no
+ * recognised stat (a free reload, a % range bonus, the "generates half/one
+ * recoil token" wording, anything the "No Recoil" house rule retargets via
+ * NO_RECOIL_EFFECTS instead) contribute nothing here — they keep displaying
+ * their as-written text and simply add no number. */
+function parseUpgradeEffect(text) {
+  const out = { acc: 0, dmg: 0, pen: 0, hardening: 0, ammo: 0, barrier: 0, recoil: 0 };
+  const re = /([+-]\s*\d+)\s*(accuracy|acc|damage|dmg|penetration|pen|hardening|ammo|rounds?|barrier|bar|recoil)\b/gi;
+  let m;
+  while ((m = re.exec(String(text || "")))) {
+    const n = parseInt(m[1].replace(/\s+/g, ""), 10);
+    const key = m[2].toLowerCase();
+    if (key.startsWith("acc")) out.acc += n;
+    else if (key.startsWith("dmg") || key.startsWith("damage")) out.dmg += n;
+    else if (key.startsWith("pen")) out.pen += n;
+    else if (key.startsWith("hardening")) out.hardening += n;
+    else if (key.startsWith("ammo") || key.startsWith("round")) out.ammo += n;
+    else if (key.startsWith("bar")) out.barrier += n;
+    else if (key.startsWith("recoil")) out.recoil += n;
+  }
+  return out;
+}
+/* Adds `delta` to the leading number of a stat that may carry trailing text
+ * ("2 AP" -> "3 AP" on +1 Pen). Non-numeric values ("", "—", a melee formula)
+ * pass through untouched rather than being coerced into a bare number. */
+function addToLeadingNumber(value, delta) {
+  if (!delta) return value;
+  const m = /^\s*(-?\d+(?:\.\d+)?)(.*)$/.exec(String(value == null ? "" : value));
+  if (!m) return value;
+  return `${parseFloat(m[1]) + delta}${m[2]}`;
+}
+
 function priceWeapons(character, data, gearCostMultiplier, warnings, strength, errors,
                       activeAugmentNames, playWarnings) {
   const priced = [];
@@ -4073,6 +4143,19 @@ function priceWeapons(character, data, gearCostMultiplier, warnings, strength, e
         fittedMods.push({ name: modName, slot: modRow.Slot, effect: modRow.Effect });
       }
     }
+    // Purchased weapon-native upgrades (Upgr1/Upgr2) contribute the same way
+    // fitted mods do, via parseUpgradeEffect (#99). recoilMod/accMod are
+    // shared with the fitted-mods totals above; the rest are this weapon's own.
+    let dmgMod = 0, penMod = 0, hardMod = 0, ammoMod = 0, barrierMod = 0;
+    for (const n of [1, 2]) {
+      if (!entry[`upgr${n}`]) continue;
+      const eff = row[`Upgr${n}_Eff`];
+      if (!eff) continue;
+      const u = parseUpgradeEffect(eff);
+      accMod += u.acc; recoilMod += u.recoil;
+      dmgMod += u.dmg; penMod += u.pen; hardMod += u.hardening;
+      ammoMod += u.ammo; barrierMod += u.barrier;
+    }
     // The same mod can't be fitted twice (e.g. two Laser Sights) — including
     // fitting one the weapon already has built in, which is the easy mistake
     // now that some weapons arrive with mods already on them.
@@ -4122,6 +4205,17 @@ function priceWeapons(character, data, gearCostMultiplier, warnings, strength, e
         if (playWarnings) playWarnings.push(message);
       }
     }
+    // Damage/Pen/Hardening/Bar: base + purchased-upgrade bonus (#99). Applied
+    // after the melee/bow branches above so a Rail Accelerator still lands on
+    // a bow's rated damage. addToLeadingNumber leaves non-numeric text (blank,
+    // "—") alone, so a weapon type that carries no such stat stays exactly as
+    // the row states it even if an upgrade's text happens to mention one.
+    item.Damage = addToLeadingNumber(item.Damage, dmgMod);
+    item.Pen = addToLeadingNumber(item.Pen, penMod);
+    item.Hardening = addToLeadingNumber(item.Hardening, hardMod);
+    item.Bar = addToLeadingNumber(item.Bar, barrierMod);
+    item.upgr1 = Boolean(entry.upgr1);
+    item.upgr2 = Boolean(entry.upgr2);
     item.smart = Boolean(entry.smart) || integratedSmart;
     // Accuracy: base + fitted-mod AccMod (Laser Sight / Red dot +1, Silencer −2)
     // + Smartlink (+1 on smart guns). Melee weapons carry no Accuracy value.
@@ -4155,6 +4249,7 @@ function priceWeapons(character, data, gearCostMultiplier, warnings, strength, e
     // An integrated Extended Magazine would enlarge the magazine too, so both
     // lists feed this.
     item.Ammo = applyExtendedMagazine(item.Ammo, [...integratedMods, ...fittedMods]);
+    item.Ammo = addToLeadingNumber(item.Ammo, ammoMod);
     // Sealed single-load weapons say so on the stat line and offer no Reload.
     if (weaponIsOneshot(row)) { item.oneshot = true; item.oneshot_note = ONESHOT_NOTE; }
     item.cost = cost;

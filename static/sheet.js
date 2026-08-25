@@ -5244,7 +5244,8 @@ function gunKataFitsWeapon(rowOrType) {
 function noRecoilSourcesFor(row, calcRow) {
   const names = [...((calcRow || {}).mods || []), ...((calcRow || {}).integrated_mods || [])]
     .map(m => (m && typeof m === "object") ? m.name : m);
-  return RULES.noRecoilBonuses((row || {}).Type, names, CALC.combat, RULES.weaponHands(row));
+  return RULES.noRecoilBonuses((row || {}).Type, names, CALC.combat, RULES.weaponHands(row),
+    (row || {}).Weapon, { upgr1: (calcRow || {}).upgr1, upgr2: (calcRow || {}).upgr2 });
 }
 
 /* A "nonss" source is live the moment a mode other than SS is selected — that
@@ -5459,7 +5460,14 @@ function attackButton(label, rs, opts = {}) {
         // spends a Simple Action directly, same as any other shot fired.
         const spent = opts.melee ? spendMeleeAttack() : spendSimpleActions(1, `Attacking with ${label}`);
         if (!spent) return;
-        if (opts.consumeCarried) setCarriedQty(opts.consumeCarried, carried - 1);
+        // A thrown grenade/knife/shuriken is gone for good, not just out of
+        // hand -- the stack you OWN has to shrink too, or the Attack button
+        // could be pressed forever off one carried round (#98).
+        if (opts.consumeCarried) {
+          const w = opts.consumeCarried;
+          w.qty = ownedQty(w) - 1;
+          setCarriedQty(w, carried - 1);
+        }
         openPoolRoller({ dice: rs.limitDice, bonus: rs.bonus,
           pool: rs.pool, label,
           note: opts.note
@@ -6679,7 +6687,7 @@ function shOverview(body) {
           if (RULES.isStrengthDamage(baseDmg) && RULES.meleeDamageIsComputable(baseDmg))
             baseDmg = RULES.meleeDamage(r, CALC.attributes.Strength.final);
           const isLauncher = r.Type === "GrenadeLauncher";
-          const base = { acc: baseAcc, damage: baseDmg, pen: r.Pen || 0,
+          const base = { acc: baseAcc, damage: baseDmg, pen: calcRow.Pen ?? r.Pen ?? 0,
                          bar: String(calcRow.Bar ?? r.Bar ?? "") || (isLauncher ? "—" : "") };
           const canLoad = !["Melee", "Thrown", "Energy"].includes(r.Type);
           const gren = isLauncher ? loadedGrenadeFor(held) : null;
@@ -10834,7 +10842,10 @@ function shGear(body) {
         el("td", { class: "sub" },
           `${r.Type || ""} · Acc `,
           fittedBit(calcRow.Accuracy ?? r.Accuracy ?? 0, r.Accuracy ?? 0),
-          ` · DMG ${calcRow.Damage ?? r.Damage ?? "—"} · ${r["Firing modes"] || "melee"} · Pen ${r.Pen || 0}${barrierBit(r, calcRow.Bar ?? r.Bar)} · Conceal `,
+          ` · DMG `, fittedBit(calcRow.Damage ?? r.Damage ?? "—", r.Damage ?? "—"),
+          ` · ${r["Firing modes"] || "melee"} · Pen `,
+          fittedBit(calcRow.Pen ?? r.Pen ?? 0, r.Pen ?? 0),
+          `${barrierBit(r, calcRow.Bar ?? r.Bar)} · Conceal `,
           fittedIf(concealBit(r, calcRow), !!calcRow.conceal_mod),
           ` · ZR ${r.ZR || 0} · Weight ${r.Weight || 0}${weaponTraitBits(r)}`,
           (calcRow.Ammo ?? r.Ammo) ? " · Ammo " : null,
@@ -14723,7 +14734,7 @@ function buildMarkdown() {
       const bar = String(calcRow.Bar ?? r.Bar ?? "");
       const stats = [`DMG ${calcRow.Damage ?? r.Damage ?? "—"}`,
                      isMelee ? `Reach ${r.Reach || 0}` : `Acc ${calcRow.Accuracy ?? r.Accuracy ?? 0}`,
-                     `Pen ${r.Pen || 0}`,
+                     `Pen ${calcRow.Pen ?? r.Pen ?? 0}`,
                      (bar || r.Type === "GrenadeLauncher") ? `Barrier ${bar || "—"}` : null,
                      // The effective rating, mods included — same as Acc above.
                      // Kept a bare number: the importer uses "· Conceal " as its
