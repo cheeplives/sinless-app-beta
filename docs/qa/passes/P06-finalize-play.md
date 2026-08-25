@@ -2942,62 +2942,68 @@ goods for nothing.
   do not.
 - **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
 
-### P06-088: The Condition card's Assets spinners fold away at 0, and a live value refuses to hide
+### P06-088: The Condition card's Assets spinner folds at any value, and the folded line keeps the count
 - **Type:** correctness
 - **Steps:** none.
 - **Check:**
 
-      (async () => { const c = RULES.defaultCharacter(); c.name = "QA Assets103"; c.priorities = { heritage: 2, magic: 0, attributes: 3, skills: 2, resources: 3 }; c.heritage.type = "Human"; c.finalized = true; c.lifestyles = [{ name: "Squatter", months: 1 }]; await openCharacter(c); sheetTab = "overview"; renderSheet(); const rows = () => [...document.querySelectorAll(".sh-asset-boxes")]; const phys = () => rows()[0], stun = () => rows()[1]; const desc = n => ({ collapsed: n.classList.contains("collapsed"), text: n.textContent.trim(), buttons: [...n.querySelectorAll("button")].map(b => b.textContent) }); const maxes = () => `${CALC.condition.physical}/${CALC.condition.stun}`; const start = { phys: desc(phys()), stunCollapsed: stun().classList.contains("collapsed"), maxes: maxes() }; phys().click(); renderSheet(); const opened = { phys: desc(phys()), stunStillCollapsed: stun().classList.contains("collapsed") }; [...phys().querySelectorAll("button")].find(b => b.textContent === "▴").click(); renderSheet(); const refolded = desc(phys()); phys().click(); renderSheet(); [...phys().querySelectorAll("button")].find(b => b.textContent === "+").click(); await new Promise(r => setTimeout(r, 40)); const live = { phys: desc(phys()), maxes: maxes(), stored: CHAR.play.bonus_physical_boxes }; assetBoxesOpen.clear(); renderSheet(); const staysOpenWhileLive = desc(phys()); [...phys().querySelectorAll("button")].find(b => b.textContent === "↺").click(); await new Promise(r => setTimeout(r, 40)); const afterReset = { phys: desc(phys()), maxes: maxes(), stored: CHAR.play.bonus_physical_boxes }; phys().dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); renderSheet(); const viaKeyboard = desc(phys()); assetBoxesOpen.clear(); renderSheet(); const tab = activeTabObj(); tab.readonly = true; renderSheet(); const readonlyRows = rows().length; tab.readonly = false; await closeTabByName("QA Assets103"); return { start, opened, refolded, live, staysOpenWhileLive, afterReset, viaKeyboard, readonlyRows }; })()
+      (async () => { const c = RULES.defaultCharacter(); c.name = "QA Assets103"; c.priorities = { heritage: 2, magic: 0, attributes: 3, skills: 2, resources: 3 }; c.heritage.type = "Human"; c.finalized = true; c.lifestyles = [{ name: "Squatter", months: 1 }]; await openCharacter(c); sheetTab = "overview"; renderSheet(); const rows = () => [...document.querySelectorAll(".sh-asset-boxes")]; const phys = () => rows()[0], stun = () => rows()[1]; const d = n => ({ collapsed: n.classList.contains("collapsed"), live: n.classList.contains("live"), text: n.textContent.trim(), buttons: [...n.querySelectorAll("button")].map(b => b.textContent) }); const press = t => { [...phys().querySelectorAll("button")].find(b => b.textContent === t).click(); }; const maxes = () => `${CALC.condition.physical}/${CALC.condition.stun}`; const start = { phys: d(phys()), stunCollapsed: stun().classList.contains("collapsed"), maxes: maxes() }; phys().click(); renderSheet(); const opened = { phys: d(phys()), stunStillCollapsed: stun().classList.contains("collapsed") }; press("▴"); renderSheet(); const refoldedAtZero = d(phys()); phys().click(); renderSheet(); press("+"); await new Promise(r => setTimeout(r, 40)); press("+"); await new Promise(r => setTimeout(r, 40)); const twoBoxes = { phys: d(phys()), maxes: maxes(), stored: CHAR.play.bonus_physical_boxes }; press("▴"); renderSheet(); const foldedWithBoxes = { phys: d(phys()), maxes: maxes(), stored: CHAR.play.bonus_physical_boxes }; phys().dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); renderSheet(); const reopenedViaKeyboard = d(phys()); press("–"); await new Promise(r => setTimeout(r, 40)); press("–"); await new Promise(r => setTimeout(r, 40)); const backToZero = { phys: d(phys()), maxes: maxes() }; assetBoxesOpen.clear(); renderSheet(); const tab = activeTabObj(); tab.readonly = true; renderSheet(); const readonlyRows = rows().length; tab.readonly = false; await closeTabByName("QA Assets103"); return { start, opened, refoldedAtZero, twoBoxes, foldedWithBoxes, reopenedViaKeyboard, backToZero, readonlyRows }; })()
 
 - **Expected:**
 
-      { "start": { "phys": { "collapsed": true, "text": "Assets+", "buttons": [] },
+      { "start": { "phys": { "collapsed": true, "live": false, "text": "Assets+", "buttons": [] },
                    "stunCollapsed": true, "maxes": "7/7" },
-        "opened": { "phys": { "collapsed": false, "text": "Assets –0+▴",
+        "opened": { "phys": { "collapsed": false, "live": false, "text": "Assets –0+▴",
                               "buttons": ["–", "+", "▴"] },
                     "stunStillCollapsed": true },
-        "refolded": { "collapsed": true, "text": "Assets+", "buttons": [] },
-        "live": { "phys": { "collapsed": false, "text": "Assets –1+↺",
-                            "buttons": ["–", "+", "↺"] },
-                  "maxes": "8/7", "stored": 1 },
-        "staysOpenWhileLive": { "collapsed": false, "text": "Assets –1+↺",
-                                "buttons": ["–", "+", "↺"] },
-        "afterReset": { "phys": { "collapsed": true, "text": "Assets+", "buttons": [] },
-                        "maxes": "7/7", "stored": 0 },
-        "viaKeyboard": { "collapsed": false, "text": "Assets –0+▴",
-                         "buttons": ["–", "+", "▴"] },
+        "refoldedAtZero": { "collapsed": true, "live": false, "text": "Assets+", "buttons": [] },
+        "twoBoxes": { "phys": { "collapsed": false, "live": false, "text": "Assets –2+▴",
+                                "buttons": ["–", "+", "▴"] },
+                      "maxes": "9/7", "stored": 2 },
+        "foldedWithBoxes": { "phys": { "collapsed": true, "live": true, "text": "Assets+2",
+                                       "buttons": [] },
+                             "maxes": "9/7", "stored": 2 },
+        "reopenedViaKeyboard": { "collapsed": false, "live": false, "text": "Assets –2+▴",
+                                 "buttons": ["–", "+", "▴"] },
+        "backToZero": { "phys": { "collapsed": false, "live": false, "text": "Assets –0+▴",
+                                  "buttons": ["–", "+", "▴"] },
+                        "maxes": "7/7" },
         "readonlyRows": 0 }
 
-- **Note:** [#103](https://github.com/cheeplives/sinless-app-beta/issues/103) —
-  the bonus-box spinners added for #97 sat open permanently on both tracks, and
+- **Note:** [#103](https://github.com/cheeplives/sinless-app-beta/issues/103).
+  The bonus-box spinners added for #97 sat open permanently on both tracks, and
   on a coarse pointer each of their three buttons is a hard 32×32
-  (`.stepper button`, `style.css` under `@media(pointer:coarse)` — the JC-017
-  floor). Six always-on tap targets for a number that is set once when the
-  Asset is taken and then essentially never touched. Measured at 1194×834 with
-  touch emulation, folding both takes the Condition card from 395px to 367px.
+  (`.stepper button` under `@media(pointer:coarse)` — the JC-017 floor): six
+  always-on tap targets for a number set once when the Asset is taken and then
+  essentially never touched. Folded, the row is one **buttonless** line
+  (`buttons: []`), which is what keeps it clear of that floor — a folded row
+  still holding a button would save nothing. Measured at 1194×834 with touch
+  emulation, folding both takes the Condition card from 395px to 367px.
 
-  `poolBoostRow`'s shape is copied deliberately rather than invented: folded is
-  one **buttonless** line (`buttons: []`), which is what keeps it clear of the
-  32px floor entirely — a folded row that still held a button would save
-  nothing. `start` is the default at 0; `opened` shows the click revealing
-  `−`/`+` plus `▴` in the slot that has nothing to reset yet, and
-  `stunStillCollapsed` proves the fold is per-track (`assetBoxesOpen` is keyed
-  by field, exactly as `poolTempOpen` is by pool) — opening Physical must not
-  open Stun. `refolded` confirms `▴` closes it again: looking and changing your
-  mind is not a one-way door.
+  `foldedWithBoxes` is the case this exists for, and it is the second attempt.
+  The first copied `poolBoostRow` wholesale, including its rule that a live
+  value auto-expands and can only be reset, never folded — so once you added a
+  box the row stuck open forever, which is exactly what the reporter came back
+  about. The rule was there to stop a live effect being hidden, and it is kept
+  rather than dropped: folding now works at **any** value because the folded
+  line carries the count itself (`"Assets+2"`, `live: true`), so the number
+  stays on screen and only the spinner goes away. `maxes` and `stored` are
+  checked before and after that fold and do not move (`9/7`, `2`) — folding is
+  a display state, never a reset. The boxes are also still visible as the extra
+  boxes on the track directly above, which is the second reason nothing is
+  concealed.
 
-  `live` is the rule that matters. With a value the row auto-expands and the
-  `▴` is **replaced** by `↺` — a bonus box is folded into
-  `CALC.condition.physical` (7/7 → 8/7) and therefore into the wound penalty,
-  so folding it would hide an effect that is actually running. You may reset it
-  to nothing, which is honest, but you may not tuck it out of sight while it
-  bites. `staysOpenWhileLive` is the direct guard: it clears the manual-open
-  set and re-renders, and the row is still open on the strength of its value
-  alone. `afterReset` closes the loop — 0 restores 7/7 and folds it away again.
+  The reset button that briefly occupied the last slot is gone with it: `−`
+  already walks down to 0 (`backToZero` does exactly that, and `maxes` returns
+  to `7/7`), and a fourth target on a rarely-opened control earned less than a
+  row that closes the same way every time. So the open row is always
+  `−` / value / `+` / `▴`.
 
-  `viaKeyboard` covers the `role="button"` + `tabindex="0"` path (Enter opens
-  it): a div that only answers to a mouse is not a control. `readonlyRows: 0`
-  is unchanged behaviour rather than an oversight — a shared read-only
-  character renders no spinner at all and needs none, because the bonus is
-  already counted in the track it is looking at.
+  `stunStillCollapsed` proves the fold is per-track — `assetBoxesOpen` is keyed
+  by field exactly as `poolTempOpen` is by pool, so opening Physical must not
+  open Stun. `reopenedViaKeyboard` covers the `role="button"` + `tabindex="0"`
+  path: a div that only answers to a mouse is not a control.
+  `readonlyRows: 0` is unchanged behaviour rather than an oversight — a shared
+  read-only character renders no spinner at all and needs none, because the
+  bonus is already counted in the track it is looking at.
 - **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED

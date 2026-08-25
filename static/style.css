@@ -441,6 +441,11 @@ input[type=checkbox]{accent-color:var(--manon)}
 .sh-asset-boxes.collapsed:hover{color:var(--text);background:var(--panel-2)}
 .sh-asset-boxes.collapsed:focus-visible{outline:1px solid var(--line);color:var(--text)}
 .sh-asset-plus{font-family:var(--mono);font-size:13px;line-height:1}
+/* Folded WITH boxes set: the count rides the folded line so folding a live
+   value never hides it (#103 follow-up). Coloured so it reads as a figure
+   rather than the "+" invitation it replaces. */
+.sh-asset-boxes.collapsed.live{color:var(--text)}
+.sh-asset-boxes.collapsed.live .sh-asset-plus{color:var(--ok)}
 .sh-unskilled-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:6px 0 10px}
 .sh-unskilled-result{font-family:var(--mono);font-size:11px}
 .stepper button{width:22px;height:22px;border-radius:4px;background:var(--panel-2);border:1px solid var(--line);
