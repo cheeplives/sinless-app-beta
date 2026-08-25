@@ -11025,9 +11025,15 @@ function shGear(body) {
   // half-width, stacked under Woolongs.
   const wtNum = n => +n || 0;
   let load = 0;
-  allWeapons().filter(w => w.equipped !== false).forEach(w => {
+  // What you are actually carrying, not one of each row. A Thrown weapon is a
+  // single entry holding many grenades, so counting it once both under-reported
+  // a full bandolier (ten grenades weighed the same as one) and kept charging
+  // you for a stack you had already thrown away. carriedQty is 1 for an
+  // ordinary gun, which has no Qty/Carried pair, so nothing else moves -- and
+  // this is what the gear line below has always done.
+  allWeapons().filter(weaponOnPerson).forEach(w => {
     const r = DATA.tables.weapons.find(x => x.Weapon === w.name) || {};
-    load += wtNum(r.Weight);
+    load += wtNum(r.Weight) * carriedQty(w);
   });
   allArmor().filter(a => a.active !== false).forEach(a => {
     const r = DATA.tables.armor.find(x => x.Armor === a.name) || {};

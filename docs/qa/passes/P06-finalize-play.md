@@ -2901,3 +2901,43 @@ goods for nothing.
   carried-weight threshold, so it contributes 0 either way and the Taser's 2
   is the entire silhouette in all four states.
 - **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
+
+### P06-087: Carried weight counts every grenade on you, and none of the ones you threw
+- **Type:** correctness
+- **Steps:** none.
+- **Check:**
+
+      (async () => { const wt = async (carried) => { const c = RULES.defaultCharacter(); c.name = "QA Load102"; c.priorities = { heritage: 2, magic: 0, attributes: 3, skills: 2, resources: 3 }; c.heritage.type = "Human"; c.weapons = [{ name: "Explosive Grenade", mods: [], equipped: true, qty: 10, carried_qty: carried }, { name: "Ares TAG-1 Taser", mods: [], equipped: true }]; c.finalized = true; c.lifestyles = [{ name: "Squatter", months: 1 }]; await openCharacter(c); sheetTab = "gear"; renderSheet(); const line = [...document.querySelectorAll(".sh-advrow")].map(d => d.textContent).find(t => /Equipped\/worn weight/.test(t)); const owned = [...document.querySelectorAll(".sh-advrow")].map(d => d.textContent).find(t => /Total owned weight/.test(t)); await closeTabByName("QA Load102"); return { line, owned }; }; return { carried0: await wt(0), carried1: await wt(1), carried4: await wt(4), carried10: await wt(10) }; })()
+
+- **Expected:**
+
+      { "carried0":  { "line": "Equipped/worn weight vs Strength1 / 1",   "owned": "Total owned weight6" },
+        "carried1":  { "line": "Equipped/worn weight vs Strength1.5 / 1", "owned": "Total owned weight6" },
+        "carried4":  { "line": "Equipped/worn weight vs Strength3 / 1",   "owned": "Total owned weight6" },
+        "carried10": { "line": "Equipped/worn weight vs Strength6 / 1" } }
+
+- **Note:** Found while chasing #102. The Gear tab's carried-load line added
+  each equipped weapon's Weight **once per row**, which is right for a gun but
+  wrong for the one entry type that stacks: a Thrown weapon is a single row
+  holding many grenades. Ten grenades therefore weighed exactly the same as
+  one (0.5), and a stack you had thrown away entirely still weighed on you.
+  The misc-gear line immediately below it had always multiplied by
+  `carriedQty` — weapons simply never did.
+
+  The fixture is 10 grenades (Weight 0.5 each) plus a Taser (Weight 1), so
+  the expected figure is `1 + 0.5 × carried`: `carried0` is the Taser alone,
+  and it climbs to 6 at ten carried instead of sitting at 1.5 forever.
+  `carried0` is the #102 half — nothing carried, nothing weighed — and it
+  reads exactly the same as owning no grenades at all, which is the point.
+
+  `carriedQty` is 1 for an ordinary weapon (no Qty/Carried pair, so it falls
+  through to owned), which is why the Taser's contribution never moves and no
+  non-Thrown weapon changes weight under this fix.
+
+  `owned` is the separate "Total owned weight" line, which stays at 6 (all ten
+  grenades plus the Taser) no matter how few are carried — that is the number
+  that should *not* follow Carried, and having both on screen is what makes
+  the distinction legible. It is absent from `carried10` on purpose: the row
+  only renders when carried and owned actually differ, and at ten of ten they
+  do not.
+- **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
