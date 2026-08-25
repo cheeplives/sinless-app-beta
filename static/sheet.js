@@ -10209,6 +10209,10 @@ function openShop({ title, sub, sections }) {
   const cart = [];
   let activeKey = sections[0].key;
   let query = "";
+  // #96: "N or less", never an exact match -- a player browsing at Rarity 2
+  // still wants to see the common Rarity 1 stuff. "" means unfiltered. Blank
+  // cells (item.rarity == null) always show, filtered or not (#96 again).
+  let maxRarity = "";
   let closeShop = () => {};
   let approving = false;
 
@@ -10226,6 +10230,20 @@ function openShop({ title, sub, sections }) {
   const search = el("input", { type: "search", class: "sh-shop-search",
     placeholder: "Filter by name or stats", "aria-label": "Filter this list",
     oninput: e => { query = e.target.value.trim().toLowerCase(); drawList(); } });
+  // Rarity options come from every shelf's own items, not just the one showing
+  // first -- switching shelves keeps whatever cap the player picked, same as
+  // the search box already does. Hidden entirely when nothing on offer here
+  // carries a Rarity at all (spells, amp powers, decks, programs).
+  const allRarities = new Set();
+  for (const s of sections) for (const g of s.groups(mine(s)))
+    for (const it of g.items) if (it.rarity != null) allRarities.add(it.rarity);
+  const raritySelect = allRarities.size ? el("select", { class: "sh-shop-rarity",
+    "aria-label": "Filter by Rarity",
+    onchange: e => { maxRarity = e.target.value ? +e.target.value : ""; drawList(); } },
+    el("option", { value: "" }, "Any Rarity"),
+    ...[...allRarities].sort((a, b) => a - b)
+      .map(n => el("option", { value: n }, `Rarity ${n} or less`))) : null;
+  const toolbar = el("div", { class: "sh-shop-toolbar" }, search, raritySelect);
   const noteLine = el("p", { class: "hint" });
   const listBox = el("div", { class: "sh-shop-list" });
   const cartBox = el("div", { class: "sh-shop-cart" });
@@ -10240,8 +10258,9 @@ function openShop({ title, sub, sections }) {
     pills.style.display = sections.length > 1 ? "" : "none";
   };
 
-  const matches = it => !query
-    || (it.name + " " + (it.sub || "")).toLowerCase().includes(query);
+  const matches = it =>
+    (!query || (it.name + " " + (it.sub || "")).toLowerCase().includes(query))
+    && (!maxRarity || it.rarity == null || it.rarity <= maxRarity);
 
   const drawList = () => {
     const s = current();
@@ -10389,7 +10408,7 @@ function openShop({ title, sub, sections }) {
       closeShop = close;
       drawPills();
       drawAll();
-      return [pills, search, noteLine, listBox, cartBox, foot];
+      return [pills, toolbar, noteLine, listBox, cartBox, foot];
     },
   });
 }
@@ -10528,6 +10547,16 @@ function shMountEditor(entry, hostRow, hostActive) {
   return wrap;
 }
 
+/* Rarity for a shop item / the openShop Rarity filter: a numeric row.Rarity,
+ * or null when the row has none (blank cell) -- kept apart from 0 so "no
+ * rarity listed" and "Rarity 0" don't collide (#96 wants blanks always
+ * shown, regardless of the filter). Shared by every openShop() section that
+ * has a Rarity column. */
+function itemRarity(row) {
+  const v = (row || {}).Rarity;
+  return (v === "" || v == null) ? null : (+v || 0);
+}
+
 /* ---- the Gear tab's shop: weapons, armor and general gear.
  *
  * The three shelves that used to be the "Buy equipment" card at the bottom of
@@ -10557,12 +10586,13 @@ function gearShopSections() {
         label: WEAPON_TYPE_LABELS[type] || type,
         items: rows.map(r => {
           const bow = bowOf(r);
-          return { name: r.Weapon, cost: weaponCost(r),
+          return { name: r.Weapon, cost: weaponCost(r), rarity: bow ? bow.rarity : itemRarity(r),
             sub: (r.Type === "Melee" ? `Reach ${r.Reach || 0}` : `Acc ${r.Accuracy || 0}`)
               + ` · DMG ${r.Type === "Melee" ? RULES.meleeDamage(r, CALC.attributes.Strength.final)
                          : bow ? `${bow.damage} (Min STR ${bow.minStr})` : (r.Damage || "—")}`
               + ` · Pen ${r.Pen || 0}` + barrierBit(r, r.Bar)
-              + ` · Conceal ${r.Conceal || 0} · ZR ${r.ZR || 0} · wt ${r.Weight || 0}` };
+              + ` · Conceal ${r.Conceal || 0} · ZR ${r.ZR || 0} · wt ${r.Weight || 0}`
+              + ` · Rarity ${bow ? bow.rarity : (r.Rarity || "—")}` };
         }),
       })),
     price: name => ({ cash: weaponCost(DATA.tables.weapons.find(x => x.Weapon === name) || {}), zp: 0 }),
@@ -10605,7 +10635,9 @@ function gearShopSections() {
           n + base * (mOf(DATA.tables.armor_extras, "Extra", e) - 1), 0) : 0)) * armorMult);
   };
   const armorItem = r => ({ name: r.Armor, cost: Math.round((+r.Cost || 0) * armorMult),
-    sub: `${r.Ballistic}B / ${r.Impact}I · wt ${r.wt}${r.Style === "Y" ? " · styleable" : ""}` });
+    rarity: itemRarity(r),
+    sub: `${r.Ballistic}B / ${r.Impact}I · wt ${r.wt}${r.Style === "Y" ? " · styleable" : ""}`
+      + (r.Rarity ? ` · Rarity ${r.Rarity}` : "") });
 
   const armor = {
     key: "armor", label: "Armor", stackable: true,
@@ -10663,8 +10695,10 @@ function gearShopSections() {
       .map(([cls, rows]) => ({
         label: cls,
         items: rows.map(r => ({ name: r.Item, cost: Math.round((+r.Cost || 0) * gearMult),
+          rarity: itemRarity(r),
           sub: [(+r.Dependence ? `Dependence ${r.Dependence}` : ""), r.Effect || "", r.Notes || "",
-            (r.Class || "").startsWith("Ammo") ? "per use" : ""]
+            (r.Class || "").startsWith("Ammo") ? "per use" : "",
+            r.Rarity ? `Rarity ${r.Rarity}` : ""]
             .filter(Boolean).join(" · ") })),
       })),
     price: name => ({ cash: gearCost(name), zp: 0 }),
@@ -11358,6 +11392,7 @@ function augmentShopSections() {
             return {
               name: r.Name,
               cost: costOf(r.Name),
+              rarity: itemRarity(r),
               sub: `ZR ${r.ZR || 0} · BI ${r.BI || 0}${dmg !== "" ? " · DMG " + dmg : ""}`
                 + (r.Rarity ? ` · Rarity ${r.Rarity}` : "")
                 + (r.Quality === "Y" ? " · quality tiers available" : "")
@@ -13613,8 +13648,9 @@ function riggingShopSections() {
     key: "rigs", label: "VCRs", stackable: true,
     note: "A rig's cores are how many units you can pilot at once; its links are how many it can carry.",
     groups: () => [{ label: "Vehicle Control Rigs", items: DATA.tables.rigs.map(x => ({
-      name: x["Rig Type"], cost: rigCost(x["Rig Type"]),
-      sub: `+${x["Bonus Dice"]}d · Links ${x.Links} · Cores ${x.Cores}` })) }],
+      name: x["Rig Type"], cost: rigCost(x["Rig Type"]), rarity: itemRarity(x),
+      sub: `+${x["Bonus Dice"]}d · Links ${x.Links} · Cores ${x.Cores}`
+        + (x.Rarity ? ` · Rarity ${x.Rarity}` : "") })) }],
     price: name => ({ cash: rigCost(name), zp: 0 }),
     commit: line => {
       CHAR.play.purchases.rigs.push({ name: line.name, mods: [] });
@@ -13631,8 +13667,9 @@ function riggingShopSections() {
       key: cfg.table, label: cfg.title, stackable: true,
       note: `Condition scales the price. Guns and mods are fitted afterwards, in each ${cfg.title.toLowerCase().replace(/s$/, "")}'s Modify dialog.`,
       groups: () => [{ label: cfg.title, items: DATA.tables[cfg.table].map(x => ({
-        name: x[cfg.nameKey], cost: Math.round((+x.Cost || 0) * mult),
-        sub: `Body ${x.Body} · Move ${x.Move} · Handling ${x.Handling}` })) }],
+        name: x[cfg.nameKey], cost: Math.round((+x.Cost || 0) * mult), rarity: itemRarity(x),
+        sub: `Body ${x.Body} · Move ${x.Move} · Handling ${x.Handling}`
+          + (x.Rarity ? ` · Rarity ${x.Rarity}` : "") })) }],
       configure: async (name, spent) => {
         const row = rowOf(name);
         const chosen = await buyDialog({
