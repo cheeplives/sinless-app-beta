@@ -189,6 +189,10 @@ let sheetMenuOpen = false;    // hamburger menu (Back to Chargen / Homebrew / Ex
 let sheetHeadObserver = null; // IntersectionObserver toggling the compact sticky strip
 let sheetStickyScrolled = false;  // survives re-renders so the strip doesn't flicker
 let ghostEditing = false;  // Overview: Ghost Rating box expanded into its +/- adjuster
+// Skills tab: last Unskilled Roll result per pool (#100), so it survives the
+// re-render its own pool-spend triggers. Cleared on a fresh roll of that pool,
+// never persisted -- same lifetime as the animated roller's own last result.
+const unskilledRollResult = {};
 // Fold state for the always-on sticky-bar Actions strip. A screen-real-estate
 // preference, not a fact about the character — device/viewport-specific, and
 // still useful on a read-only shared character where CHAR.play can't be
@@ -7147,7 +7151,7 @@ function decrementAllHeat() {
  * actionsCard()'s "↻ New Round" button and actionsStrip()'s copy of the same
  * button, so both clear the same things. */
 function newRound() {
-  for (const p of POOL_ORDER) poolState(p).setUsed(0);
+  for (const p of POOL_ORDER) { poolState(p).setUsed(0); delete unskilledRollResult[p]; }
   CHAR.play.actions_used = {};
   refreshBeastDice();     // Wildling's Beast dice refresh each round too
   refreshMcpDice();       // ...and a deck's MCP dice, same deal (#79)
@@ -9149,6 +9153,25 @@ function poolSkillList(pool) {
 }
 
 /* ------------------------------------------------ skills tab (display only) */
+/* Unskilled Roll (#100): throw every die a pool currently has, with no skill
+ * behind them -- the pool empties for the round the same way a normal test
+ * spends it, but successes come back at a quarter rate (1 counted per 4
+ * rolled) rather than one-for-one. A separate flow from openPoolRoller
+ * rather than a mode bolted onto it: that roller's success counting
+ * (>= 4 on a d6, one-for-one) is shared by every other test on the sheet, and
+ * this rule only ever applies to a deliberately skill-less throw. */
+function unskilledRoll(pool) {
+  if (activeTabObj() && activeTabObj().readonly) return;
+  const ps = poolState(pool);
+  if (ps.remaining < 1) { alert(`No ${pool} dice left this round.`); return; }
+  const dice = Array.from({ length: ps.remaining }, () => rollDie(6));
+  const raw = dice.filter(v => v >= 4).length;
+  // Set before setUsed(), which re-renders synchronously via playChanged() --
+  // the result has to already be in place for that render to show it.
+  unskilledRollResult[pool] = { dice, raw, effective: Math.floor(raw / 4) };
+  ps.setUsed(ps.max);
+}
+
 function shSkills(body) {
   // Martial Arts are Brawn skills, one per style, so their rank and the "learn a
   // style" control sit in the Brawn card with everything else Brawn; the unlocked
@@ -9233,6 +9256,17 @@ function shSkills(body) {
       },
         el("span", {}, pool),
         el("b", { style: live ? `color:var(--${live > 0 ? "ok" : "bad"})` : "" }, String(ps.max))));
+    if (!ro) card.append(el("div", { class: "sh-unskilled-row" },
+      el("button", { class: "btn small", disabled: ps.remaining < 1 ? "1" : null,
+        title: `Throw all ${ps.remaining} remaining ${pool} dice with no skill behind them -- `
+          + "1 success counted per 4 rolled, and the pool empties for the round.",
+        onclick: () => unskilledRoll(pool) }, "🎲 Unskilled Roll"),
+      unskilledRollResult[pool] ? (() => {
+        const r = unskilledRollResult[pool];
+        return el("span", { class: "sub sh-unskilled-result" },
+          `${r.dice.length}d6: [${r.dice.join(", ")}] → ${r.raw} raw → `,
+          el("b", {}, `${r.effective} success${r.effective === 1 ? "" : "es"}`));
+      })() : null));
     const trained = Object.entries(DATA.skills)
       .filter(([n, m]) => m.pool === pool && (CALC.skills[n].final > 0 || CALC.skills[n].dice_bonus
         || (CALC.skills[n].notes && CALC.skills[n].notes.length)))

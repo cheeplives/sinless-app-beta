@@ -432,6 +432,8 @@ select,input[type=text]{background:var(--panel);border:1px solid var(--line);col
 input[type=checkbox]{accent-color:var(--manon)}
 .stepper{display:inline-flex;align-items:center;gap:4px}
 .sh-asset-boxes{display:flex;margin:2px 0 8px;font-size:11px}
+.sh-unskilled-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:6px 0 10px}
+.sh-unskilled-result{font-family:var(--mono);font-size:11px}
 .stepper button{width:22px;height:22px;border-radius:4px;background:var(--panel-2);border:1px solid var(--line);
   color:var(--text);cursor:pointer;font-family:var(--mono);line-height:1}
 .stepper .sv{font-family:var(--mono);min-width:26px;text-align:center;font-size:14px}
