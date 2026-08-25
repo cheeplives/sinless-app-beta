@@ -5452,11 +5452,16 @@ function energyFireButtons({ label, rollSpec, mode, per, max, cur, applyHeat,
  *
  * `opts.consumeCarried`, when passed, is the weapon entry a thrown attack is
  * drawn from -- a grenade, knife or shuriken is gone the moment it's thrown,
- * so the button spends one off what's actually CARRIED (not the total owned;
- * the rest of the stack is still yours, just not in hand -- see carriedQty/
- * setCarriedQty in app.js). An empty carried count disables the button rather
- * than hiding it, the same "still there as a reminder to restock" idiom
- * shUseDoseBtn uses for an empty dose stack. */
+ * so the throw spends one off BOTH counts the entry keeps: the Carried number
+ * (how many are on you) and the Qty you own, because a thrown grenade is
+ * destroyed rather than moved back to the stash (#98). See carriedQty /
+ * setCarriedQty / ownedQty in app.js for the pair.
+ *
+ * The `dry` guard below is belt-and-braces, not a state reachable from the
+ * sheet: an emptied stack drops out of the hands entirely (weaponOnPerson,
+ * #102), so the hand card this button lives on is already gone by the time
+ * Carried reaches 0. It stays so the decrement above can never run a stack
+ * negative if some other call site ever offers a throw. */
 function attackButton(label, rs, opts = {}) {
   if (!rs || rs.locked || (rs.limitDice + rs.bonus) <= 0) return "—";
   const total = rs.limitDice + rs.bonus;
@@ -5870,6 +5875,25 @@ function weaponSkillDice(name, type, accuracy, bonuses = [], reach = null) {
         + (bwhy.length ? `, bonus ${bwhy.join(" + ")}` : "") });
 }
 
+/* Is this weapon actually ON the character right now?
+ *
+ * For everything but a Thrown weapon that is just "is it equipped": a gun with
+ * an empty magazine is still a gun you are holding. A Thrown weapon is the one
+ * entry that STACKS -- one row carrying a Qty you own and a Carried count for
+ * how many of those are on you (the Gear tab's Qty/Carried pair) -- so a stack
+ * with nothing carried is in the stash, not on your belt, however many the Qty
+ * says you own.
+ *
+ * One predicate shared by everything that asks "what is this character
+ * carrying": concealCallout()'s silhouette, and the hands/loadout list that
+ * feeds the hand cards, the hand <select> and the "carried, not in hand" line
+ * (#102 -- an emptied grenade stack stayed wieldable in all three). */
+function weaponOnPerson(w) {
+  if (w.equipped === false) return false;
+  const row = DATA.tables.weapons.find(x => x.Weapon === w.name) || {};
+  return row.Type !== "Thrown" || carriedQty(w) > 0;
+}
+
 /* Concealment (#62): whether the guns you are carrying read as guns.
  *
  * The check is the summed Conceal of every carried weapon against Subterfuge --
@@ -5886,6 +5910,7 @@ function weaponSkillDice(name, type, accuracy, bonuses = [], reach = null) {
  * of today's silhouette, so `equipped` alone (which only says the stack is
  * part of the loadout at all) isn't enough here the way it is for a gun; a
  * stack with nothing actually carried is dropped from the check entirely.
+ * That is weaponOnPerson()'s job, shared with the hands list (#102).
  *
  * It's also billed by WEIGHT, not by copy or by the stack as a whole (player
  * request): a single 0.5-Weight grenade is small enough to not print on its
@@ -5896,8 +5921,7 @@ function weaponSkillDice(name, type, accuracy, bonuses = [], reach = null) {
  * keeps the old one-copy-per-entry rule. */
 function concealCallout() {
   const row = w => DATA.tables.weapons.find(x => x.Weapon === w.name) || {};
-  const carried = allWeapons().filter(w =>
-    w.equipped !== false && (row(w).Type !== "Thrown" || carriedQty(w) > 0));
+  const carried = allWeapons().filter(weaponOnPerson);
   if (!carried.length) return null;
   // Resolved by position, not by name: two identical guns are two silhouettes
   // and both have to count. See calcRowFor for why a name-find is wrong here.
@@ -6238,8 +6262,23 @@ function shOverview(body) {
    * out in rows. Three copies of the same six words was two too many. */
 
   // --- equipped weapons (+ mods) and worn armor, mirrored from the Gear tab
+  //
+  // weaponOnPerson, not a bare `equipped` test: an emptied Thrown stack is
+  // still "equipped" (the row is part of the loadout) but there is nothing of
+  // it on you to hold (#102). Filtering the ONE list the whole section is
+  // built from takes it out of the hand cards, the hand <select> and the
+  // "carried, not in hand" line together -- hiding it from just the picker
+  // would leave the thrown-away grenade sitting in a hand card with an Attack
+  // button on it, which is the half of the report that actually bites.
   const weaponsAll = allWeapons(), armorAll = allArmor();
-  const equippedWeapons = weaponsAll.filter(w => w.equipped !== false);
+  const equippedWeapons = weaponsAll.filter(weaponOnPerson);
+  // Equipped, but with nothing of it actually on you: an emptied Thrown stack.
+  // Computed up here rather than beside the hint it feeds because both gates
+  // below have to know about it -- a character whose ONLY weapon is a thrown-
+  // out grenade stack has an empty `equippedWeapons`, and without this the
+  // whole Loadout card would silently vanish at exactly the moment the player
+  // most needs to be told where their grenades went (#102).
+  const emptyStacks = weaponsAll.filter(w => w.equipped !== false && !weaponOnPerson(w));
   const cyberguns = equippedCyberguns();
   const wornArmor = armorAll.filter(a => a.active !== false);
   const grantedWeapons = CALC.combat.granted_weapons || [];
@@ -6257,7 +6296,7 @@ function shOverview(body) {
     }
     return [...byName.values()];
   })();
-  if (equippedWeapons.length || cyberguns.length || wornArmor.length
+  if (equippedWeapons.length || emptyStacks.length || cyberguns.length || wornArmor.length
       || grantedWeapons.length || traitGear.length || ammoOnHand.length
       || (CALC.combat.armor_sources || []).length) {
     /* The dice you actually roll to attack with this weapon, shown next to its
@@ -6497,7 +6536,10 @@ function shOverview(body) {
     // would collapse them. Only the PRIMARY slot is stored; a two-handed
     // weapon's second slot is derived from RULES.weaponHands() every render,
     // never stored, so it can't desync from a data change.
-    if (equippedWeapons.length) {
+    // `|| emptyStacks.length` so the "where did my grenades go" hints below are
+    // reachable even when the emptied stack was the only weapon (#102). With no
+    // wieldable weapon the hand cards simply render empty, which is the truth.
+    if (equippedWeapons.length || emptyStacks.length) {
       const handCountEff = RULES.handCount(CALC, CHAR.play.hand_override);
       const primaryAt = i => equippedWeapons.find(w => w.hand === i);
       // A slot past its own primary is claimed by the PREVIOUS slot's weapon
@@ -6860,6 +6902,34 @@ function shOverview(body) {
         loadout.append(el("p", { class: "hint" },
           `Held in a hand you no longer have: ${dormant.map(w => w.name).join(" · ")} — `
           + "nothing has been deleted; more hands will bring it back."));
+      }
+      // An equipped Thrown stack you're carrying none of drops out of the hands
+      // above entirely (#102). Same reasoning as `stowed` below -- a weapon
+      // vanishing without a word reads as the sheet having lost it -- and the
+      // same fix: name it, and say what brings it back. Its `w.hand` is
+      // deliberately still stored, so carrying one again returns it to the hand
+      // it was thrown from, exactly like `dormant` above.
+      //
+      // Split by WHY it's empty, because the remedies are different and only
+      // one of them is possible: a stack with some left in the stash just needs
+      // Carried raised, while one thrown down to nothing owned (#98 drains Qty
+      // too) can't be -- setCarriedQty clamps to what you own -- so telling
+      // that player to raise Carried would be advice that silently does
+      // nothing. They need to buy more. (emptyStacks itself is built at the top
+      // of the section -- the render gates above need it too.)
+      const inStash = emptyStacks.filter(w => ownedQty(w) > 0);
+      const spent = emptyStacks.filter(w => ownedQty(w) <= 0);
+      if (inStash.length) {
+        loadout.append(el("p", { class: "hint" },
+          `Owned but none carried: ${inStash.map(w => w.name).join(" · ")} — `
+          + `nothing has been deleted; raise Carried on the Gear tab to have `
+          + `${inStash.length > 1 ? "them" : "it"} to hand.`));
+      }
+      if (spent.length) {
+        loadout.append(el("p", { class: "hint" },
+          `All thrown, none left: ${spent.map(w => w.name).join(" · ")} — `
+          + `a thrown weapon is spent, so buy more from the Gear tab to carry `
+          + `${spent.length > 1 ? "them" : "it"} again.`));
       }
       // A weapon you own but haven't equipped is absent above entirely, which
       // reads as the sheet having lost it. Name them, and say where to fix it.
@@ -11030,8 +11100,10 @@ function shGear(body) {
       // (grenade, knife, shuriken) is single-use, so "how many do I have
       // total" and "how many are on me right now" are different questions
       // (previously conflated: only Qty existed, so there was no way to say
-      // "I own 6 but I'm only carrying 2 today"). Attack draws from Carried,
-      // not Qty -- see attackButton's consumeCarried.
+      // "I own 6 but I'm only carrying 2 today"). A throw spends one off BOTH
+      // counts -- the grenade is destroyed, not stashed (#98, attackButton's
+      // consumeCarried) -- so Carried is what you have to hand right now and
+      // Qty is what is left to restock it from.
       const thrownOwned = r.Type === "Thrown" ? ownedQty(w) : 0;
       const thrownCarried = r.Type === "Thrown" ? carriedQty(w) : 0;
       t.append(el("tr", {},

@@ -2686,47 +2686,56 @@ goods for nothing.
   card-build time, and that vehicles get it exactly like drones do.
 - **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
 
-### P06-083: Owned and carried track separately for a Thrown weapon, and Attack spends only what's carried
+### P06-083: A Thrown weapon tracks owned and carried separately, and a throw spends one off both
 - **Type:** correctness
 - **Steps:** none.
 - **Check:**
 
-      (async () => { const c = RULES.defaultCharacter(); c.name = "QA Thrown95"; c.priorities = { heritage: 2, magic: 0, attributes: 3, skills: 2, resources: 3 }; c.heritage.type = "Human"; c.skills = { "Throwing Weapons": 3 }; c.weapons = [{ name: "Explosive Grenade", mods: [], equipped: true, qty: 3, carried_qty: 2, hand: 0 }]; c.finalized = true; c.lifestyles = [{ name: "Squatter", months: 1 }]; await openCharacter(c); sheetTab = "overview"; renderSheet(); const gren = () => allWeapons()[0]; const findAttack = () => [...document.querySelectorAll(".sh-hand-card button")].find(b => b.textContent.trim() === "Attack"); const closeRoller = () => { const d = document.querySelector(".sh-roller"); if (d) { const x = [...d.querySelectorAll("button")].find(b => b.title === "Close"); if (x) x.click(); } }; const before = { owned: ownedQty(gren()), carried: carriedQty(gren()) }; findAttack().click(); closeRoller(); renderSheet(); const afterFirst = { owned: ownedQty(gren()), carried: carriedQty(gren()) }; findAttack().click(); closeRoller(); renderSheet(); const afterSecond = { owned: ownedQty(gren()), carried: carriedQty(gren()) }; const dryBtn = findAttack(); const dry = { disabled: dryBtn.disabled, title: dryBtn.title }; sheetTab = "gear"; renderSheet(); const row = [...document.querySelectorAll("#gear-weapons table tr")].find(tr => tr.textContent.includes("Explosive Grenade")); const steppers = [...row.querySelectorAll(".stepper")]; const gearReadout = { qty: steppers[0].querySelector(".sv").textContent, carried: steppers[1].querySelector(".sv").textContent }; steppers[1].querySelectorAll("button")[1].click(); renderSheet(); const restored = { owned: ownedQty(gren()), carried: carriedQty(gren()) }; sheetTab = "overview"; renderSheet(); const reenabled = !findAttack().disabled; sheetTab = "gear"; renderSheet(); const tab = activeTabObj(); tab.readonly = true; renderSheet(); const roRow = [...document.querySelectorAll("#gear-weapons table tr")].find(tr => tr.textContent.includes("Explosive Grenade")); const roText = roRow.textContent.includes("Qty 3 (1 carried)"); const roNoControls = roRow.querySelectorAll(".stepper").length === 0; tab.readonly = false; await closeTabByName("QA Thrown95"); return { before, afterFirst, afterSecond, dry, gearReadout, restored, reenabled, roText, roNoControls }; })()
+      (async () => { const c = RULES.defaultCharacter(); c.name = "QA Thrown95"; c.priorities = { heritage: 2, magic: 0, attributes: 3, skills: 2, resources: 3 }; c.heritage.type = "Human"; c.skills = { "Throwing Weapons": 3 }; c.weapons = [{ name: "Explosive Grenade", mods: [], equipped: true, qty: 5, carried_qty: 2, hand: 0 }]; c.finalized = true; c.lifestyles = [{ name: "Squatter", months: 1 }]; await openCharacter(c); sheetTab = "overview"; renderSheet(); const gren = () => allWeapons()[0]; const count = () => ({ owned: ownedQty(gren()), carried: carriedQty(gren()) }); const inPicker = () => [...document.querySelectorAll(".sh-hand-card option")].some(o => o.textContent === "Explosive Grenade"); const findAttack = () => [...document.querySelectorAll(".sh-hand-card button")].find(b => b.textContent.trim() === "Attack"); const throwOne = () => { findAttack().click(); const d = document.querySelector(".sh-roller"); if (d) { const x = [...d.querySelectorAll("button")].find(y => y.title === "Close"); if (x) x.click(); } renderSheet(); }; const before = count(); throwOne(); const afterFirst = count(); throwOne(); const afterSecond = count(); const emptied = { attackOffered: !!findAttack(), inHandPicker: inPicker(), handStillStored: gren().hand, hint: ([...document.querySelectorAll(".sh-card p.hint")].map(p => p.textContent).find(h => /Owned but none carried/.test(h)) || null) }; sheetTab = "gear"; renderSheet(); const row = [...document.querySelectorAll("#gear-weapons table tr")].find(tr => tr.textContent.includes("Explosive Grenade")); const steppers = [...row.querySelectorAll(".stepper")]; const gearReadout = { qty: steppers[0].querySelector(".sv").textContent, carried: steppers[1].querySelector(".sv").textContent }; steppers[1].querySelectorAll("button")[1].click(); renderSheet(); const restored = count(); sheetTab = "overview"; renderSheet(); const backInHand = { attackOffered: !!findAttack(), inHandPicker: inPicker(), hand: gren().hand }; sheetTab = "gear"; renderSheet(); const tab = activeTabObj(); tab.readonly = true; renderSheet(); const roRow = [...document.querySelectorAll("#gear-weapons table tr")].find(tr => tr.textContent.includes("Explosive Grenade")); const roText = roRow.textContent.includes("Qty 3 (1 carried)"); const roNoControls = roRow.querySelectorAll(".stepper").length === 0; tab.readonly = false; await closeTabByName("QA Thrown95"); return { before, afterFirst, afterSecond, emptied, gearReadout, restored, backInHand, roText, roNoControls }; })()
 
 - **Expected:**
 
-      { "before": { "owned": 3, "carried": 2 },
-        "afterFirst": { "owned": 3, "carried": 1 },
+      { "before": { "owned": 5, "carried": 2 },
+        "afterFirst": { "owned": 4, "carried": 1 },
         "afterSecond": { "owned": 3, "carried": 0 },
-        "dry": { "disabled": true,
-          "title": "None carried — carry one on the Gear tab before throwing another" },
+        "emptied": { "attackOffered": false, "inHandPicker": false, "handStillStored": 0,
+          "hint": "Owned but none carried: Explosive Grenade — nothing has been deleted; raise Carried on the Gear tab to have it to hand." },
         "gearReadout": { "qty": "3", "carried": "0" },
         "restored": { "owned": 3, "carried": 1 },
-        "reenabled": true, "roText": true, "roNoControls": true }
+        "backInHand": { "attackOffered": true, "inHandPicker": true, "hand": 0 },
+        "roText": true, "roNoControls": true }
 
 - **Note:** Reported gap: a Thrown weapon (grenade, knife, shuriken) only had
-  a Qty stepper, so there was no way to say "I own 3 but I'm only carrying 2
+  a Qty stepper, so there was no way to say "I own 5 but I'm only carrying 2
   today" — and pressing Attack didn't touch either number, so a thrown
   grenade never actually left the stack.
 
   Qty and Carried are now the same pair a stacked misc-gear row already gets
   (`shUsesStepper` / `shCarriedStepper`, `ownedQty` / `carriedQty` in
-  app.js) — Qty is the total owned, Carried is what's on you and is what
-  Attack draws from. `before`→`afterFirst`→`afterSecond` presses the
-  Overview hand card's Attack button twice: `owned` never moves, `carried`
-  drops 2→1→0. This is deliberate, not an oversight — see
-  `attackButton`'s `consumeCarried`: what stays in a locker at the safehouse
-  isn't in your hand to throw, but it's still yours, so Qty is untouched and
-  only Carried spends.
+  app.js): Qty is the total you own, Carried is how many of those are on you.
+  `before`→`afterFirst`→`afterSecond` presses the Overview hand card's Attack
+  button twice and **both** numbers fall together, 5/2 → 4/1 → 3/0. That
+  second half is issue **#98**: a thrown grenade is destroyed, not moved back
+  to the stash, so the owned stack has to shrink too or one carried round
+  could be thrown forever. (This case previously asserted `owned` stayed at 3
+  throughout — the original ruling, which #98 reversed. The commit that
+  changed the behaviour did not update this case, so it had been failing
+  silently until #102 sent someone back through here.)
 
-  `dry` is the empty-carried state: the button disables (rather than
-  vanishing) once nothing is left in hand, the same "still there as a
-  reminder to restock" idiom `shUseDoseBtn` uses for an empty dose stack —
-  and its title says why. `gearReadout` confirms the Gear tab's Weapons
-  table shows the same two numbers live (Qty 3 unmoved, Carried 0). Clicking
-  Carried's own `+` there (not Qty) restores it to 1 (`restored`) and the
-  Overview button re-enables on its own (`reenabled`) — Qty and Carried
-  never touch each other except that Carried can't exceed Qty.
+  `emptied` is issue **#102** and the reason the old `dry` assertion is gone:
+  a stack you are carrying none of drops out of the loadout entirely
+  (`weaponOnPerson`), so there is no hand card and therefore no Attack button
+  to be found disabled — `attackOffered` and `inHandPicker` are both `false`.
+  `handStillStored` proves the assignment itself is kept rather than cleared,
+  the same ruling as `dormant` (a hand you no longer have): put one back in
+  your pocket and `backInHand` shows it returns to the hand it was thrown
+  from, no re-picking. `hint` is the "don't silently lose a weapon" line that
+  replaces it in the UI — see P06-086 for the full treatment.
+
+  `gearReadout` confirms the Gear tab shows the same two numbers live (Qty 3,
+  Carried 0). Clicking Carried's own `+` there — not Qty — restores it to 1
+  (`restored`) without touching Qty: the two only interact in that Carried
+  can never exceed Qty.
 
   `roText`/`roNoControls` is the read-only reader's view: a plain "Qty 3 (1
   carried)" line, no steppers — matching how every other owned/carried gear
@@ -2822,4 +2831,73 @@ goods for nothing.
   regression here would most likely reappear as `tweaked.persisted` reading
   `"classic"` despite `tweaked.rule` reading `"houserule"` — the pointer
   says the panel take effect, `CHAR` itself says it didn't.
+- **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
+
+### P06-086: An emptied Thrown stack leaves the hands and the hand picker, and says where it went
+- **Type:** correctness
+- **Steps:** none.
+- **Check:**
+
+      (async () => { const c = RULES.defaultCharacter(); c.name = "QA Hands102"; c.priorities = { heritage: 2, magic: 0, attributes: 3, skills: 2, resources: 3 }; c.heritage.type = "Human"; c.skills = { "Throwing Weapons": 3, "Firearms": 3, "Subterfuge": 3 }; c.weapons = [{ name: "Explosive Grenade", mods: [], equipped: true, qty: 2, carried_qty: 1, hand: 0 }, { name: "Ares TAG-1 Taser", mods: [], equipped: true, hand: 1 }]; c.finalized = true; c.lifestyles = [{ name: "Squatter", months: 1 }]; await openCharacter(c); sheetTab = "overview"; renderSheet(); const gren = () => allWeapons().find(w => w.name === "Explosive Grenade"); const picker = () => [...document.querySelectorAll(".sh-hand-card select")].map(s => [...s.options].map(o => o.textContent).join("|")); const held = () => [...document.querySelectorAll(".sh-hand-card select")].map(s => s.value === "" ? "(empty)" : s.selectedOptions[0].textContent); const hint = re => ([...document.querySelectorAll(".sh-card p.hint")].map(p => p.textContent).find(h => re.test(h)) || null); const conceal = () => { const b = document.querySelector(".sh-conceal b"); return b ? b.textContent.trim() : "gone"; }; const snap = () => ({ picker: picker(), held: held(), conceal: conceal(), stash: !!hint(/Owned but none carried/), spent: !!hint(/All thrown, none left/) }); const withOne = snap(); const throwOne = () => { const b = [...document.querySelectorAll(".sh-hand-card button")].find(x => x.textContent.trim() === "Attack"); b.click(); const d = document.querySelector(".sh-roller"); if (d) { const x = [...d.querySelectorAll("button")].find(y => y.title === "Close"); if (x) x.click(); } renderSheet(); }; throwOne(); const emptied = Object.assign(snap(), { owned: ownedQty(gren()), carried: carriedQty(gren()), handStored: gren().hand }); setCarriedQty(gren(), 1); playChanged(); renderSheet(); const recarried = snap(); throwOne(); const allGone = Object.assign(snap(), { owned: ownedQty(gren()) }); await closeTabByName("QA Hands102"); return { withOne, emptied, recarried, allGone }; })()
+
+- **Expected:**
+
+      { "withOne": {
+          "picker": ["— empty —|Explosive Grenade|Ares TAG-1 Taser", "— empty —|Explosive Grenade|Ares TAG-1 Taser"],
+          "held": ["Explosive Grenade", "Ares TAG-1 Taser"],
+          "conceal": "2 / 3", "stash": false, "spent": false },
+        "emptied": {
+          "picker": ["— empty —|Ares TAG-1 Taser", "— empty —|Ares TAG-1 Taser"],
+          "held": ["(empty)", "Ares TAG-1 Taser"],
+          "conceal": "2 / 3", "stash": true, "spent": false,
+          "owned": 1, "carried": 0, "handStored": 0 },
+        "recarried": {
+          "picker": ["— empty —|Explosive Grenade|Ares TAG-1 Taser", "— empty —|Explosive Grenade|Ares TAG-1 Taser"],
+          "held": ["Explosive Grenade", "Ares TAG-1 Taser"],
+          "conceal": "2 / 3", "stash": false, "spent": false },
+        "allGone": {
+          "picker": ["— empty —|Ares TAG-1 Taser", "— empty —|Ares TAG-1 Taser"],
+          "held": ["(empty)", "Ares TAG-1 Taser"],
+          "conceal": "2 / 3", "stash": false, "spent": true, "owned": 0 } }
+
+- **Reported:** [#102](https://github.com/cheeplives/sinless-app-beta/issues/102)
+  — *"If a Thrown Weapon takes the carried amount to 0, it still shows up as a
+  weapon in the Hand Drop Down. (especially if it was active)."*
+- **Note:** Two halves, and the parenthesis is the one that bites. `equipped`
+  on a Thrown row means "this stack is part of the loadout", not "one of these
+  is in my hand", so an emptied stack stayed a wieldable weapon: still an
+  option in every hand `<select>`, and — if it had been assigned to a hand —
+  still sitting in that hand card with a full stat line and an Attack button
+  on it. `withOne` → `emptied` is both halves at once: the grenade leaves the
+  picker (`picker` drops from three options to two, in **both** hands) and the
+  hand it was in reads `(empty)`.
+
+  Fixed with `weaponOnPerson()`, filtering the single `equippedWeapons` list
+  the whole loadout section is built from — hand cards, the picker and the
+  "carried, not in hand" line all read it, so hiding the stack from just the
+  `<select>` would have left the thrown-away grenade holdable. The same
+  predicate is shared with `concealCallout()` so the silhouette and the hands
+  can never disagree about what you are carrying.
+
+  `handStored` is the deliberate non-fix: `w.hand` is **kept**, not cleared,
+  matching the `dormant` ruling for a hand you no longer have — so
+  `recarried` (one back in the pocket) returns it to hand 0 on its own with
+  no re-picking. That is why the fix filters the list rather than nulling the
+  assignment.
+
+  `stash` / `spent` are the two hints that replace the vanished weapon, and
+  they are deliberately different lines because only one of the remedies is
+  possible. `emptied` still owns 1 (in the stash) → *"raise Carried on the
+  Gear tab"*. `allGone` has thrown its last (`owned: 0`, since #98 drains Qty
+  too) → *"buy more"*, because `setCarriedQty` clamps to what you own and
+  telling that player to raise Carried would be advice that silently does
+  nothing. Both render inside the Hands block, whose gate now also fires on
+  `emptyStacks` — otherwise a character whose **only** weapon was the emptied
+  stack would lose the entire Loadout card and get no explanation at all,
+  which is exactly the reader this hint exists for.
+
+  `conceal` holding at `2 / 3` throughout is not a bug and is worth not
+  "fixing": one 0.5-Weight grenade is under P06-084's one-whole-point-of-
+  carried-weight threshold, so it contributes 0 either way and the Taser's 2
+  is the entire silhouette in all four states.
 - **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
