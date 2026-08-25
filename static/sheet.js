@@ -8348,14 +8348,14 @@ function calendarCard() {
       + "Replicant's remaining lifespan."));
     return card;
   }
-  cal.entries.forEach((entry, i) => card.append(calendarEntryRow(entry, i === 0 && !ro)));
+  cal.entries.forEach((entry, i) => card.append(calendarEntryRow(entry, i === 0 && !ro, ro)));
   return card;
 }
 
 /* One logged month. Undo rides on the newest entry only — rolling the date back
    past a month that isn't the last one would leave every entry after it
    claiming a date that never happened. */
-function calendarEntryRow(entry, undoable) {
+function calendarEntryRow(entry, undoable, ro) {
   const lines = [];
   const lifestyle = entry.lifestyle || {};
   if (lifestyle.name) {
@@ -8383,12 +8383,18 @@ function calendarEntryRow(entry, undoable) {
   return el("div", { class: "sh-cal-entry" },
     el("div", { class: "sh-cal-entry-head" },
       el("b", { class: "sh-cal-date" }, calendarLabel(entry)),
-      undoable
-        ? el("button", { class: "btn small",
-            title: "Take this month back — the date, the lifestyle month, the "
-              + "ammunition and the lifespan all go back to where they were",
-            onclick: () => undoCalendarEntry(entry) }, "Undo")
-        : null),
+      el("span", { class: "sh-cal-entry-btns" },
+        // Any logged month, not just the newest (#94) -- unlike Undo this
+        // touches no ordering, it only revises notes and re-nets awards.
+        ro ? null : el("button", { class: "btn small",
+          title: "Edit this month's notes and awards",
+          onclick: () => editCalendarEntry(entry) }, "Edit"),
+        undoable
+          ? el("button", { class: "btn small",
+              title: "Take this month back — the date, the lifestyle month, the "
+                + "ammunition and the lifespan all go back to where they were",
+              onclick: () => undoCalendarEntry(entry) }, "Undo")
+          : null)),
     prose("Missions", entry.missions),
     prose("Sector actions", entry.sector_actions),
     ...lines.map(([k, v]) => el("div", { class: "sh-cal-prose" },
@@ -8697,6 +8703,129 @@ async function undoCalendarEntry(entry) {
   cal.months_elapsed = Math.max(0, cal.months_elapsed - 1);
   await playChangedRecalc();
   renderSheet();
+}
+
+/* Editing a logged month (#94): the free-text notes (missions, sector
+ * actions) and the per-mission Kismet/Woolong awards can be revised after
+ * the fact -- a table's memory of what actually happened often improves on
+ * what got typed in the moment. Everything else on the entry (the lifestyle
+ * month spent, the ammunition, the Replicant clock) is a one-time resource
+ * choice and stays put here; reopening those would double-charge or
+ * double-spend them, which this dialog is deliberately narrower than
+ * promptTimePasses to avoid.
+ *
+ * Awards are reconciled by DELTA, not replaced wholesale: each mission's old
+ * kismet/cash is netted against its new amount through the same
+ * awardKismet()/logCash() the original month used, tagged to this entry's id
+ * exactly like the original writes were. That works on ANY logged month, not
+ * just the newest -- unlike Undo, an award edit has no ordering to respect,
+ * only the same "can this Kismet still come back" question undo already
+ * knows how to ask. */
+function editCalendarEntry(entry) {
+  const play = CHAR.play;
+  const missions = el("textarea", { rows: "3", placeholder: "One mission per line…" });
+  missions.value = entry.missions || "";
+  const sectors = el("textarea", { rows: "3", placeholder: "One sector action per line…" });
+  sectors.value = entry.sector_actions || "";
+
+  const awardValues = [];
+  const awardRows = el("div", {});
+  const missionLines = () => missions.value.split("\n").map(s => s.trim()).filter(Boolean);
+  const renderAwards = () => {
+    const lines = missionLines();
+    awardRows.innerHTML = "";
+    if (!lines.length) {
+      awardRows.append(el("p", { class: "hint", style: "margin:0" },
+        "Type a mission above to award Kismet or "
+        + `${RULES.currencyName().toLowerCase()} for it.`));
+      return;
+    }
+    awardRows.append(el("div", { class: "sh-cal-award-head" },
+      el("span", {}, ""), el("span", {}, "Kismet"), el("span", {}, RULES.currencySymbol())));
+    lines.forEach((line, i) => {
+      // Seeded from the entry's existing award for this mission NAME the first
+      // time its row is built, then held by index like the original dialog --
+      // so retyping a name mid-edit doesn't lose what was already on it.
+      if (!awardValues[i]) {
+        const existing = (entry.awards || []).find(a => a.mission === line);
+        awardValues[i] = existing ? { kismet: existing.kismet || 0, cash: existing.cash || 0 }
+                                   : { kismet: 0, cash: 0 };
+      }
+      const at = awardValues[i];
+      const num = (key, min) => {
+        const input = el("input", { type: "number", min: String(min), step: "1",
+          "aria-label": `${line} ${key === "kismet" ? "Kismet" : RULES.currencyName()} award`,
+          oninput: e => { at[key] = Math.max(min, parseInt(e.target.value, 10) || 0); } });
+        input.value = at[key] ? String(at[key]) : "";
+        return input;
+      };
+      awardRows.append(el("div", { class: "sh-cal-award-row" },
+        el("span", { class: "sh-cal-award-name" }, line),
+        num("kismet", 0), num("cash", 0)));
+    });
+  };
+  missions.addEventListener("input", renderAwards);
+
+  openSheetModal({
+    title: `Edit ${calendarLabel(entry)}`,
+    sub: "Notes and awards only — the lifestyle month, ammunition and lifespan "
+      + "this month already spent are not reopened here.",
+    build: (refresh, close) => {
+      renderAwards();
+      return [
+        el("div", { class: "sh-cal-block" },
+          el("div", { class: "sh-cal-legend" }, "Missions taken"), missions),
+        el("div", { class: "sh-cal-block" },
+          el("div", { class: "sh-cal-legend" }, "Awards, by mission"), awardRows),
+        el("div", { class: "sh-cal-block" },
+          el("div", { class: "sh-cal-legend" }, "Sector actions taken"), sectors),
+        el("div", { style: "display:flex;gap:8px;flex-wrap:wrap;margin-top:14px" },
+          el("button", { class: "btn-add", onclick: async () => {
+            const newAwards = missionLines().map((mission, i) => ({ mission,
+              kismet: Math.max(0, (awardValues[i] || {}).kismet || 0),
+              cash: Math.max(0, (awardValues[i] || {}).cash || 0) }))
+              .filter(a => a.kismet || a.cash);
+            const oldByName = {};
+            (entry.awards || []).forEach(a => { oldByName[a.mission] = a; });
+            const newByName = {};
+            newAwards.forEach(a => { newByName[a.mission] = a; });
+            const names = [...new Set([...Object.keys(oldByName), ...Object.keys(newByName)])];
+            // Checked before anything is written: one blocked mission must not
+            // leave the others half-applied.
+            for (const name of names) {
+              const dK = (newByName[name] || {}).kismet - (oldByName[name] || {}).kismet || 0;
+              if (dK < 0) {
+                const blocked = kismetUndoBlocker(-dK);
+                if (blocked) {
+                  alert(`Can't reduce ${name}'s Kismet award yet.\n\n${blocked}`);
+                  return;
+                }
+              }
+            }
+            for (const name of names) {
+              const was = oldByName[name] || { kismet: 0, cash: 0 };
+              const now = newByName[name] || { kismet: 0, cash: 0 };
+              const dK = (now.kismet || 0) - (was.kismet || 0);
+              const dC = (now.cash || 0) - (was.cash || 0);
+              if (dK) {
+                awardKismet(`${name} — Kismet award (edited)`, dK);
+                if (play.kismet_log[0]) play.kismet_log[0].cal = entry.id;
+              }
+              if (dC) {
+                logCash(`${name} — payout (edited)`, dC);
+                if (play.cash_log[0]) play.cash_log[0].cal = entry.id;
+              }
+            }
+            entry.missions = missions.value;
+            entry.sector_actions = sectors.value;
+            entry.awards = newAwards;
+            close();
+            await playChangedRecalc();
+          } }, "Save changes"),
+          el("button", { class: "btn ghost", onclick: () => close() }, "Cancel")),
+      ];
+    },
+  });
 }
 
 function notesCard(rows) {
