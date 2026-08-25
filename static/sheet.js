@@ -188,6 +188,7 @@ let playSaveTimer = null;
 let sheetMenuOpen = false;    // hamburger menu (Back to Chargen / Homebrew / Export / …)
 let sheetHeadObserver = null; // IntersectionObserver toggling the compact sticky strip
 let sheetStickyScrolled = false;  // survives re-renders so the strip doesn't flicker
+let ghostEditing = false;  // Overview: Ghost Rating box expanded into its +/- adjuster
 // Fold state for the always-on sticky-bar Actions strip. A screen-real-estate
 // preference, not a fact about the character — device/viewport-specific, and
 // still useful on a read-only shared character where CHAR.play can't be
@@ -5972,10 +5973,35 @@ function shOverview(body) {
   // Ghost Rating rides the attribute line: it's a standing figure you read off
   // the character, not a play meter, and it was the least-earning header chip.
   // Same box as the six, marked `ghost` so its colour says it isn't one of them.
-  attrsRow.append(el("div", { class: "sh-attr ghost",
-    title: "Ghost Rating — the dice you roll to stay off the grid" },
-    el("div", { class: "k" }, "GHOST"),
-    el("div", { class: "v" }, CALC.zoetics.ghost_rating || "2d6")));
+  // Once rolled at first Finalize it's a plain number (see app.js), and the
+  // Agonarch can hand out or dock points over the campaign, so the box opens
+  // into a +/- stepper on click rather than staying a pure read-out. Locked
+  // during chargen (still showing the "2d6" placeholder) and on shared views.
+  const ghostFinal = play.ghost_rating;
+  if (ghostFinal && !ro) {
+    const box = el("div", { class: "sh-attr ghost" + (ghostEditing ? " editing" : ""),
+      title: ghostEditing ? "Adjust Ghost Rating, then Finalize"
+                           : "Ghost Rating — the dice you roll to stay off the grid. Click to adjust.",
+      onclick: () => { if (!ghostEditing) { ghostEditing = true; renderSheet(); } } },
+      el("div", { class: "k" }, "GHOST"));
+    if (ghostEditing) {
+      const stepBy = n => { play.ghost_rating = Math.max(0, play.ghost_rating + n); playChanged(); };
+      box.append(el("span", { class: "stepper", onclick: e => e.stopPropagation() },
+        el("button", { class: "btn small", title: "−1 Ghost Rating", onclick: () => stepBy(-1) }, "–"),
+        el("span", { class: "sv" }, String(play.ghost_rating)),
+        el("button", { class: "btn small", title: "+1 Ghost Rating", onclick: () => stepBy(1) }, "+")),
+        el("button", { class: "btn small accent", style: "margin-top:4px",
+          onclick: e => { e.stopPropagation(); ghostEditing = false; renderSheet(); } }, "Finalize"));
+    } else {
+      box.append(el("div", { class: "v" }, String(ghostFinal)));
+    }
+    attrsRow.append(box);
+  } else {
+    attrsRow.append(el("div", { class: "sh-attr ghost",
+      title: "Ghost Rating — the dice you roll to stay off the grid" },
+      el("div", { class: "k" }, "GHOST"),
+      el("div", { class: "v" }, CALC.zoetics.ghost_rating || "2d6")));
+  }
   // The ZR casting penalty keeps Ghost company for the same reason: it's a
   // standing figure about this character, not something you consult every round.
   // Conditional, and deliberately so — under the house rule gear ZR isn't a
