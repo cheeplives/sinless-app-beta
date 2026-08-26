@@ -612,6 +612,11 @@ function removeFromSublist(entries, hostName, key, name) {
   return false;
 }
 const CASH_UNDO = {
+  // A manual adjustment (adjustCash's prompt, the Gear tab's Woolongs +/-)
+  // has no owned item behind it to remove -- the money IS the whole entry,
+  // so undoing one is nothing more than undoCashSpend's own delta reversal.
+  // Always succeeds: there is nothing that could already be "gone".
+  manual: () => true,
   weapon:    u => removeNamedEntry(CHAR.play.purchases.weapons, u.name),
   armor:     u => removeNamedEntry(CHAR.play.purchases.armor, u.name),
   // Amp powers cost ZP rather than cash, so their ledger row moves no money
@@ -3802,7 +3807,7 @@ function adjustCash() {
   const delta = parseInt(raw, 10);
   if (!Number.isFinite(delta) || !delta) return;
   const label = (prompt("Reason (optional):", "") || "Manual adjustment").trim() || "Manual adjustment";
-  logCash(label, delta);
+  logCash(label, delta, { kind: "manual" });
   playChanged();
 }
 
@@ -11050,7 +11055,7 @@ function shGear(body) {
   const applyCash = sign => {
     const n = parseInt(amt.value, 10);
     if (!Number.isFinite(n) || n <= 0) return;
-    logCash(sign > 0 ? "Cash awarded" : "Cash spent", sign * n);
+    logCash(sign > 0 ? "Cash awarded" : "Cash spent", sign * n, { kind: "manual" });
     playChanged();
   };
   const woolongsCard = el("div", { class: "card sh-card", id: "gear-cash" },
