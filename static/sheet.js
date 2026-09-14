@@ -9244,14 +9244,20 @@ function skillTableRow(name, dim = false, editable = false, bareName = false) {
  * list when it has 0 points, 0 bonus and 0 group dice — that is what put it
  * here — so every numeric column is empty by construction and the header row
  * would label four blank columns. The name and the em dash are the content.
- * `bareName` drops the per-row Trained chip for the same reason: the summary
- * already says it, once, for the whole list. */
+ *
+ * Every untrained skill in the pool lands here now, not just Trained Only
+ * ones (a plain skill nobody put points in used to vanish from the card
+ * entirely, which is worse than a fold). `bareName` is left false so
+ * skillTableRow's own per-row chip still marks exactly the ones that are
+ * Trained Only -- the summary can no longer say that for the whole list
+ * since a folded skill might not be. */
 function lockedSkillsBlock(names) {
   const d = el("details", { class: "sh-locked-skills" },
-    el("summary", { title: "Trained only — these need at least 1 die in the skill or its group before they can be rolled" },
-      `Trained only — ${names.length} skill${names.length === 1 ? "" : "s"} unavailable without dice`));
+    el("summary", { title: "Skills with no points, bonus or group dice -- click a "
+        + "row's Trained chip, where one shows, for why it can't be rolled yet" },
+      `Untrained — ${names.length} skill${names.length === 1 ? "" : "s"}`));
   const t = el("table", { class: "sh-skilltable" });
-  for (const name of names) t.append(skillTableRow(name, true, false, true));
+  for (const name of names) t.append(skillTableRow(name, true));
   d.append(t);
   return d;
 }
@@ -9392,14 +9398,16 @@ function shSkills(body) {
       .filter(([n, m]) => m.pool === pool && (CALC.skills[n].final > 0 || CALC.skills[n].dice_bonus
         || (CALC.skills[n].notes && CALC.skills[n].notes.length)))
       .sort((a, b) => CALC.skills[b[0]].final - CALC.skills[a[0]].final);
-    // This tab only lists skills you can actually roll, which would hide a
-    // Trained Only skill exactly when it matters -- you have no dice, so it's off
-    // the table entirely. List those separately instead of dropping them. The
-    // `shown` guard keeps a flagged skill that qualified above (via notes) from
-    // appearing twice.
+    // This card's main table only lists skills you can actually roll, which
+    // used to mean any untrained skill was off it entirely -- not just
+    // Trained Only ones, which at least had a reason, but a perfectly
+    // ordinary skill nobody has put a point in yet. Every skill in the pool
+    // belongs on this sheet, so the rest go in the fold below rather than
+    // vanishing. The `shown` guard keeps a flagged skill that qualified above
+    // (via notes) from appearing twice.
     const shown = new Set(trained.map(([n]) => n));
     const locked = Object.keys(DATA.skills)
-      .filter(n => DATA.skills[n].pool === pool && CALC.skills[n].trained_only && !shown.has(n))
+      .filter(n => DATA.skills[n].pool === pool && !shown.has(n))
       .sort();
     // Brawn always renders its table -- the Martial Arts section lives in it, so
     // it has to be reachable even with no trained Brawn skills.
