@@ -433,6 +433,10 @@ input[type=checkbox]{accent-color:var(--manon)}
 .stepper{display:inline-flex;align-items:center;gap:4px}
 .sh-asset-boxes{display:flex;margin:2px 0 8px;font-size:11px}
 .sh-cast-successes{display:flex;margin:4px 0;font-size:11px}
+/* The worn form's other shapes, in the Running Now row: one small button
+   each, wrapping under the statblock rather than widening the popover. */
+.sh-shift-forms{display:flex;flex-wrap:wrap;align-items:center;gap:4px;margin-top:5px}
+.sh-shift-forms .btn{font-size:10px;padding:2px 6px}
 /* Folded Assets spinner on the Condition card (#103). Deliberately holds no
    <button>: that is what keeps it clear of the 32px coarse-pointer tap floor
    the ± buttons carry, which is the whole reason the row folds at all. Same

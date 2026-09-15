@@ -8094,9 +8094,19 @@ function shiftedForm() {
   return RULES.summonedAnimal("Shapeshift", st.active, force, DATA.tables);
 }
 
-/* The worn form as a row for the Conditional Effects panel. */
+/* The worn form as a row for the Conditional Effects panel.
+ *
+ * Carries the caster's OTHER forms as one-press shifts, not just Revert:
+ * changing shape is what this spell is for and the popover is what's open
+ * mid-scene, so sending the player to the Magic tab to become the other
+ * animal they already know was the long way round. Same shiftIntoForm the
+ * Magic tab's own Shift button presses — a Complex action, no new cast or
+ * Drain while the spell is up, and the heal lands either way. */
 function shiftedFormRow(s, after = null) {
   const ro = !!(activeTabObj() && activeTabObj().readonly);
+  const force = shapeshiftForce();
+  const st = RULES.shapeshiftState(CHAR, force);
+  const others = st.allowed.filter(n => n !== st.active);
   return el("div", { class: "sh-fx-row on sh-shifted" },
     el("div", { class: "sh-fx-what" },
       el("span", { class: "sh-fx-name" }, "🐾 Shifted — ", el("b", {}, s.name),
@@ -8104,13 +8114,54 @@ function shiftedFormRow(s, after = null) {
       animalStatBlock(s),
       el("div", { class: "sh-fx-text sub" },
         "Your own Condition tracks still apply — the form's is what it would "
-        + "have as a creature.")),
+        + "have as a creature."),
+      (ro || !others.length) ? null : el("div", { class: "sh-shift-forms" },
+        el("span", { class: "sub" }, "Shift to "),
+        ...others.map(n => el("button", { class: "btn small",
+          title: `Shift into ${n} — a Complex action, no new casting, and it heals`,
+          onclick: () => shiftIntoForm(n, { force, after }) }, `⇄ ${n}`)))),
     ro ? null : el("button", { class: "btn warn", title: "Return to your own shape",
       onclick: () => {
         CHAR.play.shapeshift.active = "";
         const r = playChangedRecalc();
         if (after) r.then(after);
       } }, "Revert"));
+}
+
+/* Step into one of the forms this caster carries. Shared by the Magic tab's
+ * picker and the Running Now row so a shift is the same act wherever it is
+ * pressed — the popover used to offer only "Revert", which meant changing
+ * shape mid-scene was a trip to the Magic tab for a spell that is entirely
+ * about changing shape mid-scene.
+ *
+ * EVERY shift heals (1d6 off each track, healOnShift). It used to heal only
+ * on the cast that opened the spell, on the reading that stepping between
+ * forms already held is a Complex action inside one cast and shouldn't pay
+ * out again. The ruling is the other way round, and the spell's own note
+ * says so: "Shifting is a Complex action, AND heals 1d6 boxes of BOTH
+ * tracks" (SUMMON_SPELLS.Shapeshift) — it hangs the heal on the shift, not
+ * on the cast, so each shift pays it.
+ *
+ * `after` refreshes a caller that lives outside #sheet (the Running Now
+ * popover), the same contract dismissSpell and shiftedFormRow already use. */
+function shiftIntoForm(name, { force, after = null } = {}) {
+  const play = CHAR.play;
+  play.shapeshift = play.shapeshift || { picks: [], active: "" };
+  // Already up: switching between chosen forms is a Complex action within the
+  // duration, so it costs no new cast and no new Drain — that's the spell's
+  // own wording. Not up: this IS the cast, which is why the spell has no
+  // separate Cast button.
+  if (spellIsActive("Shapeshift")) {
+    play.shapeshift.active = name;
+    healOnShift("Shapeshift", true);   // 1d6 Stun and 1d6 Physical (#67)
+    const r = playChangedRecalc();
+    if (after) r.then(after);
+    return r;
+  }
+  return castSpell("Shapeshift", force, () => {
+    play.shapeshift.active = name;
+    healOnShift("Shapeshift", true);
+  }).then(() => { if (after) after(); });
 }
 
 /* The Force the character knows Shapeshift at, or 0 if they don't know it.
@@ -8189,18 +8240,9 @@ function shapeshiftPicker(spellName, force) {
               : `Cast Shapeshift and step into ${name}`,
           onclick: () => {
             if (isActive) { play.shapeshift.active = ""; save(); return; }
-            // Already up: switching between chosen forms is a Complex action
-            // within the duration, so it costs no new cast and no new Drain —
-            // that's the spell's own wording. Not up: this IS the cast, which
-            // is why the spell has no separate Cast button.
-            if (up) { play.shapeshift.active = name; save(); return; }
-            // Only the CAST heals. Stepping between forms already held is a
-            // Complex action inside the same spell (the branch above), and
-            // healing on each step would make one cast an unbounded heal.
-            castSpell(spellName, st.limit, () => {
-              play.shapeshift.active = name;
-              healOnShift("Shapeshift", true);   // 1d6 Stun and 1d6 Physical (#67)
-            });
+            // Cast-or-step, and the heal either way — see shiftIntoForm, which
+            // the Running Now row presses too so both read the same.
+            shiftIntoForm(name, { force: st.limit });
           } }, isActive ? "Revert" : (up ? "Shift" : "Cast & Shift")),
         el("button", { class: "row-del", title: `Forget the ${name} form`,
           onclick: () => {
