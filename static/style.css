@@ -432,6 +432,7 @@ select,input[type=text]{background:var(--panel);border:1px solid var(--line);col
 input[type=checkbox]{accent-color:var(--manon)}
 .stepper{display:inline-flex;align-items:center;gap:4px}
 .sh-asset-boxes{display:flex;margin:2px 0 8px;font-size:11px}
+.sh-cast-successes{display:flex;margin:4px 0;font-size:11px}
 /* Folded Assets spinner on the Condition card (#103). Deliberately holds no
    <button>: that is what keeps it clear of the 32px coarse-pointer tap floor
    the ± buttons carry, which is the whole reason the row folds at all. Same

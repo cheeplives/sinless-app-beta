@@ -2026,7 +2026,7 @@ function sheetInitiative() {
  * stale queue or somebody else's penalty label. */
 function openPoolRoller({ dice, bonus = 0, label, note, pool,
                           extraPenalty = 0, penaltyLabel = null, queue = null, seq = null,
-                          prepaid = null }) {
+                          prepaid = null, onResult = null }) {
   const wound = woundPenalty().size;
   const extra = Math.max(0, +extraPenalty || 0);
   Object.assign(rollerState, {
@@ -2034,6 +2034,13 @@ function openPoolRoller({ dice, bonus = 0, label, note, pool,
     dice: [], bonus: 0, spent: null, bonusAdded: 0,
     queue: Array.isArray(queue) ? queue.slice() : [],
     seq: seq || null,
+    // Fires with the successes rolled every time this roll's dice actually
+    // change (the Roll button, then again on any re-roll) -- how a caller
+    // that cares what came up (casting a spell) finds out without polling
+    // the roller's own transient state. Always written, never inherited: a
+    // plain roll opened after one that wired a callback must not still
+    // report into a spell it has nothing to do with.
+    onResult: typeof onResult === "function" ? onResult : null,
     // Skill dice in the count, bonus dice in the bonus row — the roller reads
     // the way the chip that opened it does.
     bonusDice: Math.max(0, Math.min(ROLLER_MAX_DICE, +bonus || 0)),
@@ -2101,16 +2108,23 @@ function openInitiativeRoller() {
   rollerRefresh();
 }
 
-/* In initiative mode, push successes + bonus into the play sheet's Initiative
- * field. The input is patched in place rather than via renderSheet() so the
- * open roller isn't torn down mid-interaction; the value is still persisted. */
+/* Runs every time the roller's dice change -- the Roll button, then again on
+ * any re-roll. In initiative mode, pushes successes + bonus into the play
+ * sheet's Initiative field, patched in place rather than via renderSheet()
+ * so the open roller isn't torn down mid-interaction. Any roll can also carry
+ * its own onResult callback (openPoolRoller), for a caller that needs to know
+ * what came up after the roller closes -- a casting roll's successes on the
+ * active-spell row, so "how effective was it" doesn't depend on remembering
+ * a number from a panel that's since gone. */
 function rollerApply() {
-  if (rollerState.mode !== "initiative") return;
   const successes = rollerState.dice.filter(d => d.value >= 4).length;
-  CHAR.play.initiative = successes + rollerState.bonus;
-  schedulePlaySave();
-  const input = $(".sh-init-input");
-  if (input) input.value = String(CHAR.play.initiative);
+  if (rollerState.mode === "initiative") {
+    CHAR.play.initiative = successes + rollerState.bonus;
+    schedulePlaySave();
+    const input = $(".sh-init-input");
+    if (input) input.value = String(CHAR.play.initiative);
+  }
+  if (rollerState.onResult) rollerState.onResult(successes);
 }
 
 function rollerOverlay() {
@@ -7806,7 +7820,7 @@ async function castSpell(name, knownForce, after) {
   const drain = RULES.spellDrain(row.Drain, force);
   const lethal = RULES.drainIsLethal(force, zp);
   CHAR.play.active_spells = activeSpells();
-  CHAR.play.active_spells.push({
+  const entry = {
     uid: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     name, force, lethal, drain,
     // The line dice are recorded on the cast, not just spent on the roll: they
@@ -7815,7 +7829,8 @@ async function castSpell(name, knownForce, after) {
     // ley line rather than wonder where it went. Both are optional, so old
     // records without them keep working (the row treats absent as 0).
     ley: choice.ley || 0, void: choice.void || 0,
-  });
+  };
+  CHAR.play.active_spells.push(entry);
   // Whatever the cast is FOR — stepping into a shape, pointing a familiar at an
   // animal — happens here, after the Force is known and before the state is
   // saved, so one press does one whole thing.
@@ -7835,7 +7850,7 @@ async function castSpell(name, knownForce, after) {
   // The casting roll comes last so it is what's left on screen: the alert above
   // is a statement about a cost that lands AFTER the spell goes off, while this
   // is the roll being made right now.
-  openCastingRoller(name, force, choice);
+  openCastingRoller(name, force, choice, entry);
 }
 
 /* Open the roller for the casting roll itself, with the line dice applied.
@@ -7845,8 +7860,13 @@ async function castSpell(name, knownForce, after) {
  * dice. Void Line dice are the mirror: a penalty the TEST carries, which is
  * what `extraPenalty` is for (#59), so they arrive already taken off rather
  * than being left for the player to dial in and forget. The gear-ZR casting
- * penalty rides in the same number for the same reason. */
-function openCastingRoller(name, force, choice) {
+ * penalty rides in the same number for the same reason.
+ *
+ * `entry` is this cast's own active_spells row: onResult writes what the roll
+ * actually came up with onto it, so the successes survive the roller closing
+ * and show on the Active Spells row afterward -- "how effective was it"
+ * shouldn't depend on remembering a number from a panel that's since gone. */
+function openCastingRoller(name, force, choice, entry) {
   const sk = CALC.skills[choice.skill] || { final: 0, dice_bonus: 0, pool: "Resolve" };
   const ley = choice.ley || 0;
   const voidD = choice.void || 0;
@@ -7862,6 +7882,10 @@ function openCastingRoller(name, force, choice) {
       + (zr ? ` · −${zr} gear ZR` : ""),
     extraPenalty: voidD + zr,
     penaltyLabel: penaltyBits.length ? penaltyBits.join(" + ") : null,
+    onResult: entry ? successes => {
+      entry.cast_successes = successes;
+      playChanged();
+    } : null,
   });
 }
 
@@ -7972,6 +7996,25 @@ function drainSoakButtons(s) {
   return el("div", { class: "sh-drain-soak" }, ...btns);
 }
 
+/* The casting roll's successes, on the row: written automatically by
+ * openCastingRoller's onResult, and always editable here besides -- a
+ * reroll ability the roller doesn't model, an Agonarch ruling, or a spell
+ * cast before this existed (old records read as 0, same as any other
+ * absent number on this sheet) all need a hand-adjustable number rather
+ * than a read-out with nothing behind it. */
+function castSuccessesStepper(s, ro) {
+  const n = s.cast_successes || 0;
+  if (ro) return n ? el("span", { class: "chip" }, `${n} success${n === 1 ? "" : "es"}`) : null;
+  return el("span", { class: "stepper sh-cast-successes",
+    title: "Successes on the casting roll -- filled in by the roll, adjustable if it needs a correction" },
+    el("span", { class: "sub" }, "Successes "),
+    el("button", { class: "btn small", title: "−1 success",
+      onclick: () => { s.cast_successes = Math.max(0, n - 1); playChanged(); } }, "–"),
+    el("span", { class: "sv" }, String(n)),
+    el("button", { class: "btn small", title: "+1 success",
+      onclick: () => { s.cast_successes = n + 1; playChanged(); } }, "+"));
+}
+
 function activeSpellRow(s, { detail = false, ro = false, after = null } = {}) {
   const row = DATA.tables.spells.find(x => x.Name === s.name) || {};
   const summon = detail
@@ -7990,6 +8033,10 @@ function activeSpellRow(s, { detail = false, ro = false, after = null } = {}) {
         s.void ? el("span", { class: "chip neg" }, `void −${s.void}d`) : null),
       ro ? null : el("button", { class: "row-del", title: "Dismiss this spell",
         onclick: () => { const r = dismissSpell(s.uid); if (after) r.then(after); } }, "✕")),
+    // How many successes the casting roll got, and by how much the spell's
+    // effect actually landed -- the number the drain chip has no opinion on
+    // but a player asking "how strong was that" needs (see castSuccessesStepper).
+    castSuccessesStepper(s, ro),
     // How this drain is soaked, stated wherever the drain chip is (#68) — the
     // Magic tab banner and the header's Running Now popover both get it, since
     // both are surfaces a player consults mid-scene with drain still to take.
