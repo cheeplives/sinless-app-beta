@@ -1302,12 +1302,17 @@ async function disposeOfUnitMod(entry, modIndex, name, hostName, value) {
 
 /* Pulling something off an item: same dialog, same ledger, same undo as
  * parting with the item itself. Returns true when it went ahead. */
-async function disposeOfMod({ entry, list, index, name, value, hostName }) {
+async function disposeOfMod({ entry, list, index, name, value, hostName, onRemoved }) {
   const result = await promptDisposal(name, value);
   if (!result) return false;
   const sub = sublistOf(entry, list);
   const removed = deepCopyEntry(sub.items[index]);
   sub.removeAt(index);
+  // Fires before the ledger write, same "the removal is what matters, the
+  // money is a consequence of it" order playChangedRecalc runs in below --
+  // lets a caller (a weapon's equipped_mods, see weaponModSlots) reconcile
+  // its own bookkeeping to a list this function has no reason to know about.
+  if (onRemoved) onRemoved();
   logCash(`${result.sold ? "Sold" : "Lost"} ${name} (off ${hostName})`,
     result.sold ? result.amount : 0,
     { kind: "restore_mod", category: entry.category, inPlay: entry.inPlay,
@@ -6802,7 +6807,9 @@ function shOverview(body) {
           const modNames = [
             ...RULES.weaponIntegratedMods(r, DATA.tables.weapon_mods)
               .map(m => `${m} (built in)`),
-            ...(held.mods || [])];
+            // Equipped, not merely owned — a mod bought for this gun but
+            // sitting unmounted contributes nothing here to list.
+            ...(calcRow.mods || []).map(m => m.name)];
           if (held.upgr1 && r.Upgr1_Eff) modNames.push("Upgrade 1");
           if (held.upgr2 && r.Upgr2_Eff) modNames.push("Upgrade 2");
           const baseAcc = calcRow.Accuracy ?? r.Accuracy ?? 0;
@@ -10051,11 +10058,21 @@ function shKismet(body) {
   body.append(ledger);
 }
 
-/* Fixed 3x1 mod-slot strip for a weapon (Overbarrel / Underbarrel / Chassis),
- * replacing the old side-stacked mod chip list. Each box shows the currently
- * fitted mod's name above its chip (or "—" when empty), with an inline picker
- * to fit a new mod once a box is empty. Dual-slot mods (e.g. Laser Sight, fits
- * either barrel slot) land in whichever of their candidate slots is free. */
+/* Fixed 3x1 mod-slot strip for a weapon (Overbarrel / Underbarrel / Chassis).
+ * Each box shows the currently EQUIPPED mod's name above its chip (or "—"
+ * when empty), with an inline picker to buy a new one. Dual-slot mods (e.g.
+ * Laser Sight, fits either barrel slot) land in whichever of their candidate
+ * slots is free.
+ *
+ * A slot's OTHER owned mods -- bought but not the one currently mounted --
+ * list below as one-click "Equip" swaps, no repurchase: a player can own
+ * more than one type of mod per slot and pick which is on the gun without
+ * buying it twice. `entry.ref.mods` is every mod ever bought for this gun;
+ * `entry.ref.equipped_mods` is the subset actually mounted right now, at
+ * most one per slot (enforced by RULES.assignWeaponModSlots the same way it
+ * always has been, just fed the equipped subset instead of the whole list).
+ * Absent equipped_mods reads as "everything owned is equipped" -- the only
+ * state a character saved before this existed could ever be in. */
 function weaponModSlots(entry, mult, weaponName, weaponRow) {
   const table = DATA.tables.weapon_mods;
   const order = ["Overbarrel", "Underbarrel", "Chassis"];
@@ -10064,7 +10081,12 @@ function weaponModSlots(entry, mult, weaponName, weaponRow) {
   const base = RULES.weaponBaseCost(weaponRow || {}, entry.ref);
   const priceOf = m => Math.round(RULES.weaponModCost(m, base) * mult);
   const sub = sublistOf(entry, "mods");
-  const boxes = RULES.assignWeaponModSlots(sub.items, table).assigned;
+  // Read-only snapshot for rendering; a handler below writes the real thing
+  // (lazily, on first actual equip/buy/sell) rather than this pass mutating
+  // character state as a side effect of being drawn.
+  const equipped = entry.ref.equipped_mods || sub.items.slice();
+  const equipList = () => (entry.ref.equipped_mods = entry.ref.equipped_mods || sub.items.slice());
+  const boxes = RULES.assignWeaponModSlots(equipped, table).assigned;
   const grid = el("div", { class: "sh-modslots" });
   for (const slot of order) {
     const modName = boxes[slot];
@@ -10076,37 +10098,78 @@ function weaponModSlots(entry, mult, weaponName, weaponRow) {
     if (modName) {
       box.append(el("span", {
         class: `chip ${cls}`, style: "cursor:pointer",
-        title: "Click to sell or remove",
+        title: "Click to sell — this weapon's other owned mods for this slot are unaffected",
         onclick: () => {
           const idx = sub.items.findIndex(m => sublistName(m) === modName);
           if (idx < 0) return;
           disposeOfMod({ entry, list: "mods", index: idx, name: modName,
-            hostName: weaponName, value: priceOf(modRow) });
+            hostName: weaponName, value: priceOf(modRow),
+            onRemoved: () => {
+              const eq = equipList();
+              const at = eq.indexOf(modName);
+              if (at >= 0) eq.splice(at, 1);
+            } });
         },
       }, modName + " ✕"));
       if (modRow && modRow.Effect)
         box.append(el("div", { class: "sh-modslot-eff" }, modRow.Effect));
-    } else {
-      const options = table.filter(m => m.Slot === slot);
-      box.append(el("select", {
-        onchange: e => {
-          const name = e.target.value;
-          if (!name) return;
-          const mr = table.find(m => m.Modification === name && m.Slot === slot);
-          const cost = priceOf(mr);
-          if (CHAR.play.cash < cost
-              && !confirm(`${name} costs ${fmt(cost)} but you have ${fmt(CHAR.play.cash)}. Overdraw?`)) {
-            e.target.value = ""; return;
-          }
-          sub.add(name);
-          logCash(`Fitted ${name} to ${weaponName}`, -cost,
-            { kind: "weapon_mod", host: weaponName, name });
-          playChangedRecalc();
-        },
-      }, el("option", { value: "" }, `+ ${slot}…`),
-        ...options.map(m => el("option", { value: m.Modification },
-          `${m.Modification} (${fmt(priceOf(m))})`))));
     }
+    // Owned but not mounted: everything else in sub.items with a row for
+    // THIS slot, and not equipped anywhere else on the gun (a dual-slot mod
+    // already mounted in its other slot has no business offering to move).
+    const equippedSet = new Set(equipped);
+    const others = sub.items.filter(m => {
+      const n = sublistName(m);
+      if (n === modName || equippedSet.has(n)) return false;
+      return !!table.find(mm => mm.Modification === n && mm.Slot === slot);
+    });
+    if (others.length) {
+      box.append(el("div", { class: "sh-modslot-owned" },
+        ...[...new Set(others.map(sublistName))].map(n => el("button", {
+          class: "btn small", title: `Equip ${n} instead of ${modName || "an empty slot"} — `
+            + "already paid for, this just swaps which one is on the gun",
+          onclick: async () => {
+            const eq = equipList();
+            if (modName) { const at = eq.indexOf(modName); if (at >= 0) eq.splice(at, 1); }
+            eq.push(n);
+            // A swap changes which mod's Acc/Conceal/Recoil actually count —
+            // that's computed in priceWeapons() at recalc, not carried on the
+            // character, so a plain re-render would show the old numbers
+            // until something else happened to trigger one.
+            await playChangedRecalc();
+          },
+        }, `⇄ ${n}`))));
+    }
+    // Buying stays offered even with a slot full — that's the point: a
+    // second Overbarrel mod is bought here and sits owned-but-unequipped
+    // (shown above next render) rather than fighting the mounted one for
+    // the slot. Only an EMPTY slot auto-equips what's bought into it.
+    const options = table.filter(m => m.Slot === slot);
+    box.append(el("select", {
+      onchange: e => {
+        const name = e.target.value;
+        if (!name) return;
+        const mr = table.find(m => m.Modification === name && m.Slot === slot);
+        const cost = priceOf(mr);
+        if (CHAR.play.cash < cost
+            && !confirm(`${name} costs ${fmt(cost)} but you have ${fmt(CHAR.play.cash)}. Overdraw?`)) {
+          e.target.value = ""; return;
+        }
+        // Snapshot "equipped" as it stands BEFORE the purchase, so an absent
+        // equipped_mods locks in on everything owned so far -- otherwise
+        // buying a second mod into an already-occupied slot would fall
+        // through to the "no equipped_mods yet" default and read as equipped
+        // too, fighting the one actually mounted.
+        const eq = equipList();
+        sub.add(name);
+        if (!modName) eq.push(name);
+        logCash(`Bought ${name} for ${weaponName}`, -cost,
+          { kind: "weapon_mod", host: weaponName, name });
+        playChangedRecalc();
+      },
+    }, el("option", { value: "" }, modName ? `+ Buy another ${slot}…` : `+ ${slot}…`),
+      ...options.map(m => el("option", { value: m.Modification },
+        `${m.Modification} (${fmt(priceOf(m))})`))));
     grid.append(box);
   }
   return grid;

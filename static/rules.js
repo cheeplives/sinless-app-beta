@@ -36,7 +36,7 @@ const BUNDLE = (typeof DATA_BUNDLE !== "undefined")
  * default fill claim this build made it: "unknown" is a fact worth keeping,
  * and a confidently wrong version is worse than none when you are working out
  * why an old file behaves oddly. */
-const APP_VERSION = "363";
+const APP_VERSION = "364";
 
 // ============================================================== game constants
 // The numeric knobs the engine reads; grouped by chargen step below.
@@ -4129,19 +4129,32 @@ function priceWeapons(character, data, gearCostMultiplier, warnings, strength, e
                             effect: modRow.Effect, integrated: true,
                             penalty_waived: acc < 0 ? acc : 0 });
     }
+    // entry.mods is everything OWNED for this gun -- a player may now buy more
+    // than one mod for the same slot and swap between them without rebuying
+    // (issue: "purchase more than one type of mod per firearm"). Every owned
+    // mod still costs money and still counts toward the gun's resale value
+    // (weaponModsValue reads the same list), but only the ones named in
+    // entry.equipped_mods contribute a stat effect or take a slot below.
+    // Absent equipped_mods (every character saved before this existed) means
+    // "everything owned is equipped" -- the only state those characters could
+    // ever be in, so old data reads exactly as it always did.
+    const equippedNames = new Set(entry.equipped_mods || entry.mods || []);
+    const ownedMods = [];
     for (const modName of entry.mods || []) {
       const modRow = findRow(data.weapon_mods, "Modification", modName);
-      if (modRow) {
-        // Percentage-priced mods take their share of the gun's own price, not of
-        // the running total — fitting two of them can't compound.
-        cost += weaponModCost(modRow, baseCost);
-        accMod += asNumber(modRow.AccMod);
-        // Concealability: bolting things to a gun makes it harder to hide, and
-        // the mods' numbers add straight onto the weapon's own Conceal rating.
-        concealMod += asNumber(modRow["Conceal Mod"]);
-        recoilMod += asNumber(modRow.RecoilMod);
-        fittedMods.push({ name: modName, slot: modRow.Slot, effect: modRow.Effect });
-      }
+      if (!modRow) continue;
+      // Percentage-priced mods take their share of the gun's own price, not of
+      // the running total — fitting two of them can't compound.
+      cost += weaponModCost(modRow, baseCost);
+      const modEntry = { name: modName, slot: modRow.Slot, effect: modRow.Effect };
+      ownedMods.push(modEntry);
+      if (!equippedNames.has(modName)) continue;
+      accMod += asNumber(modRow.AccMod);
+      // Concealability: bolting things to a gun makes it harder to hide, and
+      // the mods' numbers add straight onto the weapon's own Conceal rating.
+      concealMod += asNumber(modRow["Conceal Mod"]);
+      recoilMod += asNumber(modRow.RecoilMod);
+      fittedMods.push(modEntry);
     }
     // Purchased weapon-native upgrades (Upgr1/Upgr2) contribute the same way
     // fitted mods do, via parseUpgradeEffect (#99). recoilMod/accMod are
@@ -4245,6 +4258,9 @@ function priceWeapons(character, data, gearCostMultiplier, warnings, strength, e
     item.recoil_mod = toInt(recoilMod);
     item.qty = qty;
     item.mods = fittedMods;
+    // Everything owned for this slot set, equipped or not -- the Gear tab
+    // reads this to offer "Equip" on a mod that's paid for but sitting out.
+    item.owned_mods = ownedMods;
     item.integrated_mods = integratedMods;
     // An integrated Extended Magazine would enlarge the magazine too, so both
     // lists feed this.

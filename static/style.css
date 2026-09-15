@@ -1639,7 +1639,11 @@ tr.sh-modslots-row td{padding-top:0;padding-bottom:10px;border-bottom:1px solid 
 .sh-modslot-label{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--dim)}
 .sh-modslot-active{font-size:12px;font-weight:600;margin:2px 0 5px;min-height:14px}
 .sh-modslot-eff{font-size:10px;color:var(--dim);margin-top:3px;line-height:1.3}
-.sh-modslot select{width:100%;font-size:12px;padding:3px 4px}
+/* Owned-but-not-mounted mods for this slot: one small "Equip" swap button
+   each, wrapping rather than forcing the box wider. */
+.sh-modslot-owned{display:flex;flex-wrap:wrap;gap:4px;justify-content:center;margin-top:5px}
+.sh-modslot-owned .btn{font-size:10px;padding:2px 6px}
+.sh-modslot select{width:100%;font-size:12px;padding:3px 4px;margin-top:5px}
 .sh-modslot.mod-overbarrel{border-color:var(--slot-overbarrel)}
 .sh-modslot.mod-underbarrel{border-color:var(--slot-underbarrel)}
 .sh-modslot.mod-chassis{border-color:var(--slot-chassis)}
