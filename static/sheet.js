@@ -17,6 +17,8 @@
  * Kismet rules (per KISMET.docx):
  *   raise attribute +1    new level ≤10: 3 · 11–15: 4 · 16+: 5 Kismet
  *   raise skill +1        current skill level in Kismet, cannot exceed 6
+ *   raise martial art +1  DOUBLE that — twice the current rank (house rule);
+ *                         learning the style is still the flat 4 below
  *   new skill (rank 1)    4 Kismet
  *   every 10 earned       +1 Kismet pool -> pick a boon (windfall / free
  *                         asset / skill mastery 6→7); every 2nd is a major
@@ -9365,7 +9367,7 @@ function shSkills(body) {
         el("span", { class: "sub" }, "  — ≤ Unarmed Combat"))));
     maList.forEach(ma => {
       const atCap = ma.rank >= SKILL_KISMET_CAP || ma.rank >= unarmedRank;
-      const cost = skillRaiseCost(ma.rank);
+      const cost = martialArtRaiseCost(ma.rank);
       const raise = ro ? null : el("button", { class: "btn small sh-ma-raise",
         disabled: (atCap || CHAR.play.kismet < cost) ? "1" : null,
         title: ma.rank >= unarmedRank ? "Cannot exceed Unarmed Combat rank"
@@ -9612,6 +9614,11 @@ function shSkills(body) {
  * and 5 for 16+ — cost keyed to the level being bought. */
 const attrRaiseCost = newLevel => newLevel <= 10 ? 3 : newLevel <= 15 ? 4 : 5;
 const skillRaiseCost = rank => Math.max(1, rank);   // "current skill level in Kismet"
+/* A martial art advances at DOUBLE an ordinary skill's rate — twice the
+ * current rank, not once. Learning a style in the first place is untouched:
+ * that is still the flat NEW_SKILL_KISMET_COST every other new skill pays,
+ * and this only prices the ranks after it. */
+const martialArtRaiseCost = rank => 2 * Math.max(1, rank);
 
 function shKismet(body) {
   const play = CHAR.play;
@@ -9655,7 +9662,9 @@ function shKismet(body) {
     el("h3", {}, "Spend Kismet"),
     el("p", { class: "hint" },
       "Attribute +1: 3 Kismet up to level 10, 4 for 11–15, 5 for 16+. "
-      + "Skill +1: current level in Kismet (max 6 — mastery boon reaches 7). New skill: 4 Kismet."));
+      + "Skill +1: current level in Kismet (max 6 — mastery boon reaches 7). New skill: 4 Kismet. "
+      + "A Martial Art rank costs DOUBLE — twice its current rank — though learning "
+      + "a style is still 4."));
   const two = el("div", { class: "sh-two" });
 
   const attrBox = el("div", {}, el("h4", { class: "sh-h4" }, "Raise Attributes"));
@@ -9857,7 +9866,7 @@ function shKismet(body) {
   if (!maOwned.length) maBox.append(el("p", { class: "hint" }, "No styles trained yet."));
   for (const ma of maOwned) {
     const maCap = ma.rank >= SKILL_KISMET_CAP || ma.rank >= maUnarmed;
-    const maCost = skillRaiseCost(ma.rank);
+    const maCost = martialArtRaiseCost(ma.rank);
     maBox.append(el("div", { class: "sh-advrow" },
       el("span", {}, el("b", {}, ma.style), el("span", { class: "sub" }, ` rank ${ma.rank}`)),
       el("button", {
