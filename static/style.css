@@ -1080,15 +1080,6 @@ label.opt input{margin-top:3px}
    of thing: reference you can open, not a heading competing with the table it
    sits under. The dashed rule separates it from that table without drawing a
    second card edge. */
-.sh-locked-skills{margin-top:8px;border-top:1px dashed var(--line-dash);padding-top:6px}
-.sh-locked-skills > summary{cursor:pointer;font:400 11px/1.4 var(--body);
-  color:var(--dim);list-style:none;user-select:none}
-.sh-locked-skills > summary::-webkit-details-marker{display:none}
-.sh-locked-skills > summary::before{content:"▸ ";display:inline-block}
-.sh-locked-skills[open] > summary::before{content:"▾ "}
-.sh-locked-skills > summary:hover{color:var(--manon)}
-.sh-locked-skills[open] > summary{color:var(--text);margin-bottom:2px}
-.sh-locked-skills > summary:focus-visible{outline:1px solid var(--manon);outline-offset:2px}
 /* editable specialization on the Skills tab: name + inline chip, input beneath */
 /* wraps because the Skills tab lays pools out 2x2, so a long name plus a chip
    overruns a narrow card; the chip drops to its own line rather than crushing

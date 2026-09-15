@@ -9215,53 +9215,6 @@ function skillTableRow(name, dim = false, editable = false, bareName = false) {
       s.dice_bonus ? el("span", { class: "skill-dice" }, `+${s.dice_bonus}d`) : null));
 }
 
-/* The Skills tab's "trained only, and you have no dice in it" list, folded.
- *
- * It used to be a section INSIDE each pool card's table, headed "Trained only —
- * unavailable without dice", one dimmed row per skill. Measured on the QA
- * kitchen-sink character that section routinely runs longer than the trained
- * list above it: Focus reads "No trained skills." and then ten-plus dimmed rows
- * of things the character cannot do. The card ends up describing the game's
- * skill list rather than this character's skills.
- *
- * Folding it keeps the information — a player does need to know the skill
- * exists and is out of reach — without letting it outweigh what the character
- * actually has. Collapsed by default, which is the whole point: what you own
- * should be what you see first. The count goes in the summary so the size of
- * what's hidden is legible without opening it.
- *
- * Deliberately NOT persisted. The sheet has no per-tab UI-state store to hang
- * this on: the comparable folds are module-level Sets (poolTempOpen) that live
- * only as long as the page does, and CHAR.play is character data, not chrome.
- * <details> keeps its own open state for as long as the node lives, which
- * covers the case that matters (reading the list, then reading it again), and
- * a fold this cheap to reopen does not justify inventing storage. Note that a
- * re-render rebuilds the card, so it does reclose on any change that redraws
- * the tab -- acceptable for a list nobody reads twice in a sitting.
- *
- * A <details> cannot wrap <tr>s, so this is its own table rather than a
- * section of the card's. That costs nothing here: a skill only lands in this
- * list when it has 0 points, 0 bonus and 0 group dice — that is what put it
- * here — so every numeric column is empty by construction and the header row
- * would label four blank columns. The name and the em dash are the content.
- *
- * Every untrained skill in the pool lands here now, not just Trained Only
- * ones (a plain skill nobody put points in used to vanish from the card
- * entirely, which is worse than a fold). `bareName` is left false so
- * skillTableRow's own per-row chip still marks exactly the ones that are
- * Trained Only -- the summary can no longer say that for the whole list
- * since a folded skill might not be. */
-function lockedSkillsBlock(names) {
-  const d = el("details", { class: "sh-locked-skills" },
-    el("summary", { title: "Skills with no points, bonus or group dice -- click a "
-        + "row's Trained chip, where one shows, for why it can't be rolled yet" },
-      `Untrained — ${names.length} skill${names.length === 1 ? "" : "s"}`));
-  const t = el("table", { class: "sh-skilltable" });
-  for (const name of names) t.append(skillTableRow(name, true));
-  d.append(t);
-  return d;
-}
-
 function poolSkillList(pool) {
   const names = Object.entries(DATA.skills)
     .filter(([, meta]) => meta.pool === pool)
@@ -9409,23 +9362,21 @@ function shSkills(body) {
     const locked = Object.keys(DATA.skills)
       .filter(n => DATA.skills[n].pool === pool && !shown.has(n))
       .sort();
-    // Brawn always renders its table -- the Martial Arts section lives in it, so
-    // it has to be reachable even with no trained Brawn skills.
+    // One table, not a trained list plus a separate fold: every skill in the
+    // pool belongs on this card, trained first (rollable, sorted by rating),
+    // then Martial Arts (Brawn only), then everything untrained at the
+    // bottom -- dimmed, alphabetical, Trained-Only ones still chip-marked.
+    // Always has rows now (every pool has skills), so the empty-table
+    // sentence this used to need is gone.
     const isBrawn = pool === "Brawn";
-    if (trained.length || isBrawn) {
-      const t = el("table", { class: "sh-skilltable" });
-      t.append(skillTableHeader());
-      for (const [name] of trained) t.append(skillTableRow(name, false, true));
-      if (!trained.length)
-        t.append(el("tr", {}, el("td", { colspan: "5", class: "hint" }, "No trained skills.")));
-      if (isBrawn) appendMartialArtRows(t);
-      card.append(t);
-    } else {
-      // Nothing trained and no Martial Arts section to hold open: a five-column
-      // header over an empty table is worse than a sentence, and the locked
-      // fold below carries the rest.
-      card.append(el("p", { class: "hint" }, "No trained skills."));
-    }
+    const t = el("table", { class: "sh-skilltable" });
+    t.append(skillTableHeader());
+    for (const [name] of trained) t.append(skillTableRow(name, false, true));
+    if (!trained.length)
+      t.append(el("tr", {}, el("td", { colspan: "5", class: "hint" }, "No trained skills.")));
+    if (isBrawn) appendMartialArtRows(t);
+    for (const name of locked) t.append(skillTableRow(name, true));
+    card.append(t);
     // Firearms, Heavy Weapons and Archery are all Finesse, so the number that
     // decides how much of a burst you can hold on target belongs at the foot of
     // this card rather than a tab away.
@@ -9433,10 +9384,6 @@ function shSkills(body) {
       const rl = recoilStatLine();
       if (rl) card.append(rl);
     }
-    // Last in the card, below the table and below Finesse's recoil line — see
-    // lockedSkillsBlock. Everything above it is about what this character can
-    // do; the fold is the footnote saying what they cannot.
-    if (locked.length) card.append(lockedSkillsBlock(locked));
     grid.append(card);
   }
   body.append(grid);
