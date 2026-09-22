@@ -134,6 +134,24 @@ function onDelete(name) {
 
 function scheduleFlush() { clearTimeout(flushTimer); flushTimer = setTimeout(flush, 800); }
 
+/* A queued DELETE the server refused because the character is still shared.
+ * Put the local copy back and re-mark the slug public, so this browser agrees
+ * with the gallery again and the sharing badge/delete lock tell the truth
+ * without waiting for the next boot's hydrate. */
+async function restoreRefusedDelete(slug, res) {
+  try {
+    const body = await res.json().catch(() => ({}));
+    if (body.error !== "shared") return;
+    publicFlags[slug] = true;
+    const full = await (await api("GET", "characters.php?slug=" + encodeURIComponent(slug))).json();
+    if (full && full.data) {
+      STORAGE.cacheCharacter(full.data);            // cache, not save: no new queue op
+      setStamp(slug, Number(full.client_updated_at) || 0);
+      if (typeof refreshLoadList === "function") refreshLoadList();
+    }
+  } catch { /* offline again — the next hydrate restores it */ }
+}
+
 async function flush() {
   if (!enabled() || !csrf) return;              // offline / not signed in → try later
   let q = readJSON(queueKey(), []);
@@ -148,8 +166,15 @@ async function flush() {
                         { data: char, client_updated_at: getStamp(op.slug) || op.ts });
       } else {
         res = await api("DELETE", "characters.php?slug=" + encodeURIComponent(op.slug));
+        // The server refuses to delete a character that is still shared. Only a
+        // client with stale sharing flags gets here (the UI blocks it), and the
+        // local copy is already gone — so pull it back, or the save vanishes
+        // from this browser while the gallery still lists it.
+        if (res.status === 409) await restoreRefusedDelete(op.slug, res);
       }
-      if (res.status === 409) { /* server had newer — drop our stale write */ }
+      // 409 is terminal either way — a stale write the server has already moved
+      // past, or a delete it won't do. Retrying changes nothing, so drop the op.
+      if (res.status === 409) { /* handled above / nothing to retry */ }
       else if (!res.ok) break;                  // transient/server error → retry later
       q.shift(); writeJSON(queueKey(), q);
     } catch { break; }                          // offline → stop, retry on reconnect

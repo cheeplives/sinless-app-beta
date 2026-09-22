@@ -1471,6 +1471,11 @@ input.sh-unit-name::placeholder{color:var(--dim);font-weight:600}
 .sh-saves-row{display:flex;align-items:flex-start;gap:10px;padding:6px 2px}
 .sh-saves-row + .sh-saves-row{border-top:1px solid var(--line-soft)}
 .sh-saves-row input{margin-top:3px;flex:0 0 auto}
+/* A shared character is delete-locked: dimmed so the eye skips it when picking
+   a batch, but still legible and still tickable — the tick is what pops the
+   "unshare it first" warning. */
+.sh-saves-row.locked{opacity:.62}
+.sh-saves-row.locked .sub{color:var(--amber)}
 /* Header-tile detail boxes — Senses, Move, Armor, and the Kismet roller. One
    row per thing, with its sources underneath. Anchored to the tile in fixed
    coordinates by openAnchoredPopover(), which also closes it on scroll — the
