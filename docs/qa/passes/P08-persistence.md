@@ -251,6 +251,33 @@ run `localStorage.clear()`.
   Signed in, it is `"sinless:u<id>:"` and character keys carry that prefix.
 - **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
 
+### P08-010: A shared character cannot be deleted, singly or in a batch
+- **Type:** correctness
+- **Note:** The sharing flags come from the server, so this case stubs
+  `SYNC.enabled`/`SYNC.isPublic` to declare one QA save shared, and `SYNC.onDelete`
+  to keep the real sync queue out of it. All three are restored in `finally`.
+  It runs the same in local-only mode and signed in.
+- **Check:** (P00 §3 stubs must be in place — `confirm` answers **yes**, so
+  nothing but the guard is stopping this delete)
+
+      (async () => { const save = { enabled: SYNC.enabled, isPublic: SYNC.isPublic, onDelete: SYNC.onDelete }; SYNC.enabled = () => true; SYNC.isPublic = s => s === "QA-Shared"; SYNC.onDelete = () => {}; try { STORAGE.cacheCharacter({ name: "QA Shared", attributes: {} }); STORAGE.cacheCharacter({ name: "QA Plain", attributes: {} }); window.__alerts = []; const flagged = sharedSaveNames(["QA Shared", "QA Plain"]); await deleteSavedCharacter("QA Shared"); const deleted = await deleteSavedCharacters(["QA Shared", "QA Plain"]); return { flagged, warned: (window.__alerts[0] || "").includes("shared with other members"), deleted, sharedSurvives: !!STORAGE.loadCharacter("QA Shared"), plainGone: !STORAGE.loadCharacter("QA Plain") }; } finally { Object.assign(SYNC, save); } })()
+
+- **Expected:**
+
+      { "flagged": ["QA Shared"], "warned": true, "deleted": 1,
+        "sharedSurvives": true, "plainGone": true }
+
+- **Note:** `deleted: 1` out of two names asked for is the batch guard doing its
+  job — the shared save is dropped from the batch and the other one still goes.
+  The Manage-saves dialog never gets this far (ticking a shared row springs the
+  box back with the same warning), and the ☰ menu's Delete Character shows 🔒;
+  this is the last line of defence behind both.
+
+  A **FAIL** here — `sharedSurvives: false` — is a copy-protection hole, not
+  just a UI slip: the character stays listed in the gallery for other members
+  while the owner's only copy is gone.
+- **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
+
 ---
 
 ## Clean up

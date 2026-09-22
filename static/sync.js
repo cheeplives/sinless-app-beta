@@ -134,6 +134,34 @@ function onDelete(name) {
 
 function scheduleFlush() { clearTimeout(flushTimer); flushTimer = setTimeout(flush, 800); }
 
+/* Is this character's latest save still sitting in the queue, i.e. written to
+ * this browser but not yet on the server? For a SHARED character that gap is
+ * what other members are reading across — the gallery still serves the old
+ * version until the op flushes — which is what the tab strip's hollow dot
+ * reports. Always false when signed out: there's nowhere for it to be pending. */
+function pendingSync(slug) {
+  if (!enabled()) return false;
+  return readJSON(queueKey(), []).some(o => o.slug === slug);
+}
+
+/* A queued DELETE the server refused because the character is still shared.
+ * Put the local copy back and re-mark the slug public, so this browser agrees
+ * with the gallery again and the sharing badge/delete lock tell the truth
+ * without waiting for the next boot's hydrate. */
+async function restoreRefusedDelete(slug, res) {
+  try {
+    const body = await res.json().catch(() => ({}));
+    if (body.error !== "shared") return;
+    publicFlags[slug] = true;
+    const full = await (await api("GET", "characters.php?slug=" + encodeURIComponent(slug))).json();
+    if (full && full.data) {
+      STORAGE.cacheCharacter(full.data);            // cache, not save: no new queue op
+      setStamp(slug, Number(full.client_updated_at) || 0);
+      if (typeof refreshLoadList === "function") refreshLoadList();
+    }
+  } catch { /* offline again — the next hydrate restores it */ }
+}
+
 async function flush() {
   if (!enabled() || !csrf) return;              // offline / not signed in → try later
   let q = readJSON(queueKey(), []);
@@ -148,12 +176,23 @@ async function flush() {
                         { data: char, client_updated_at: getStamp(op.slug) || op.ts });
       } else {
         res = await api("DELETE", "characters.php?slug=" + encodeURIComponent(op.slug));
+        // The server refuses to delete a character that is still shared. Only a
+        // client with stale sharing flags gets here (the UI blocks it), and the
+        // local copy is already gone — so pull it back, or the save vanishes
+        // from this browser while the gallery still lists it.
+        if (res.status === 409) await restoreRefusedDelete(op.slug, res);
       }
-      if (res.status === 409) { /* server had newer — drop our stale write */ }
+      // 409 is terminal either way — a stale write the server has already moved
+      // past, or a delete it won't do. Retrying changes nothing, so drop the op.
+      if (res.status === 409) { /* handled above / nothing to retry */ }
       else if (!res.ok) break;                  // transient/server error → retry later
       q.shift(); writeJSON(queueKey(), q);
     } catch { break; }                          // offline → stop, retry on reconnect
   }
+  // The queue just shrank (or didn't), and nothing else re-renders the tab strip
+  // when a push lands — without this a character's dot would sit hollow until
+  // the next unrelated edit.
+  if (typeof scheduleDirtySweep === "function") scheduleDirtySweep();
 }
 
 /* Push the homebrew blob (called by homebrew.js after edits). */
@@ -266,7 +305,7 @@ async function signOut() {
 window.addEventListener("online", () => { if (enabled()) flush(); });
 
 return {
-  probe, hydrate, flush, onSave, onDelete, pushCustomContent, signOut,
+  probe, hydrate, flush, onSave, onDelete, pendingSync, pushCustomContent, signOut,
   isPublic, setVisibility, listShared, fetchShared,
   listMyPacks, createPack, savePack, deletePack, setPackVisibility,
   listPublicPacks, fetchPublicPack, listSubs, subscribePack, unsubscribePack,

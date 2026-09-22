@@ -77,6 +77,70 @@ function restoreView(tab) {
 
 function activeTabObj() { return WORKSPACE.tabs[WORKSPACE.active] || null; }
 
+/* ---- unsaved-changes tracking -------------------------------------------
+ * Two different gaps between what you're looking at and what's been kept, and
+ * the tab dot reports them differently because the consequences differ:
+ *
+ *   dirty       — the character in memory differs from its storage slot. In
+ *                 chargen that's the normal state between deliberate saves
+ *                 (nothing autosaves there); in play it should only ever be
+ *                 the autosave debounce.
+ *   pendingSync — written here, but the push hasn't reached the server. For a
+ *                 SHARED character this is the one that matters: the gallery
+ *                 goes on serving the old version to other members until the
+ *                 queue drains.
+ *
+ * Dirtiness is a raw string compare against the slot, not a flag maintained by
+ * every mutation site — the whole app mutates CHAR directly from hundreds of
+ * places, and a flag would be wrong the first time one of them was missed.
+ * Characters are a few KB (a portrait pushes that to ~256 KB at worst), so the
+ * compare is cheap, but it still runs on a trailing timer and caches onto the
+ * tab rather than happening inside every render. */
+const DIRTY_SWEEP_DEBOUNCE_MS = 800;   // > PLAY_SAVE_DEBOUNCE_MS (600), deliberately:
+                                       // a routine play autosave lands first, so the
+                                       // dot doesn't flash red on every click in play.
+let dirtySweepTimer = null;
+
+/* Does this tab differ from what's saved? Read-only shared views are never
+ * saved at all, so they're never dirty. */
+function computeTabDirty(tab) {
+  if (!tab || tab.readonly) return false;
+  if (!tab.char.name) return unnamedDraftHasWork(tab.char);
+  try {
+    const stored = STORAGE.rawCharacter(tab.char.name);
+    if (stored == null) return true;                  // named but never saved
+    return stored !== JSON.stringify(tab.char);
+  } catch { return false; }   // unserialisable/quota — don't claim to know
+}
+
+function computeTabPendingSync(tab) {
+  if (!tab || tab.readonly || !tab.char.name) return false;
+  if (!(typeof SYNC !== "undefined" && SYNC.pendingSync)) return false;
+  return SYNC.pendingSync(STORAGE.sanitizeName(tab.char.name));
+}
+
+/* Recompute every tab's flags; repaint the strip only if one actually moved.
+ * The "only if changed" is what stops render → sweep → render looping. */
+function sweepDirtyFlags() {
+  let changed = false;
+  for (const tab of WORKSPACE.tabs) {
+    const dirty = computeTabDirty(tab);
+    const pending = computeTabPendingSync(tab);
+    if (dirty !== !!tab.dirty || pending !== !!tab.pendingSync) changed = true;
+    tab.dirty = dirty;
+    tab.pendingSync = pending;
+  }
+  if (changed) renderWorkspaceBar();
+}
+
+/* Public: "something may have changed". Called from the debounced change paths
+ * (recalc, schedulePlaySave, persistWorkspace) and from STORAGE's save/delete
+ * and SYNC's flush, so both sides of the comparison trigger a re-check. */
+function scheduleDirtySweep() {
+  clearTimeout(dirtySweepTimer);
+  dirtySweepTimer = setTimeout(sweepDirtyFlags, DIRTY_SWEEP_DEBOUNCE_MS);
+}
+
 /* ---- drag-to-reorder -----------------------------------------------------
  * Pointer Events (not HTML5 drag-and-drop) so it works with both mouse and
  * touch on the tablets we target. While dragging, the tabs array reorders live
@@ -223,17 +287,24 @@ function renderWorkspaceBar() {
         const name = (tab.char.name || "").trim() || "Unnamed";
         const finalized = !!tab.char.finalized;
         const ro = !!tab.readonly;
+        // Unsaved beats unpushed: if the slot itself is behind, whether the
+        // server has last week's copy is the lesser of the two problems.
+        const dirty = !ro && !!tab.dirty;
+        const unpushed = !ro && !dirty && !!tab.pendingSync;
+        const state = dirty ? " unsaved" : unpushed ? " unpushed" : "";
         const chip = el("div", {
           class: "ws-tab" + (active ? " active" : "") + (ro ? " ws-readonly" : ""),
           role: "button", tabindex: "0",
           title: ro ? `${name} — shared by ${tab.owner || "member"} (read only)`
-                    : `${name} — ${finalized ? "play" : "chargen"}`,
+                    : `${name} — ${finalized ? "play" : "chargen"}`
+                      + (dirty ? " · unsaved changes" : "")
+                      + (unpushed ? " · saved here, still reaching the server" : ""),
           "aria-current": active ? "true" : null,
           onpointerdown: e => onTabPointerDown(e, tab),
           onclick: () => { if (suppressTabClick) { suppressTabClick = false; return; } switchTab(i); },
           onkeydown: e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); switchTab(i); } },
         },
-          el("span", { class: "ws-dot " + (ro ? "readonly" : finalized ? "play" : "chargen"),
+          el("span", { class: "ws-dot " + (ro ? "readonly" : finalized ? "play" : "chargen") + state,
             "aria-hidden": "true" }),
           el("span", { class: "ws-name" }, ro ? "👁 " + name : name),
           // No duplicate button on a read-only view (use "Save a copy" instead).
@@ -515,6 +586,23 @@ function isDirtyDraft(char) {
   catch { return true; }
 }
 
+/* isDirtyDraft, minus the house rules.
+ *
+ * newCharacterTab asks for house rules before the character opens, so a brand
+ * new tab where the player picked anything other than the defaults already
+ * differs from defaultCharacter() — by a choice they made in a dialog, not by
+ * work they'd mind losing. closeTab can afford to be twitchy about that (they
+ * pressed ✕, a prompt is expected); an unload warning cannot, or it fires on
+ * every close of an untouched tab and stops being read. Kept separate rather
+ * than folded into isDirtyDraft so tab-close behaviour is unchanged. */
+function unnamedDraftHasWork(char) {
+  try {
+    const base = RULES.defaultCharacter();
+    base.house_rules = char.house_rules;   // assignment, not insertion: key order holds
+    return JSON.stringify(char) !== JSON.stringify(base);
+  } catch { return true; }
+}
+
 /* ---- persistence ---------------------------------------------------------
  * The descriptor is just the list of open (named) tabs + which is active.
  * Character bodies live in their own storage slots (committed via
@@ -524,6 +612,7 @@ let workspacePersistTimer = null;
 function persistWorkspace() {   // public: debounced descriptor write
   clearTimeout(workspacePersistTimer);
   workspacePersistTimer = setTimeout(writeDescriptor, WORKSPACE_PERSIST_DEBOUNCE_MS);
+  scheduleDirtySweep();         // renaming in the rail changes which slot we compare to
 }
 function writeDescriptor() {
   const open = [];
@@ -556,5 +645,50 @@ function initWorkspace() {
   restoreView(activeTabObj());
   // Flush open chargen drafts + the descriptor on the way out so a reload
   // restores the workspace. (Finalized chars already autosave continuously.)
-  window.addEventListener("beforeunload", () => { commitAllTabs(); writeDescriptor(); });
+  // The risk survey has to run BEFORE that flush — see unloadRisks.
+  window.addEventListener("beforeunload", e => {
+    const risks = unloadRisks();
+    commitAllTabs();
+    writeDescriptor();
+    if (!risks.length) return;
+    // Browsers show their own wording and ignore any string given here, so the
+    // detail lives in the tab dots and their tooltips, which are on screen
+    // behind the dialog. Both are needed: Chrome honours preventDefault, older
+    // engines only honour returnValue.
+    e.preventDefault();
+    e.returnValue = "";
+  });
+}
+
+/* What closing the window right now would actually cost.
+ *
+ * Deliberately NOT "every tab with unsaved changes". The handler above saves
+ * every named tab on the way out, so warning about those would fire on almost
+ * every close and teach the player to click straight through it. Two things
+ * genuinely survive that flush badly:
+ *
+ *   • an unnamed draft — storage slots are keyed by street name, so
+ *     commitTabChar skips it and nothing brings it back.
+ *   • a SHARED character with something still to push — the flush queues the
+ *     op but the 800ms flush timer never gets to run, so the gallery goes on
+ *     serving the old version to other members until this browser is next
+ *     opened. (Private characters are fine: the queue is in localStorage and
+ *     drains on the next boot, and nobody else was reading them meanwhile.)
+ *
+ * Runs before commitAllTabs precisely because that commit enqueues a push for
+ * every named tab — asked afterwards, every shared character would look
+ * pending on every close. Asked before, "has anything to push" is honest:
+ * unsaved edits that the commit is about to queue, or an op already stuck. */
+function unloadRisks() {
+  const risks = [];
+  for (const tab of WORKSPACE.tabs) {
+    if (tab.readonly) continue;
+    if (!tab.char.name) {
+      if (unnamedDraftHasWork(tab.char)) risks.push(tab);
+      continue;
+    }
+    if (typeof isSharedSave === "function" && isSharedSave(tab.char.name)
+        && (computeTabDirty(tab) || computeTabPendingSync(tab))) risks.push(tab);
+  }
+  return risks;
 }

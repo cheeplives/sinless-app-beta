@@ -316,6 +316,9 @@ function allUnits(table) { return table === "drones" ? allDrones() : allVehicles
 function schedulePlaySave() {
   // Read-only shared views never persist (also server-rejected as non-owner).
   if (typeof activeTabObj === "function" && activeTabObj() && activeTabObj().readonly) return;
+  // The sweep's own debounce is longer than this save's, so a play change that
+  // saves normally never reddens the dot — only one that doesn't land does.
+  if (typeof scheduleDirtySweep === "function") scheduleDirtySweep();
   clearTimeout(playSaveTimer);
   playSaveTimer = setTimeout(() => {
     if (!CHAR.name) return;
@@ -4291,7 +4294,10 @@ function dosesBanner({ after = null } = {}) {
  * exactly how that happens.
  *
  * Deletion is permanent and, when signed in, propagates to the server through
- * STORAGE.deleteCharacter, so the confirmation names what's going. */
+ * STORAGE.deleteCharacter, so the confirmation names what's going.
+ *
+ * Shared characters are locked: ticking one pops the warning and springs the
+ * box back, rather than letting a batch silently come up short at the end. */
 function manageSavesModal() {
   return new Promise(resolve => {
     const openKeys = new Set(WORKSPACE.tabs
@@ -4301,13 +4307,15 @@ function manageSavesModal() {
       const rec = STORAGE.loadCharacter(key) || {};
       const heritage = (rec.heritage || {}).type || "—";
       const uplift = (rec.heritage || {}).uplift_type;
+      const shared = isSharedSave(key);
       return {
-        key,
+        key, shared,
         label: rec.name || key,
         detail: [heritage + (uplift ? ` (${uplift})` : ""),
                  rec.finalized ? "in play" : "in chargen",
                  rec.app_version ? `v${rec.app_version}` : "unversioned",
-                 openKeys.has(key) ? "open in a tab" : null].filter(Boolean).join(" · "),
+                 openKeys.has(key) ? "open in a tab" : null,
+                 shared ? "🌐 shared — unshare to delete" : null].filter(Boolean).join(" · "),
         box: el("input", { type: "checkbox" }),
       };
     });
@@ -4323,11 +4331,27 @@ function manageSavesModal() {
       delBtn.textContent = n ? `Delete selected (${n})` : "Delete selected";
       if (n) delBtn.removeAttribute("disabled"); else delBtn.setAttribute("disabled", "1");
     };
-    rows.forEach(r => r.box.addEventListener("change", sync));
+    // Shared rows refuse the tick and say why. Left enabled rather than
+    // `disabled` so the refusal is something the row DOES — a dead checkbox
+    // with a note beside it reads as a bug, and a disabled input is also out of
+    // the keyboard tab order, which would hide the explanation from anyone not
+    // using a mouse.
+    rows.forEach(r => r.box.addEventListener("change", () => {
+      if (r.shared && r.box.checked) {
+        r.box.checked = false;
+        warnSharedUndeletable([r.label]);
+      }
+      sync();
+    }));
 
     delBtn.addEventListener("click", async () => {
       const picked = chosen();
       if (!picked.length) return;
+      // The tick guard should have caught these already; deleteSavedCharacters
+      // would drop them silently, and a batch quietly coming up short is worse
+      // than being told which one is holding it up.
+      const locked = picked.filter(r => r.shared);
+      if (locked.length) { warnSharedUndeletable(locked.map(r => r.label)); return; }
       const names = picked.map(r => r.label);
       // Name them all up to a point — past that the list stops being readable
       // and the count is the number that matters.
@@ -4343,20 +4367,30 @@ function manageSavesModal() {
 
     const list = rows.length
       ? el("div", { class: "sh-saves-list" },
-          ...rows.map(r => el("label", { class: "opt sh-saves-row" }, r.box,
+          ...rows.map(r => el("label", {
+            class: "opt sh-saves-row" + (r.shared ? " locked" : ""),
+            title: r.shared ? "Shared with other members — make it private before deleting it" : null },
+            r.box,
             el("span", {}, el("b", {}, r.label),
               el("div", { class: "sub" }, r.detail)))))
       : el("p", { class: "hint" }, "No saved characters.");
 
+    const lockedCount = rows.filter(r => r.shared).length;
     const modal = el("div", { class: "card mount-modal", style: "max-width:560px" },
       el("h3", {}, "Manage saved characters"),
       el("p", { class: "hint" },
         `${rows.length} saved in this browser`
         + (typeof SYNC !== "undefined" && SYNC.enabled && SYNC.enabled()
-            ? ". You're signed in, so deleting also removes them from your account." : ".")),
+            ? ". You're signed in, so deleting also removes them from your account." : ".")
+        + (lockedCount
+            ? ` ${lockedCount} shared character${lockedCount === 1 ? " is" : "s are"} locked`
+              + " — unshare to delete."
+            : "")),
       rows.length ? el("div", { style: "display:flex;gap:8px;margin-bottom:8px" },
         el("button", { class: "btn small ghost",
-          onclick: () => { rows.forEach(r => { r.box.checked = true; }); sync(); } }, "Select all"),
+          // Setting .checked in code fires no change event, so the shared guard
+          // above never runs — skip the locked rows here instead.
+          onclick: () => { rows.forEach(r => { r.box.checked = !r.shared; }); sync(); } }, "Select all"),
         el("button", { class: "btn small ghost",
           onclick: () => { rows.forEach(r => { r.box.checked = false; }); sync(); } }, "Select none")) : null,
       list,
@@ -4521,9 +4555,17 @@ function sheetMenu() {
           onclick: act(resyncKitFromBuild) }, "Re-sync Build → Kit") : null;
     const revertBtn = CHAR.finalized
       ? el("button", { class: "btn warn", onclick: act(revertToChargenEnd) }, "Revert to Post-Chargen") : null;
+    // Shared characters can't be deleted (see deleteSavedCharacters). The button
+    // stays live and says so on click rather than going grey, because greyed out
+    // with no reason is exactly how someone concludes the app is broken — and
+    // the fix (unshare) is one item up the same menu.
+    const sharedLock = !!CHAR.name && isSharedSave(CHAR.name);
     const deleteBtn = el("button", { class: "btn sh-mi-delete", disabled: CHAR.name ? null : "1",
-      title: CHAR.name ? "Permanently delete this character's save" : "Character has no name — nothing saved to delete",
-      onclick: act(() => deleteSavedCharacter(CHAR.name)) }, "Delete Character");
+      title: !CHAR.name ? "Character has no name — nothing saved to delete"
+           : sharedLock ? "Shared with other members — make it private before deleting it"
+                        : "Permanently delete this character's save",
+      onclick: act(() => deleteSavedCharacter(CHAR.name)) },
+      sharedLock ? "Delete Character 🔒" : "Delete Character");
     const manageBtn = el("button", { class: "btn sh-mi-delete",
       title: "Tick several saved characters and delete them in one go",
       onclick: act(manageSavesModal) }, "Manage saves…");

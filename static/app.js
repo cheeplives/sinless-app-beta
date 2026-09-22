@@ -337,6 +337,9 @@ function scheduleRecalc() {
 async function recalc() {
   CALC = RULES.calculate(CHAR);
   refreshHouseRulesPanel();   // keep the ⚙ panel in sync with the active character
+  // Chargen doesn't autosave, so this is the point every chargen edit passes
+  // through — the tab dot's cue that the slot is now behind.
+  if (typeof scheduleDirtySweep === "function") scheduleDirtySweep();
   renderRail();
   renderBudgetChips();
   // keep the Finalize button's error gate current without a full re-render
@@ -360,11 +363,51 @@ function bindRail() {
   if (typeof mountAccountControls === "function") mountAccountControls();
 }
 
+/* Is this save currently published to the members-only gallery?
+ *
+ * Shared characters are delete-protected (see sharedSaveNames below). In
+ * local-only mode nothing is shared, so this is always false and the whole
+ * protection costs nothing. */
+function isSharedSave(name) {
+  if (!name) return false;
+  if (!(typeof SYNC !== "undefined" && SYNC.enabled && SYNC.enabled() && SYNC.isPublic)) return false;
+  return SYNC.isPublic(STORAGE.sanitizeName(name));
+}
+
+/* Which of these saves are shared, in the caller's own spelling.
+ *
+ * A shared character is on other members' screens: they can view it and save
+ * copies of it, and the gallery entry is the owner's to withdraw. Deleting the
+ * save out from under a live listing is the one destructive move with no local
+ * warning sign, so it's refused outright — unshare first, THEN delete. That
+ * ordering is also the copy protection: sharing can't be used to publish a
+ * character and then make the original vanish mid-view.
+ *
+ * Callers pass either display names or storage keys; both sanitise to the same
+ * slug, and the returned strings match what was passed in so a caller can set-
+ * subtract them from its own list. */
+function sharedSaveNames(names) {
+  return [...new Set((names || []).filter(Boolean))].filter(isSharedSave);
+}
+
+/* The warning shown when a delete is refused for being shared. Names the saves
+ * and the two places sharing is turned off, because "unshare it first" is
+ * useless without saying where. */
+function warnSharedUndeletable(names) {
+  const list = names.map(n => `  • ${n}`).join("\n");
+  alert(`${names.length === 1 ? "This character is" : `These ${names.length} characters are`}`
+    + ` shared with other members and can't be deleted:\n\n${list}\n\n`
+    + "Make it private first — the 🌐 Public badge beside the character's name, "
+    + "or ☰ menu → Sharing — then delete it.");
+}
+
 /* Permanently remove a saved character. If it's the one currently open,
  * also reset to a fresh character — otherwise the next autosave would
- * quietly resurrect the deleted slot. */
+ * quietly resurrect the deleted slot. Shared characters are refused. */
 async function deleteSavedCharacter(name) {
   if (!name) return;
+  const shared = sharedSaveNames([name]);
+  if (shared.length) { warnSharedUndeletable(shared); return; }
   if (!confirm(`Delete ${name}? The saved character is permanently removed.`)) return;
   await deleteSavedCharacters([name]);
 }
@@ -373,9 +416,16 @@ async function deleteSavedCharacter(name) {
  * are closed by name — closing a tab commits the character back to storage
  * unless told not to, and closing them one at a time in step with the deletes
  * would let a still-open neighbour resurrect a slot deleted moments earlier.
- * Confirmation belongs to the caller: this is the mechanism, not the guard. */
+ * Confirmation belongs to the caller: this is the mechanism, not the guard.
+ *
+ * The shared-character refusal is the exception — that one is enforced here
+ * rather than left to callers, so no delete path can route around it. Returns
+ * the number actually deleted, which is short of what was asked when a shared
+ * save was among them. */
 async function deleteSavedCharacters(names) {
-  const list = [...new Set((names || []).filter(Boolean))];
+  const asked = [...new Set((names || []).filter(Boolean))];
+  const blocked = new Set(sharedSaveNames(asked));
+  const list = asked.filter(n => !blocked.has(n));
   if (!list.length) return 0;
   for (const name of list) STORAGE.deleteCharacter(name);
   refreshLoadList();

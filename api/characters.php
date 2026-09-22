@@ -7,7 +7,7 @@
  *   GET    ?slug=<slug>      → {slug,name,data,is_public,...}
  *   PUT    ?slug=<slug>      body {data:<charObj>, client_updated_at:<ms>}
  *   POST   ?slug=<slug>      body {is_public:bool}   ← toggle sharing (owner only)
- *   DELETE ?slug=<slug>
+ *   DELETE ?slug=<slug>      409 {error:"shared"} while is_public=1 — unshare first
  *
  * Public (cross-user, hard-gated on is_public=1 — the ONLY paths that return
  * another member's data; still require an approved login, i.e. members only):
@@ -86,7 +86,17 @@ rate_limit('write', 'u' . $uid, 120, 60);   // 120 writes / min / user
 if (!valid_slug($slug)) json_error(400, 'bad_slug');
 
 if ($method === 'DELETE') {
-  $st = db()->prepare('DELETE FROM characters WHERE user_id = ? AND slug = ?');
+  // A shared character can't be deleted while it's still listed — other members
+  // are looking at it and saving copies from it, and the gallery row would be
+  // pulled out from under them. Unshare (POST is_public:false) first. The client
+  // blocks this in the UI; enforcing it here is what makes it hold for a stale
+  // tab, an offline client whose sharing flags never hydrated, or a direct call.
+  $chk = db()->prepare('SELECT is_public FROM characters WHERE user_id = ? AND slug = ? LIMIT 1');
+  $chk->execute([$uid, $slug]);
+  $row = $chk->fetch();
+  if ($row && (int) $row['is_public'] === 1) json_error(409, 'shared');
+
+  $st = db()->prepare('DELETE FROM characters WHERE user_id = ? AND slug = ? AND is_public = 0');
   $st->execute([$uid, $slug]);
   json_out(['ok' => true, 'deleted' => $st->rowCount() > 0]);
 }

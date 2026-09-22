@@ -144,6 +144,21 @@ do not attempt to forge one.
   if signup stops being approval-gated, which is the assumption it rests on.
 - **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
 
+### P12-017: Deleting a shared character is refused by the server
+- **Check:** share one of your own characters (☰ menu → Sharing), then issue
+  `DELETE api/characters.php?slug=<that slug>` with a valid `X-CSRF-Token`.
+  Unshare it and repeat.
+- **Expected:** while shared, `409` with `{"error":"shared"}` and the row still
+  present on a re-read. Once private, `200` with `{"deleted":true}`.
+- **Note:** The client blocks this before it ever leaves the browser, so a
+  request only gets here from a stale tab, a client whose sharing flags never
+  hydrated, or a hand-rolled call. This is the check that makes the copy
+  protection real rather than cosmetic: a member cannot publish a character to
+  the gallery and then delete the record other members are reading from.
+
+  A `200` here is a **FAIL** even though the UI would never send it.
+- **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
+
 ---
 
 ## §3 — Two-account isolation (separate approval required)
