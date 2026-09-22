@@ -2157,15 +2157,31 @@ function rollerSpendPool() {
 
 /* A dice figure you can click to load the roller. Wraps whatever the caller
  * already renders (a rating, a "(4d +1b)" chip) so the reading stays put and
- * only the affordance is added. */
+ * only the affordance is added.
+ *
+ * `pool` defaults to "" (explicitly no pool), never left `undefined`
+ * (#106) -- openPoolRoller's own default arg only fires when a key is
+ * genuinely absent from the object it receives, and `{ ..., pool }` here
+ * always SUPPLIES the key, just sometimes with the value `undefined`, which
+ * reads identically. Left as `undefined` it fell through to "keep whatever
+ * pool the last roll used", so an Etiquette or Knowledge test -- neither
+ * spends a pool; both callers already pass no `pool` at all, on purpose --
+ * opened silently charging whatever pool the PREVIOUS roll happened to draw
+ * from. Resolving it here, once, means every current and future no-pool
+ * caller of `rollable()` gets this for free instead of having to remember
+ * `pool: ""` for itself. */
 function rollable(node, { dice, bonus = 0, label, note, title, pool }) {
   const total = Math.max(0, (+dice || 0) + (+bonus || 0));
   if (!total) return node;      // nothing to roll — leave it as plain text
+  const resolvedPool = pool || "";
   return el("button", {
     class: "sh-rollable", type: "button",
     title: (title || `Roll ${total}d6 — ${label}`)
-      + (pool ? ` · costs ${dice} ${pool}` : ""),
-    onclick: e => { e.stopPropagation(); openPoolRoller({ dice, bonus, label, note, pool }); },
+      + (resolvedPool ? ` · costs ${dice} ${resolvedPool}` : ""),
+    onclick: e => {
+      e.stopPropagation();
+      openPoolRoller({ dice, bonus, label, note, pool: resolvedPool });
+    },
   }, node);
 }
 

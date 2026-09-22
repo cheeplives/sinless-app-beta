@@ -3140,3 +3140,53 @@ goods for nothing.
   (`skillDice: 0`, `bonus: 2`, `locked: false`) rather than reading as
   untrained.
 - **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
+
+### P06-091: Etiquette and Knowledge rolls open pool-less, even after a pooled roll left one selected
+- **Type:** correctness
+- **Steps:** none.
+- **Check:**
+
+      (async () => { const c = RULES.defaultCharacter(); c.name = "QA EtqPool106"; c.priorities = { heritage: 0, magic: 0, attributes: 3, skills: 3, resources: 1 }; c.heritage.type = "Human"; c.skills = { Athletics: 3 }; c.etiquettes = { Corporate: 2 }; c.knowledge_skills = [{ name: "History", points: 2 }]; c.finalized = true; c.lifestyles = [{ name: "Squatter", months: 1 }]; await openCharacter(c); sheetTab = "skills"; renderSheet(); const athleticsBtn = [...document.querySelectorAll(".sh-rollable")].find(b => b.title.includes("Athletics")); athleticsBtn.click(); const afterSkillRoll = { pool: rollerState.pool }; rollerState.open = false; const etqBtn = [...document.querySelectorAll(".sh-rollable")].find(b => b.title.includes("Corporate") && b.title.includes("Etiquette")); etqBtn.click(); const afterEtiquetteClick = { pool: rollerState.pool, label: rollerState.label, count: rollerState.count, title: etqBtn.title }; const etiquetteWouldSpendPool = rollerSpendPool(); rollerState.open = false; rollerState.pool = "Brawn"; const knowBtn = [...document.querySelectorAll(".sh-rollable")].find(b => b.title.includes("History")); knowBtn.click(); const afterKnowledgeClick = { pool: rollerState.pool, label: rollerState.label }; const knowledgeWouldSpendPool = rollerSpendPool(); await closeTabByName("QA EtqPool106"); return { afterSkillRoll, afterEtiquetteClick, etiquetteWouldSpendPool, afterKnowledgeClick, knowledgeWouldSpendPool }; })()
+
+- **Expected:**
+
+      { "afterSkillRoll": { "pool": "Brawn" },
+        "afterEtiquetteClick": { "pool": "", "label": "Corporate Etiquette", "count": 2,
+                                 "title": "Roll 2d6 — Corporate Etiquette" },
+        "etiquetteWouldSpendPool": null,
+        "afterKnowledgeClick": { "pool": "", "label": "History" },
+        "knowledgeWouldSpendPool": null }
+
+- **Note:** Reported: an Etiquette test doesn't draw from a pool at all, but
+  clicking one into the roller after rolling something pooled kept whatever
+  pool that earlier roll had used.
+
+  The bug was in `openPoolRoller`'s own default: `pool: pool !== undefined ?
+  (pool || "") : rollerState.pool` — "keep the last pool when the caller
+  doesn't say." `rollable()`, the click-to-roll wrapper both Etiquette and
+  Knowledge tests use, always builds its object with a `pool` key present
+  (`{ dice, bonus, label, note, pool }`) — so when its own caller left `pool`
+  out, the key still reached `openPoolRoller` with the value `undefined`,
+  which is indistinguishable from "never passed" once destructured. Every
+  no-pool `rollable()` call therefore inherited whatever pool the *previous*
+  roll — anyone's, on any tab — happened to leave selected, and pressing Roll
+  would have spent it.
+
+  `afterSkillRoll` seeds that stale state on purpose: rolling Athletics first
+  sets `rollerState.pool` to `"Brawn"`. `afterEtiquetteClick` is the fix —
+  Corporate's roller opens with `pool: ""` regardless, its tooltip drops the
+  "· costs N Pool" suffix `rollable()` only adds when a pool is actually set
+  (`title` has none), and `etiquetteWouldSpendPool` calling
+  `rollerSpendPool()` directly confirms it: `null`, the same "nothing to
+  spend" result a genuinely pool-less roll like Run Program's already
+  returns. `afterKnowledgeClick` re-seeds a different stale pool (`"Brawn"`)
+  and shows Knowledge clears it the same way — both cards' own code comments
+  already said "no pool behind it (#72)"; only the wiring disagreed.
+
+  Fixed in `rollable()` itself rather than at each of its two no-pool call
+  sites, so every current caller that already omits `pool` (both of these)
+  and any future one gets a resolved `pool: pool || ""` for free instead of
+  needing to remember `pool: ""` by hand. Every call site that DOES supply a
+  real pool (weapon fire, spellcasting, Maneuver, Soak, Drain soak, Twin
+  Fire) is unchanged — `pool || ""` only ever touches a falsy value.
+- **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
