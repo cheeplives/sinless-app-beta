@@ -316,6 +316,9 @@ function allUnits(table) { return table === "drones" ? allDrones() : allVehicles
 function schedulePlaySave() {
   // Read-only shared views never persist (also server-rejected as non-owner).
   if (typeof activeTabObj === "function" && activeTabObj() && activeTabObj().readonly) return;
+  // The sweep's own debounce is longer than this save's, so a play change that
+  // saves normally never reddens the dot — only one that doesn't land does.
+  if (typeof scheduleDirtySweep === "function") scheduleDirtySweep();
   clearTimeout(playSaveTimer);
   playSaveTimer = setTimeout(() => {
     if (!CHAR.name) return;

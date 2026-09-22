@@ -272,6 +272,16 @@ body.ws-reordering .ws-tab{transition:none}
 .ws-dot{flex:none;width:7px;height:7px;border-radius:50%}
 .ws-dot.chargen{background:var(--amber)}
 .ws-dot.play{background:var(--ok)}
+/* Save state overrides the mode colour, because "this isn't kept yet" is the
+   more urgent of the two things a 7px dot can say. Mode stays in the chip's
+   tooltip, and the active tab's mode is the screen you're looking at.
+   solid red  — changes not written to the save.
+   hollow red — written here, still queued for the server (shared characters:
+                the gallery is serving the old version until it lands).
+   Geometry is identical in all three states; an inset shadow rather than a
+   border so the dot never changes size and the chip never reflows. */
+.ws-dot.unsaved{background:var(--bad)}
+.ws-dot.unpushed{background:transparent;box-shadow:inset 0 0 0 2px var(--bad)}
 .ws-dup,.ws-close{flex:none;border:none;background:none;color:var(--dim);cursor:pointer;
   line-height:1;padding:2px 3px;border-radius:4px}
 .ws-dup{font-size:12px}

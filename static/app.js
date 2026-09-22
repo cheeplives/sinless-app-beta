@@ -337,6 +337,9 @@ function scheduleRecalc() {
 async function recalc() {
   CALC = RULES.calculate(CHAR);
   refreshHouseRulesPanel();   // keep the ⚙ panel in sync with the active character
+  // Chargen doesn't autosave, so this is the point every chargen edit passes
+  // through — the tab dot's cue that the slot is now behind.
+  if (typeof scheduleDirtySweep === "function") scheduleDirtySweep();
   renderRail();
   renderBudgetChips();
   // keep the Finalize button's error gate current without a full re-render

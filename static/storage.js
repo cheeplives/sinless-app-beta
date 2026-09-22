@@ -43,6 +43,15 @@ function listCharacters() {
   return names.sort();
 }
 
+/** The exact string sitting in a character's slot, or null if the slot is empty.
+ * `loadCharacter` can't answer "does this match what's saved?" — it parses, and
+ * stamps `saved_as` onto the result, so comparing against it always differs by
+ * at least that field. The unsaved-changes dot compares raw text against raw
+ * text, which is only meaningful if the key logic stays in here. */
+function rawCharacter(name) {
+  return localStorage.getItem(charPrefix() + sanitizeName(name));
+}
+
 function loadCharacter(name) {
   const key = charPrefix() + sanitizeName(name);
   const raw = localStorage.getItem(key);
@@ -81,15 +90,26 @@ function collidingCharacter(character) {
   return existing ? (existing.name || key) : null;
 }
 
+/* Every save and delete funnels through these two, which is why the tab strip's
+ * unsaved-changes dot is refreshed from here rather than from each caller: a
+ * save path that forgot to ask for a re-check would leave a tab showing red
+ * after its changes had landed. Same `typeof` guard as the SYNC hooks above —
+ * workspace.js loads after this file, and the node tests load it alone. */
+function notifySaved() {
+  if (typeof scheduleDirtySweep === "function") scheduleDirtySweep();
+}
+
 function saveCharacter(character) {
   const saved = cacheCharacter(character);
   if (typeof SYNC !== "undefined" && SYNC.onSave) SYNC.onSave(character);
+  notifySaved();
   return saved;
 }
 
 function deleteCharacter(name) {
   localStorage.removeItem(charPrefix() + sanitizeName(name));
   if (typeof SYNC !== "undefined" && SYNC.onDelete) SYNC.onDelete(name);
+  notifySaved();
 }
 
 /* ---- homebrew custom content --------------------------------------------
@@ -174,7 +194,7 @@ function loadSubs() {
 }
 function cacheSubs(subs) { try { localStorage.setItem(subsKey(), JSON.stringify(subs)); } catch { /* quota */ } }
 
-return { sanitizeName, listCharacters, loadCharacter, saveCharacter, deleteCharacter,
+return { sanitizeName, listCharacters, loadCharacter, rawCharacter, saveCharacter, deleteCharacter,
          collidingCharacter,
          cacheCharacter, loadCustomContent, saveCustomContent, cacheCustomContent,
          CUSTOM_TABLES, loadPacks, cachePacks, loadSubs, cacheSubs,

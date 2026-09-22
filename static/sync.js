@@ -134,6 +134,16 @@ function onDelete(name) {
 
 function scheduleFlush() { clearTimeout(flushTimer); flushTimer = setTimeout(flush, 800); }
 
+/* Is this character's latest save still sitting in the queue, i.e. written to
+ * this browser but not yet on the server? For a SHARED character that gap is
+ * what other members are reading across — the gallery still serves the old
+ * version until the op flushes — which is what the tab strip's hollow dot
+ * reports. Always false when signed out: there's nowhere for it to be pending. */
+function pendingSync(slug) {
+  if (!enabled()) return false;
+  return readJSON(queueKey(), []).some(o => o.slug === slug);
+}
+
 /* A queued DELETE the server refused because the character is still shared.
  * Put the local copy back and re-mark the slug public, so this browser agrees
  * with the gallery again and the sharing badge/delete lock tell the truth
@@ -179,6 +189,10 @@ async function flush() {
       q.shift(); writeJSON(queueKey(), q);
     } catch { break; }                          // offline → stop, retry on reconnect
   }
+  // The queue just shrank (or didn't), and nothing else re-renders the tab strip
+  // when a push lands — without this a character's dot would sit hollow until
+  // the next unrelated edit.
+  if (typeof scheduleDirtySweep === "function") scheduleDirtySweep();
 }
 
 /* Push the homebrew blob (called by homebrew.js after edits). */
@@ -291,7 +305,7 @@ async function signOut() {
 window.addEventListener("online", () => { if (enabled()) flush(); });
 
 return {
-  probe, hydrate, flush, onSave, onDelete, pushCustomContent, signOut,
+  probe, hydrate, flush, onSave, onDelete, pendingSync, pushCustomContent, signOut,
   isPublic, setVisibility, listShared, fetchShared,
   listMyPacks, createPack, savePack, deletePack, setPackVisibility,
   listPublicPacks, fetchPublicPack, listSubs, subscribePack, unsubscribePack,
