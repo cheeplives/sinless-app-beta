@@ -36,7 +36,7 @@ const BUNDLE = (typeof DATA_BUNDLE !== "undefined")
  * default fill claim this build made it: "unknown" is a fact worth keeping,
  * and a confidently wrong version is worse than none when you are working out
  * why an old file behaves oddly. */
-const APP_VERSION = "367";
+const APP_VERSION = "368";
 
 // ============================================================== game constants
 // The numeric knobs the engine reads; grouped by chargen step below.
@@ -2628,8 +2628,9 @@ function tallyAmpPowers(character, data, magicType, warnings, errors) {
     }
     // Eyes of the Raptor, Might of the Bear, Sting of the Scorpion and Hidden
     // Presence used to be four more branches here. They are now "Skill Bonus"
-    // columns on their own rows, read by gearSkillEffects like every other
-    // table's -- so homebrew amp powers can grant skill dice too, and a typo
+    // columns on their own rows, read by gearSkillEffects -- as bonus DICE
+    // (its asDice pass for this table), not a rating raise like Expertise
+    // above -- so homebrew amp powers can grant skill dice too, and a typo
     // gets reported instead of silently granting nothing.
   }
 
@@ -5078,6 +5079,17 @@ function canonicalSkillName(name) {
  * Returns { bonus: {skill: n}, notes: {skill: [text]}, sources: [...] }. */
 function gearSkillEffects(character, data, warnings) {
   const bonus = {}, notes = {}, sources = [];
+  // Bonus DICE, kept apart from `bonus` above (which folds into the skill's
+  // rating -- see `apply`'s `asDice` param). Populated only by the amp powers
+  // whose own text says "bonus dice" (Eyes of the Raptor, Might of the Bear,
+  // Sting of the Scorpion, Hidden Presence) rather than a rating increase like
+  // Expertise's. The difference isn't cosmetic: `final` (rating) is what a
+  // roll draws pool dice against, while dice_bonus rides free on top of it
+  // (weaponSkillDice: "limit dice ... cost pool ... free dice go in the bonus
+  // row") -- so folding these into the rating was quietly charging Pool for
+  // dice the power says are free, on top of raising a cap it never claimed to
+  // raise.
+  const diceBonus = {};
   // Movement rides along with the skill sweep rather than getting a second one.
   // The hard part of both jobs is identical — deciding what the character is
   // currently wearing, carrying, has installed or has out — and two sweeps would
@@ -5101,13 +5113,14 @@ function gearSkillEffects(character, data, warnings) {
    *   fast. Today those values carry an "m" that wouldn't parse anyway, which is
    *   luck rather than a design, and a homebrew drone written "8" would quietly
    *   turn into a +8m sprint for its rigger. */
-  const apply = (row, label, times = 1, skipMove = false) => {
+  const apply = (row, label, times = 1, skipMove = false, asDice = false) => {
     if (!row) return;
     const warn = msg => warnings && warnings.push(`${label}: Skill Bonus — ${msg}.`);
     for (const b of parseSkillBonuses(row["Skill Bonus"], warn)) {
       if (times < 1) continue;
-      bonus[b.skill] = (bonus[b.skill] || 0) + b.bonus * times;
-      sources.push({ skill: b.skill, bonus: b.bonus * times, label });
+      const bucket = asDice ? diceBonus : bonus;
+      bucket[b.skill] = (bucket[b.skill] || 0) + b.bonus * times;
+      sources.push({ skill: b.skill, bonus: b.bonus * times, label, dice: asDice });
     }
     const warnNote = msg => warnings && warnings.push(`${label}: Skill Note — ${msg}.`);
     for (const n of parseSkillNotes(row["Skill Note"], warnNote)) {
@@ -5127,12 +5140,12 @@ function gearSkillEffects(character, data, warnings) {
       movement.move_modes.push({ name: label, mode: row.MoveMode || "Alt", meters: alt });
     }
   };
-  const rowsOf = (entries, table, column, active, skipMove = false) => {
+  const rowsOf = (entries, table, column, active, skipMove = false, asDice = false) => {
     for (const e of entries || []) {
       if (active && !active(e)) continue;
       const name = nameOf(e);
       if (!name) continue;
-      apply(findRow(data[table], column, name), name, 1, skipMove);
+      apply(findRow(data[table], column, name), name, 1, skipMove, asDice);
     }
   };
 
@@ -5165,8 +5178,14 @@ function gearSkillEffects(character, data, warnings) {
   rowsOf(character.rituals, "rituals", "Name");
   // Amp powers. Play-bought powers are already merged into magic.amp_powers by
   // applyPlayAdvances, which runs first, so this is the same set the hardcoded
-  // name checks used to see.
-  rowsOf((character.magic || {}).amp_powers, "amp_powers", "Name");
+  // name checks used to see. `asDice: true` -- unlike every other table this
+  // sweep reads, EVERY amp power that currently carries a Skill Bonus (Eyes of
+  // the Raptor, Might of the Bear, Sting of the Scorpion, Hidden Presence)
+  // describes it as bonus dice, not a rating increase, so the whole table
+  // routes there. Expertise raises the rating on purpose (it targets a
+  // player-chosen skill and states its own max increase) and isn't reached by
+  // this sweep at all -- it's resolved directly in tallyAmpPowers instead.
+  rowsOf((character.magic || {}).amp_powers, "amp_powers", "Name", null, false, true);
   // Mods fitted to an equipped weapon, and augments mounted in worn hosts.
   for (const w of character.weapons || []) {
     if (w.equipped === false) continue;
@@ -5194,7 +5213,7 @@ function gearSkillEffects(character, data, warnings) {
   for (const spirit of engaged)
     apply(findRow(data.speaker_spirits, "Spirit", spirit), spirit);
 
-  return { bonus, notes, sources, movement };
+  return { bonus, notes, sources, movement, diceBonus };
 }
 
 /* Fold gear skill effects into the augment tally, which is already the place
@@ -6132,6 +6151,13 @@ function calculate(character) {
       if (pool === heritage.specialization_pool)
         skillDice[name] = (skillDice[name] || 0) + 1;
     }
+  }
+  // Amp powers whose text is "bonus dice" (Eyes of the Raptor and siblings --
+  // see gearSkillEffects' asDice pass), landing in the same free-dice bucket
+  // drone dice and the Specialization pool already use, rather than in the
+  // skill's rating.
+  for (const [name, n] of Object.entries(gearSkills.diceBonus)) {
+    if (n) skillDice[name] = (skillDice[name] || 0) + n;
   }
   // A switched-on sense belongs in this layer rather than in amp.skill_bonus:
   // it's a bonus die you have right now because you spent an action, exactly

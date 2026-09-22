@@ -3076,3 +3076,67 @@ goods for nothing.
   back to 1. `readonlyDeleteButtons: 0` gates the control on a shared view like
   every other destructive control on the sheet.
 - **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
+
+### P06-090: Eyes of the Raptor, Might of the Bear and Sting of the Scorpion grant bonus dice, not rating -- Expertise still raises rating
+- **Type:** correctness
+- **Steps:** none.
+- **Check:**
+
+      (async () => { const c = RULES.defaultCharacter(); c.name = "QA AmpDice105"; c.priorities = { heritage: 0, magic: 4, attributes: 3, skills: 3, resources: 1 }; c.heritage.type = "Human"; c.magic.chosen_type = "Amp"; c.skills = { Firearms: 3, "Melee Weapons": 2, "Unarmed Combat": 2, Biotech: 1 }; c.magic.amp_powers = [{ name: "Eyes of the Raptor", target: "", times: 1 }, { name: "Might of the Bear", target: "", times: 1 }, { name: "Sting of the Scorpion", target: "", times: 1 }, { name: "Expertise", target: "Biotech", times: 1 }]; c.weapons = [{ name: "Ares TAG-1 Taser", mods: [], equipped: true, hand: 0 }]; c.finalized = true; c.lifestyles = [{ name: "Squatter", months: 1 }]; await openCharacter(c); const sk = n => CALC.skills[n]; const firearms = { points: sk("Firearms").points, bonus: sk("Firearms").bonus, final: sk("Firearms").final, dice_bonus: sk("Firearms").dice_bonus }; const melee = { final: sk("Melee Weapons").final, dice_bonus: sk("Melee Weapons").dice_bonus }; const unarmed = { final: sk("Unarmed Combat").final, dice_bonus: sk("Unarmed Combat").dice_bonus }; const biotech = { points: sk("Biotech").points, bonus: sk("Biotech").bonus, final: sk("Biotech").final, dice_bonus: sk("Biotech").dice_bonus }; const rs = weaponRollSpec("Ares TAG-1 Taser", "PistolLt", 0, [], null); const fireRoll = { skillDice: rs.skillDice, limitDice: rs.limitDice, bonus: rs.bonus, locked: rs.locked }; sheetTab = "skills"; renderSheet(); const firearmsChip = [...document.querySelectorAll("table tr")].find(tr => tr.textContent.startsWith("Firearms")).textContent; const c2 = RULES.defaultCharacter(); c2.name = "QA AmpDiceUntrained105"; c2.priorities = { heritage: 0, magic: 4, attributes: 3, skills: 2, resources: 1 }; c2.heritage.type = "Human"; c2.magic.chosen_type = "Amp"; c2.magic.amp_powers = [{ name: "Eyes of the Raptor", target: "", times: 1 }]; c2.finalized = true; c2.lifestyles = [{ name: "Squatter", months: 1 }]; await openCharacter(c2); const untrained = { final: CALC.skills.Firearms.final, dice_bonus: CALC.skills.Firearms.dice_bonus }; const rs2 = weaponRollSpec("Ares TAG-1 Taser", "PistolLt", 0, [], null); const untrainedRoll = rs2 && { skillDice: rs2.skillDice, limitDice: rs2.limitDice, bonus: rs2.bonus, locked: rs2.locked }; await closeTabByName("QA AmpDiceUntrained105"); await closeTabByName("QA AmpDice105"); return { firearms, melee, unarmed, biotech, fireRoll, firearmsChip, untrained, untrainedRoll }; })()
+
+- **Expected:**
+
+      { "firearms": { "points": 3, "bonus": 0, "final": 3, "dice_bonus": 2 },
+        "melee": { "final": 2, "dice_bonus": 2 },
+        "unarmed": { "final": 2, "dice_bonus": 2 },
+        "biotech": { "points": 1, "bonus": 2, "final": 3 },
+        "fireRoll": { "skillDice": 3, "limitDice": 3, "bonus": 2, "locked": false },
+        "firearmsChip": "FirearmsSpec33+2d",
+        "untrained": { "final": 0, "dice_bonus": 2 },
+        "untrainedRoll": { "skillDice": 0, "limitDice": 0, "bonus": 2, "locked": false } }
+
+- **Note:** Reported: Eyes of the Raptor, Might of the Bear and Sting of the
+  Scorpion (and, found while fixing them, Hidden Presence) all say "gain +2
+  bonus dice" in their own `Description` — but every one of them was wired
+  through the generic "Skill Bonus" column (`gearSkillEffects`), which folds
+  its number into the skill's RATING (`bonus` → `final`), the same mechanism a
+  cybernetic that genuinely raises a rating uses. That is not cosmetic: `final`
+  is what a roll draws pool dice against (`weaponSkillDice`: "limit dice ...
+  cost pool ... free dice go in the bonus row"), so the fold was quietly
+  billing Pool for two dice the power's own text calls free, on top of raising
+  a cap it never claimed to touch.
+
+  `firearms`/`melee`/`unarmed` are the three named powers: `points` and
+  `bonus` land exactly where they started (`bonus: 0` — nothing folded into
+  the rating), `final` equals `points` alone, and the +2 shows up only as
+  `dice_bonus` — the same free-dice bucket deployed drones and a Synthetic's
+  Specialization pool already use (`droneSkillDice`, `heritage.specialization_
+  pool`), so it rides the sheet's existing "+Nd" chip
+  (`firearmsChip`: `"...+2d"`) with no new UI needed.
+
+  `biotech` is the explicit regression guard for the other half of the report:
+  Expertise ("+2 to a chosen Skill **and its maximum**") is untouched by this
+  fix — it's resolved separately in `tallyAmpPowers`, never reached by
+  `gearSkillEffects`'s amp-power sweep at all — and still folds into `bonus` →
+  `final` (`bonus: 2`, no `dice_bonus`), because raising the rating (and the
+  cap that rides with it) is what it explicitly claims to do.
+
+  **`fireRoll` is the part that would have stayed broken by half a fix.**
+  `weaponRollSpec` already tested `s.dice_bonus` to decide whether a
+  trained-only weapon was usable at all (`locked`), but never added it to the
+  dice actually rolled — so simply re-routing these four powers into
+  `dice_bonus` without this would have made them vanish the moment you fired
+  the gun they're named for, while still working on the Skills tab. Firing the
+  Taser (a Firearms weapon) now shows the +2 in `bonus` (free, `fireRoll.bonus:
+  2`) while `skillDice`/`limitDice` stay at the bare rating (3) — the pool cost
+  of the shot hasn't moved, only what's free on top of it. This also means
+  droneSkillDice and the Specialization pool's dice now reach weapon rolls for
+  the first time too, which they already claimed to via the same `locked`
+  check and simply weren't delivering.
+
+  `untrained`/`untrainedRoll` is the edge the flavor text implies and the old
+  fold couldn't reach cleanly: a character with **zero** Firearms points and
+  only Eyes of the Raptor rolls 2 free dice off the power alone
+  (`skillDice: 0`, `bonus: 2`, `locked: false`) rather than reading as
+  untrained.
+- **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED

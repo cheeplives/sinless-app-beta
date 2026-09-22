@@ -149,7 +149,13 @@ function weaponRollSpec(name, type, accuracy, bonuses = [], reach = null) {
   const skillDice = Math.max(0, s.final + spec.delta);
   const acc = +accuracy || 0;
   const limitDice = skillDice + acc;
-  const bonus = bonuses.reduce((n, b) => n + (+b.dice || 0), 0);
+  // The skill's own free dice -- drones, the Specialization pool, a "bonus
+  // dice" amp power like Eyes of the Raptor -- join the caller's own bonuses
+  // (firing mode, Gun-Kata, ...) in the same free bucket, since neither costs
+  // pool. Without this, `locked` above could call a trained-only weapon
+  // usable off dice_bonus alone and then never actually put those dice in
+  // the roll.
+  const bonus = bonuses.reduce((n, b) => n + (+b.dice || 0), 0) + (s.dice_bonus || 0);
   const why = [`${skill} ${s.final}`];
   if (swapped) why.push(`(Weirding Way: Reach 0, so ${mapped} gives way to Unarmed)`);
   if (spec.delta > 0) why.push(`+1 specialized in ${spec.term}`);
@@ -157,6 +163,7 @@ function weaponRollSpec(name, type, accuracy, bonuses = [], reach = null) {
   why.push(`= ${skillDice} skill`);
   if (acc) why.push(`+ Accuracy ${acc} = ${limitDice} limit dice`);
   const bwhy = [];
+  if (s.dice_bonus) bwhy.push(`${skill} bonus dice +${s.dice_bonus}`);
   for (const b of bonuses) if (+b.dice) bwhy.push(`${b.label} +${b.dice}`);
   return { skill, pool: s.pool, spec, locked, skillDice, acc, limitDice, bonus, why, bwhy };
 }
