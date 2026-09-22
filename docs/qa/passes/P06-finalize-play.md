@@ -3007,3 +3007,72 @@ goods for nothing.
   read-only character renders no spinner at all and needs none, because the
   bonus is already counted in the track it is looking at.
 - **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED
+
+### P06-089: An amp power can be dropped in play, and its ZP comes straight back
+- **Type:** correctness
+- **Steps:** none.
+- **Check:**
+
+      (async () => { window.confirm = () => true; const c = RULES.defaultCharacter(); c.name = "QA Amp104"; c.priorities = { heritage: 0, magic: 4, attributes: 3, skills: 2, resources: 1 }; c.heritage.type = "Human"; c.magic.chosen_type = "Amp"; c.magic.amp_powers = [{ name: "Attribute Boost", target: "Strength", times: 1 }, { name: "Adrenaline Boost", target: "", times: 1 }, { name: "Adrenaline Boost", target: "", times: 1 }]; c.finalized = true; c.lifestyles = [{ name: "Squatter", months: 1 }]; await openCharacter(c); CHAR.play.purchases.amp_powers.push({ name: "Astral Resistance", target: "", times: 1 }); await recalc(); sheetTab = "magic"; renderSheet(); const rows = () => [...document.querySelectorAll(".sh-spell.amp")]; const listed = () => rows().map(r => r.querySelector("b").textContent + (/bought in play/.test(r.textContent) ? " [play]" : "")); const zp = () => `${CALC.zoetics.amp_zp_spent} spent / ${CALC.zoetics.zp_remaining} left`; const drop = async (name, nth = 0) => { rows().filter(r => r.querySelector("b").textContent === name)[nth].querySelector("button.row-del").click(); await new Promise(r => setTimeout(r, 60)); }; const undoLast = async () => { await undoCashSpend((CHAR.play.cash_log || []).find(x => x.undo)); await new Promise(r => setTimeout(r, 60)); }; const start = { powers: listed(), zp: zp(), strength: CALC.attributes.Strength.final }; await drop("Astral Resistance"); const boughtDropped = { powers: listed(), zp: zp(), purchasesLeft: CHAR.play.purchases.amp_powers.length }; await undoLast(); const boughtRestored = { powers: listed(), zp: zp(), purchasesLeft: CHAR.play.purchases.amp_powers.length }; await drop("Adrenaline Boost", 0); const chargenDropped = { powers: listed(), zp: zp(), forgotten: [...CHAR.play.amp_powers_forgotten], chargenArrayUntouched: c.magic.amp_powers.length }; await undoLast(); const chargenRestored = { powers: listed(), zp: zp(), forgotten: [...CHAR.play.amp_powers_forgotten] }; await drop("Attribute Boost"); const targetedDropped = { powers: listed(), zp: zp(), strength: CALC.attributes.Strength.final }; await undoLast(); const tab = activeTabObj(); tab.readonly = true; renderSheet(); const readonlyDeleteButtons = document.querySelectorAll(".sh-spell.amp button.row-del").length; tab.readonly = false; await closeTabByName("QA Amp104"); return { start, boughtDropped, boughtRestored, chargenDropped, chargenRestored, targetedDropped, readonlyDeleteButtons }; })()
+
+- **Expected:**
+
+      { "start": { "powers": ["Attribute Boost", "Adrenaline Boost", "Adrenaline Boost",
+                              "Astral Resistance [play]"],
+                   "zp": "5.5 spent / 0.5 left", "strength": 2 },
+        "boughtDropped": { "powers": ["Attribute Boost", "Adrenaline Boost", "Adrenaline Boost"],
+                           "zp": "4.5 spent / 1.5 left", "purchasesLeft": 0 },
+        "boughtRestored": { "powers": ["Attribute Boost", "Adrenaline Boost", "Adrenaline Boost",
+                                       "Astral Resistance [play]"],
+                            "zp": "5.5 spent / 0.5 left", "purchasesLeft": 1 },
+        "chargenDropped": { "powers": ["Attribute Boost", "Adrenaline Boost",
+                                       "Astral Resistance [play]"],
+                            "zp": "3.5 spent / 2.5 left", "forgotten": ["Adrenaline Boost"],
+                            "chargenArrayUntouched": 3 },
+        "chargenRestored": { "powers": ["Attribute Boost", "Adrenaline Boost", "Adrenaline Boost",
+                                        "Astral Resistance [play]"],
+                             "zp": "5.5 spent / 0.5 left", "forgotten": [] },
+        "targetedDropped": { "powers": ["Adrenaline Boost", "Adrenaline Boost",
+                                        "Astral Resistance [play]"],
+                             "zp": "5 spent / 1 left", "strength": 1 },
+        "readonlyDeleteButtons": 0 }
+
+- **Note:** Requested: a way to give up an amp power in play and get the ZP
+  back. The Magic tab could buy them and never let go of one, so a player who
+  overspent — or whose carried ZR grew until the card's own
+  "AMP POWERS OFFLINE … shed ZR **or lose the powers**" callout applied — had
+  no way to take that advice.
+
+  **The refund needs no arithmetic and deliberately has none.**
+  `CALC.zoetics.amp_zp_spent` is DERIVED from the power list, so removing an
+  entry returns exactly what it charged — including the half-cost Amp rate,
+  which is why this fixture is an Amp and every figure is a half: Attribute
+  Boost 0.5, Adrenaline Boost 2 each, Astral Resistance 1. Dropping one
+  Adrenaline Boost moves `5.5 → 3.5`, not `5.5 → 1.5`. That is the same
+  reasoning the purchase's existing Undo already rested on. For the same
+  reason there is no `promptDisposal`: that dialog asks what you sold a thing
+  *for*, and a power in your head was never bought with money and cannot be
+  sold to anyone — a confirm naming the ZP is the whole decision.
+
+  Two routes out, mirroring `sellSpell` (#82). A power **bought in play** is
+  spliced out of `purchases.amp_powers` by identity (`p.ref`), so
+  `purchasesLeft` goes to 0 and Undo puts it back at its index. A **chargen**
+  power can only be recorded — `chargenArrayUntouched: 3` is the bright line
+  holding: the creation record is never written to after Finalize, so the drop
+  lives in `play.amp_powers_forgotten` and both the engine
+  (`applyPlayAdvances`) and the tab subtract it. Miss the second of those and
+  the ZP comes back while the row stays on screen, which is exactly what the
+  first cut of this did.
+
+  `chargenDropped` is the case that differs from spells on purpose. A spell
+  can only be known once, so `spells_forgotten` removes every match by name;
+  amp powers **stack** (the buy dialog lists them `stackable`, and Attribute
+  Boost is routinely taken more than once), so each record here removes
+  **one** copy. Two identical Adrenaline Boosts go in, one ✕ takes one out,
+  and the survivor is still listed and still paid for.
+
+  `targetedDropped` confirms the drop reaches past the ZP: Attribute Boost →
+  Strength was granting a point, and giving the power up takes Strength from 2
+  back to 1. `readonlyDeleteButtons: 0` gates the control on a shared view like
+  every other destructive control on the sheet.
+- **Result:** [ ] PASS  [ ] FAIL  [ ] JUDGEMENT  [ ] BLOCKED

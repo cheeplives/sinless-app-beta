@@ -36,7 +36,7 @@ const BUNDLE = (typeof DATA_BUNDLE !== "undefined")
  * default fill claim this build made it: "unknown" is a fact worth keeping,
  * and a confidently wrong version is worse than none when you are working out
  * why an old file behaves oddly. */
-const APP_VERSION = "366";
+const APP_VERSION = "367";
 
 // ============================================================== game constants
 // The numeric knobs the engine reads; grouped by chargen step below.
@@ -1079,6 +1079,13 @@ function defaultCharacter() {
       // chargen edit that reorders the list, and a spell can only be known once
       // (the learn picker hides anything already known), so a name is unique.
       spells_forgotten: [],
+      // Amp power NAMES dropped during play (#104), the same play-side record
+      // spells_forgotten is and for the same reason: the chargen list must not
+      // be rewritten. One entry removes ONE matching power rather than every
+      // copy of the name -- unlike a spell, an amp power stacks (the buy
+      // dialog lists it `stackable`, and Attribute Boost is routinely taken
+      // more than once), so "forget Attribute Boost" has to mean one of them.
+      amp_powers_forgotten: [],
       // ---- THE BRIGHT LINE ----------------------------------------------
       // What the character walked out of creation with, copied into play at
       // Finalize. From that moment play owns this outright: worn flags, fitted
@@ -5950,6 +5957,22 @@ function applyPlayAdvances(character) {
   if (forgotten.length) {
     const gone = new Set(forgotten);
     character.magic.spells = character.magic.spells.filter(s => !gone.has(s && s.name));
+  }
+  // Amp powers dropped in play (#104). Same shape and placement as the spell
+  // pass above -- after the purchases are appended, so one filter covers both
+  // halves -- but it removes one entry PER RECORD instead of every match,
+  // because these stack. Chargen entries sit ahead of play purchases in this
+  // joined list, so the first match is the chargen copy, which is the only one
+  // that can get here: a play-bought power is spliced out of purchases by the
+  // sheet directly. A stale name is a harmless no-op.
+  const droppedPowers = [...(play.amp_powers_forgotten || [])];
+  if (droppedPowers.length) {
+    character.magic.amp_powers = character.magic.amp_powers.filter(p => {
+      const at = droppedPowers.indexOf(p && p.name);
+      if (at < 0) return true;
+      droppedPowers.splice(at, 1);
+      return false;
+    });
   }
   for (const [name, plus] of Object.entries(play.spell_force_advances || {})) {
     for (const spell of character.magic.spells) {

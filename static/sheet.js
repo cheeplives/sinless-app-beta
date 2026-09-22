@@ -690,6 +690,23 @@ const CASH_UNDO = {
     list.splice(i, 1);
     return true;
   },
+  // Undoing the drop of an amp power BOUGHT IN PLAY puts the entry back where
+  // it was; the ZP re-spends itself, since the engine derives it from the list.
+  restore_amp_power: u => {
+    const list = CHAR.play.purchases.amp_powers;
+    if (u.entry === undefined) return false;
+    list.splice(Math.max(0, Math.min(list.length, u.at)), 0, deepCopyEntry(u.entry));
+    return true;
+  },
+  // Undoing the drop of a CHARGEN amp power drops one "forgotten" record --
+  // one, not all, so undoing one of two dropped copies returns one of them.
+  unforget_amp_power: u => {
+    const list = CHAR.play.amp_powers_forgotten || [];
+    const i = list.indexOf(u.name);
+    if (i < 0) return false;
+    list.splice(i, 1);
+    return true;
+  },
   // Raising a program's rating renames it in place ("Crack Encryption 3" ->
   // "… 4"), so undo renames it back — a field restore, not a removal (#82).
   program_rating: u => {
@@ -1370,6 +1387,47 @@ async function sellSpell(sp, value) {
   // is not restored by Undo: the spell comes back, but whether it is cast again
   // is the player's call, not a bookkeeping consequence.
   play.active_spells = activeSpells().filter(s => s.name !== sp.name);
+  await playChangedRecalc();
+  return true;
+}
+
+/* Drop an amp power and get its ZP back (#104).
+ *
+ * The ZP needs no arithmetic: CALC.zoetics.amp_zp_spent is DERIVED from the
+ * power list, so removing the entry returns exactly what it charged, half-cost
+ * Amp rate and all -- the same reasoning the purchase's Undo already relied on.
+ * That is also why there is no promptDisposal here: that dialog asks what you
+ * sold a thing FOR, and a power in your head was never bought with money and
+ * cannot be sold to anyone. A plain confirm naming the ZP coming back is the
+ * whole decision.
+ *
+ * Two routes out, exactly as sellSpell has:
+ *   - bought in play -> splice the entry from purchases, by IDENTITY (p.ref),
+ *     so dropping one of two identical powers drops the one you clicked.
+ *   - from chargen   -> record the NAME in play.amp_powers_forgotten, because
+ *     the chargen record itself must stay untouched. Pushed once per drop, so
+ *     a power taken twice can be given up one copy at a time.
+ */
+async function dropAmpPower(p, paidZp) {
+  const play = CHAR.play;
+  const label = p.target ? `${p.name} → ${p.target}` : p.name;
+  if (!confirm(`Drop ${label}?\n\nThe ${paidZp} ZP it costs comes straight back, `
+      + "and Undo on the Activity ledger puts the power back if you change your mind."))
+    return false;
+  if (p.inPlay) {
+    const list = play.purchases.amp_powers;
+    const at = list.indexOf(p.ref);
+    if (at < 0) return false;
+    const entry = deepCopyEntry(list[at]);
+    list.splice(at, 1);
+    logCash(`Dropped amp power ${label} (${paidZp} ZP back)`, 0,
+      { kind: "restore_amp_power", at, entry });
+  } else {
+    play.amp_powers_forgotten = play.amp_powers_forgotten || [];
+    play.amp_powers_forgotten.push(p.name);
+    logCash(`Dropped amp power ${label} (${paidZp} ZP back)`, 0,
+      { kind: "unforget_amp_power", name: p.name });
+  }
   await playChangedRecalc();
   return true;
 }
@@ -12310,7 +12368,11 @@ function magicShopSections() {
       warnings: cart => {
         if (!cart.length) return [];
         const z = CALC.zoetics;
-        const owned = CHAR.magic.amp_powers.length + (play.purchases.amp_powers || []).length;
+        // Minus the ones dropped in play (#104), or a character who gave up
+        // every power would be told they still had one and never see the
+        // first-power ZR cliff again on the way back in.
+        const owned = CHAR.magic.amp_powers.length + (play.purchases.amp_powers || []).length
+          - (play.amp_powers_forgotten || []).length;
         // Classic ZR has a cliff at the FIRST amp power: from then on the whole
         // carried ZR total counts against ZP, not just what the powers cost. So
         // the ZP left afterwards falls by the chrome and gear on your back as
@@ -12474,9 +12536,24 @@ function shMagic(body) {
 
   // amp powers (chargen + bought) + buy control — `ref` keeps the original
   // entry so target picks on play purchases actually persist
+  //
+  // Powers dropped in play are subtracted here for the same reason the spells
+  // above are (#104): a play-bought one is spliced out of purchases outright,
+  // but a CHARGEN one only leaves a record, because the chargen list is never
+  // written to after Finalize -- so this tab has to take the same names off
+  // that applyPlayAdvances does, or the ZP comes back while the row stays on
+  // screen. One record removes ONE entry, matching the engine, so dropping one
+  // of two identical powers leaves the other showing.
+  const dropped = [...(play.amp_powers_forgotten || [])];
   const allPowers = [
     ...CHAR.magic.amp_powers.map(p => ({ ...p, ref: p, inPlay: false })),
-    ...play.purchases.amp_powers.map(p => ({ ...p, ref: p, inPlay: true }))];
+    ...play.purchases.amp_powers.map(p => ({ ...p, ref: p, inPlay: true }))]
+    .filter(p => {
+      const at = dropped.indexOf(p.name);
+      if (at < 0) return true;
+      dropped.splice(at, 1);
+      return false;
+    });
   if (allPowers.length || type === "Amp" || type === "Archmage") {
     const zo = CALC.zoetics;
     const wrap = el("div", { class: "card sh-card" },
@@ -12522,7 +12599,16 @@ function shMagic(body) {
           targetCtl ? el("span", {}, " ", targetCtl) : null,
           targetCtl && !p.target
             ? el("span", { class: "sub", style: "color:var(--bad)" }, " ← needs a target to apply")
-            : null),
+            : null,
+          // Drop the power and take the ZP back (#104). Hidden on a read-only
+          // shared view like every other destructive control, and offered on
+          // chargen powers as well as bought ones -- the offline callout above
+          // names losing a power as a way out of negative ZP, so the sheet has
+          // to provide one.
+          ro ? null : el("span", {}, " "),
+          ro ? null : el("button", { class: "row-del",
+            title: `Drop this power — the ${paidZp} ZP comes back`,
+            onclick: () => dropAmpPower(p, paidZp) }, "✕")),
         r.Effect ? el("div", { class: "sub" }, r.Effect) : null,
         descriptionExpander(r.Description, `amp_powers:${p.name}`)));
     }
