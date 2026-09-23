@@ -28,6 +28,14 @@
     <button id="settings-btn" class="theme-toggle" type="button" aria-haspopup="true" aria-expanded="false" title="House rules" aria-label="House rules">⚙</button>
     <div id="settings-panel" class="settings-panel" role="menu" aria-label="House rules" hidden></div>
   </div>
+  <!-- Account (Shared characters / Admin / Sign out). These are account
+       actions, not character actions, so they sit with the other app-level
+       controls rather than in the character ☰ menu. Stays hidden in
+       local-only mode -- see initAccountMenu() in static/auth-ui.js. -->
+  <div id="account-menu" class="scheme-menu" hidden>
+    <button id="account-btn" class="theme-toggle" type="button" aria-haspopup="true" aria-expanded="false" title="Account" aria-label="Account">👤</button>
+    <div id="account-panel" class="settings-panel account-panel" role="menu" aria-label="Account" hidden></div>
+  </div>
 </div>
 <div id="app">
   <aside id="rail">
@@ -61,9 +69,10 @@
       <div id="rail-zoetics"></div>
     </div>
 
-    <!-- Character actions (Save/Load/New/Import/Export/Homebrew/Admin/Sign out)
-         now live in the ☰ menu on the workspace tab strip, reachable from both
-         chargen and play — see renderWorkspaceBar() / sheetMenu(). -->
+    <!-- Character actions (Save/Load/New/Files/Homebrew/Sharing) live in the
+         ☰ menu on the workspace tab strip, reachable from both chargen and
+         play — see renderWorkspaceBar() / sheetMenu(). Account actions
+         (Shared characters/Admin/Sign out) are in the 👤 menu top-right. -->
     <div id="rail-alerts"></div>
   </aside>
 

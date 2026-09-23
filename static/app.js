@@ -106,6 +106,8 @@ async function boot() {
     await SYNC.hydrate();   // then pull server → local cache
   }
   mergeCustomContent();   // homebrew.js: splice user-created rows (incl. synced) into the tables
+  // After the probe, so the panel knows whether this account is an admin.
+  if (typeof initAccountMenu === "function") initAccountMenu();
   bindRail();
   initWorkspace();        // workspace.js: restore/seed open characters, set CHAR
   await recalc();
@@ -357,10 +359,10 @@ function bindRail() {
     CHAR.name = e.target.value; renderWorkspaceBar(); persistWorkspace();
   });
   $("#char-player").addEventListener("input", e => { CHAR.player = e.target.value; persistWorkspace(); });
-  // The character-action buttons (Save/Load/New/Import/Export/Homebrew) moved
-  // out of the rail into the workspace ☰ menu (sheetMenu), so there's nothing
-  // to wire here anymore. mountAccountControls() no-ops without .rail-actions.
-  if (typeof mountAccountControls === "function") mountAccountControls();
+  // The character-action buttons (Save/Load/New/Files/Homebrew) moved out of
+  // the rail into the workspace ☰ menu (sheetMenu), and the account ones to
+  // the 👤 menu in #theme-controls (initAccountMenu), so there's nothing left
+  // to wire here.
 }
 
 /* Is this save currently published to the members-only gallery?
@@ -399,17 +401,6 @@ function warnSharedUndeletable(names) {
     + ` shared with other members and can't be deleted:\n\n${list}\n\n`
     + "Make it private first — the 🌐 Public badge beside the character's name, "
     + "or ☰ menu → Sharing — then delete it.");
-}
-
-/* Permanently remove a saved character. If it's the one currently open,
- * also reset to a fresh character — otherwise the next autosave would
- * quietly resurrect the deleted slot. Shared characters are refused. */
-async function deleteSavedCharacter(name) {
-  if (!name) return;
-  const shared = sharedSaveNames([name]);
-  if (shared.length) { warnSharedUndeletable(shared); return; }
-  if (!confirm(`Delete ${name}? The saved character is permanently removed.`)) return;
-  await deleteSavedCharacters([name]);
 }
 
 /* Delete several saves in one go. Every slot is removed FIRST, then the tabs

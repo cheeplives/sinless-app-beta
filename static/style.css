@@ -298,7 +298,7 @@ body.ws-reordering .ws-tab{transition:none}
 #workspace-tabs .sh-menu{align-self:center;margin-right:8px}
 #workspace-tabs .sh-menu-btn{width:34px;height:30px}
 #workspace-tabs .sh-menu-btn .bar{width:16px}
-#workspace-tabs .sh-menu-panel{top:37px}
+#workspace-tabs .sh-menu-panel{top:37px;max-height:calc(100vh - 49px)}
 
 /* ---------- rail ---------- */
 #rail{background:linear-gradient(180deg,var(--rail-grad-1) 0%,var(--rail-grad-2) 100%);border-right:1px solid var(--line);
@@ -1582,18 +1582,26 @@ input.sh-unit-name::placeholder{color:var(--dim);font-weight:600}
 .sh-menu-btn:hover .bar,.sh-menu-btn[aria-expanded="true"] .bar{background:var(--text)}
 .sh-menu-btn[aria-expanded="true"]{border-color:var(--manon-dim)}
 .sh-menu-backdrop{position:fixed;inset:0;z-index:45}
+/* The panel is anchored under the ☰ and grows downward with no height of its
+   own, so before this it could simply run past the bottom of the viewport with
+   no scrollbar — the last rows were unreachable on a laptop or a landscape
+   tablet. max-height is "viewport minus where the panel starts, minus a 12px
+   breathing gap", and overscroll-behavior keeps a scroll that reaches the end
+   of the menu from carrying on into the sheet behind it. Children are pinned
+   flex:none so an overflowing column squashes nothing. */
 .sh-menu-panel{position:absolute;top:44px;left:0;z-index:46;display:flex;flex-direction:column;gap:6px;
   background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px;min-width:220px;
+  max-height:calc(100vh - 56px);overflow-y:auto;overscroll-behavior:contain;
   box-shadow:0 12px 28px rgba(0,0,0,.5)}
+.sh-menu-panel > *{flex:none}
 .sh-menu-panel .btn,.sh-menu-panel .btn-select{width:100%;text-align:left}
-/* thin divider between the menu's logical groups (Load/Save/New, Import/Export, …) */
+/* thin divider between the menu's logical groups (Load/Save/New, Files/Homebrew, …) */
 .sh-menu-sep{height:1px;background:var(--line);margin:2px 0;flex:none}
-/* menu-item accent classes — theme-aware: load/import teal, save/export green,
-   homebrew accent-purple, admin/sign-out danger red. */
+/* menu-item accent classes — theme-aware: load/files teal, save green,
+   homebrew accent-purple. */
 .btn.sh-mi-load,.btn-select.sh-mi-load{border-color:var(--slot-overbarrel);color:var(--slot-overbarrel)}
 .btn.sh-mi-save{border-color:var(--ok);color:var(--ok)}
 .btn.sh-mi-brew{border-color:var(--manon);color:var(--manon)}
-.btn.sh-mi-danger{border-color:var(--bad);color:var(--bad)}
 /* non-highlighted items: high-contrast (white in dark, near-black in light) outline */
 .btn.sh-mi-plain{border-color:var(--strong);color:var(--text)}
 /* Delete: solid red button, white text (--on-accent stays white in both themes) */
@@ -1831,6 +1839,27 @@ tr.sh-modslots-row td{padding-top:0;padding-bottom:10px;border-bottom:1px solid 
 .settings-rule-help > summary::before{content:"▸ ";display:inline-block}
 .settings-rule-help[open] > summary::before{content:"▾ "}
 .settings-rule-help[open] > summary{color:var(--text)}
+/* Files… / Chargen… dialogs: a button beside the sentence that says what it
+   does. The button column is fixed so the four Import/Export rows line their
+   labels up regardless of length, and it wraps to its own line on a phone
+   where 210px + prose would leave nothing for the prose. */
+.sh-files-group{margin-bottom:16px}
+.sh-files-group:last-child{margin-bottom:0}
+.sh-files-group > h4{margin:0 0 8px;font:600 11px/1 var(--disp);letter-spacing:.1em;
+  text-transform:uppercase;color:var(--dim)}
+.sh-files-row{display:flex;align-items:flex-start;gap:12px;padding:8px 0;border-top:1px solid var(--line)}
+.sh-files-group > .sh-files-row:first-of-type,.sh-modal-body > .sh-files-row:first-of-type{border-top:0}
+.sh-files-row > .btn{flex:0 0 210px;text-align:left}
+.sh-files-row > .hint{margin:0;flex:1 1 auto;min-width:0}
+.sh-files-row > .btn[disabled]{opacity:.5;cursor:not-allowed}
+@media (max-width:560px){
+  .sh-files-row{flex-direction:column;gap:6px}
+  .sh-files-row > .btn{flex:none;width:100%}
+}
+/* 👤 account panel — the settings panel's box, with stacked full-width rows. */
+.account-panel{min-width:200px}
+.account-who{margin:-4px 0 10px;word-break:break-word}
+.account-item{display:block;width:100%;text-align:left;margin-top:6px}
 /* Click-to-roll dice figures (skill ratings, weapon dice chips, roll hints).
    A bare button so it inherits whatever it wraps — the reading must not move,
    only gain an affordance. Padding with a matching negative margin: the hit
@@ -2135,9 +2164,6 @@ tr.sh-modslots-row td{padding-top:0;padding-bottom:10px;border-bottom:1px solid 
 .admin-name{font-weight:600;color:var(--strong)}
 .admin-email{color:var(--dim);font-size:12px;margin-top:1px}
 .admin-actions{display:flex;gap:6px;flex:none}
-
-/* Sign-out / Admin / Shared buttons sit under the rail actions grid, full width. */
-.rail-actions>.btn-signout,.rail-actions>.btn-admin,.rail-actions>.btn-shared{grid-column:1 / -1}
 
 /* ---------- character sharing ---------- */
 /* Public/Private badge beside the character name (click to toggle). */

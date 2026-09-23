@@ -126,16 +126,51 @@ async function adminAct(userId, action) {
   await renderAdminList();
 }
 
-/* Append Sign out (+ Admin) to the chargen rail actions when signed in. Called
- * from bindRail(). No-op in local-only mode. */
-function mountAccountControls() {
-  if (!(typeof SYNC !== "undefined" && SYNC.enabled && SYNC.enabled())) return;
-  const bar = $(".rail-actions");
-  if (!bar || bar.querySelector(".btn-signout")) return;
-  bar.append(el("button", { class: "btn ghost btn-shared", onclick: openSharedGallery }, "Shared"));
-  if (SYNC.isAdmin())
-    bar.append(el("button", { class: "btn ghost btn-admin", onclick: openAdminPanel }, "Admin"));
-  bar.append(el("button", { class: "btn ghost btn-signout", onclick: doSignOut }, "Sign out"));
+/* The 👤 account menu, in the fixed controls cluster top-right beside the
+ * scheme picker and ⚙. Shared characters, Admin and Sign out used to sit at
+ * the bottom of the character ☰ menu, which is wrong twice over: they aren't
+ * actions on the open character, and they were the three rows most likely to
+ * fall off the bottom of a long menu on a short viewport.
+ *
+ * Built once, from boot(), after SYNC.probe() has settled — so isAdmin() is
+ * already known and there's no state to keep refreshing. In local-only mode
+ * (no backend) none of these actions exist, so the whole control stays hidden
+ * and costs nothing. Sign-out re-renders the login gate and approval changes
+ * arrive via a reload, so the panel can't go stale while it's mounted.
+ *
+ * Open/close mirrors initHouseRules(): click toggles, a click anywhere else or
+ * Escape closes, and clicks inside the panel don't bubble out to that handler. */
+function initAccountMenu() {
+  const wrap = $("#account-menu"), btn = $("#account-btn"), panel = $("#account-panel");
+  if (!wrap || !btn || !panel) return;
+  if (!(typeof SYNC !== "undefined" && SYNC.enabled && SYNC.enabled())) {
+    wrap.hidden = true;
+    return;
+  }
+  const u = SYNC.user || {};
+  const who = u.display_name || u.email || "";
+  const close = () => { panel.hidden = true; btn.setAttribute("aria-expanded", "false"); };
+  const item = (label, fn, cls) => el("button", {
+    class: "btn " + (cls || "ghost") + " account-item",
+    onclick: () => { close(); fn(); } }, label);
+
+  panel.replaceChildren(
+    el("h4", {}, "Account"),
+    who ? el("p", { class: "auth-meta account-who" }, who) : null,
+    item("Shared characters", openSharedGallery),
+    SYNC.isAdmin() ? item("Admin", openAdminPanel) : null,
+    item("Sign out", doSignOut, "warn"));
+
+  btn.addEventListener("click", e => {
+    e.stopPropagation();
+    const open = panel.hidden;
+    panel.hidden = !open;
+    btn.setAttribute("aria-expanded", String(open));
+  });
+  panel.addEventListener("click", e => e.stopPropagation());
+  document.addEventListener("click", () => { if (!panel.hidden) close(); });
+  document.addEventListener("keydown", e => { if (e.key === "Escape" && !panel.hidden) close(); });
+  wrap.hidden = false;
 }
 
 /* ---- sharing: toggle + gallery ------------------------------------------- */

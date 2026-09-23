@@ -4404,12 +4404,22 @@ function manageSavesModal() {
   });
 }
 
-/* Collapsible hamburger menu (upper-left of the sheet header) holding the
- * less-frequent whole-character actions: leaving/reverting chargen state,
- * Homebrew, and import/export. `act()` closes the menu and re-renders once
- * the action settles, unless the action already navigated away from #sheet
- * (backToChargen, enterHomebrew) in which case that view's own render wins. */
-function sheetMenu() {
+/* ☰ → Files… — import and export, gathered behind one menu item.
+ *
+ * Four buttons for one job was a quarter of the menu, and a button label has
+ * no room to say what a format is FOR: "Export Markdown (Scabard)" means
+ * nothing unless you already use Scabard, and nothing on screen said which of
+ * the two exports is the one to keep as a backup. A row plus a line of prose
+ * answers both, and costs one extra click on the rarest actions in the app.
+ *
+ * The two <input type=file> live inside the modal and die with it, so the
+ * picker can't be re-triggered by a stale node after the dialog closes. Both
+ * handlers close the dialog before they hand off, because opening a character
+ * re-renders everything underneath. */
+function openFilesModal() {
+  let dlg = null;
+  const close = () => { if (dlg) dlg.close(); };
+
   const importInput = el("input", {
     type: "file", accept: ".json,application/json", hidden: "1",
     onchange: async e => {
@@ -4428,7 +4438,7 @@ function sheetMenu() {
       // exists so they're visible, and so an orphaned row gets said out loud
       // instead of quietly pricing at zero.
       if (!(await importReportModal(report, file.name))) return;
-      sheetMenuOpen = false;
+      close();
       const merged = report.character;
       if (merged.name) STORAGE.saveCharacter(merged);   // so it shows in the Load list
       await openCharacter(merged);                      // opens in its own tab
@@ -4445,11 +4455,122 @@ function sheetMenu() {
       const file = e.target.files[0];
       e.target.value = "";
       if (!file) return;
-      sheetMenuOpen = false;
+      close();
       await importMarkdownFile(file);
     },
   });
 
+  const row = (btn, blurb) => el("div", { class: "sh-files-row" }, btn, el("p", { class: "hint" }, blurb));
+
+  dlg = openSheetModal({
+    title: "Character files",
+    sub: "Bring a character in from a file, or take this one out.",
+    maxWidth: "540px",
+    restoreSel: ".sh-menu-btn",
+    build: () => {
+      const exportJsonBtn = el("button", { class: "btn sh-mi-save", onclick: () => {
+        // Two versions, because they answer different questions. `app_version`
+        // on the record is what BUILT this character and travels with it
+        // forever; `exported_with` is this build, and is the only one an older
+        // file can offer. Kept outside `app_version` so a round trip can't
+        // overwrite the character's own provenance with whoever last exported it.
+        const payload = Object.assign({}, CHAR, {
+          exported_with: RULES.APP_VERSION,
+          exported_at: new Date().toISOString(),
+        });
+        const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+        const a = el("a", { href: URL.createObjectURL(blob),
+          download: (CHAR.name || "character") + ".json" });
+        a.click();
+        close();
+      } }, "Export JSON");
+      // Export Markdown reads the finalized play sheet, so it has nothing to
+      // write before Finalize. Shown disabled with the reason rather than
+      // hidden — a row that vanishes reads as a missing feature.
+      const exportMdBtn = el("button", { class: "btn sh-mi-save",
+        disabled: CHAR.finalized ? null : "1",
+        onclick: () => { close(); exportMarkdown(); } }, "Export Markdown (Scabard)");
+
+      return [
+        el("div", { class: "sh-files-group" },
+          el("h4", {}, "Import"),
+          row(el("button", { class: "btn sh-mi-load", onclick: () => importInput.click() }, "Import JSON"),
+            "Opens a character exported from Sinless in a new tab. The file is checked first, "
+            + "and anything that has to be repaired or priced from a missing row is listed before it opens."),
+          row(el("button", { class: "btn sh-mi-load", onclick: () => importMdInput.click() }, "Import Markdown"),
+            "Rebuilds a character from a Markdown (Scabard) write-up. It opens in the character "
+            + "generator, not play, so you can check what came across before finalizing.")),
+        el("div", { class: "sh-files-group" },
+          el("h4", {}, "Export"),
+          row(exportJsonBtn,
+            "The complete character, exactly as the app stores it — this is the one to keep as a "
+            + "backup or move to another device. It imports back with everything intact."),
+          row(exportMdBtn,
+            CHAR.finalized
+              ? "A formatted play sheet for pasting into Scabard or another wiki. It's a write-up "
+                + "for reading, not a full record: keep the JSON if you want a backup."
+              : "A formatted play sheet for Scabard or another wiki. Available once the character "
+                + "is finalized — it reads the play sheet, which doesn't exist yet.")),
+        importInput, importMdInput,
+      ];
+    },
+  });
+  return dlg;
+}
+
+/* ☰ → Chargen… — the two ways back out of play, behind one item.
+ *
+ * These were adjacent rows in the menu, and they are the easiest pair in the
+ * app to confuse: one keeps everything play has accumulated, the other throws
+ * all of it away, and both read as "go back to chargen". Two red-ish buttons
+ * can't carry that distinction; a dialog can put the answer next to each one.
+ * Both actions keep their own confirm() — this explains, it doesn't guard. */
+function openChargenModal() {
+  const dlg = openSheetModal({
+    title: "Back to the character generator",
+    sub: "Two ways back, and they differ in what happens to everything play has accumulated.",
+    maxWidth: "540px",
+    restoreSel: ".sh-menu-btn",
+    build: () => [
+      el("div", { class: "sh-files-row" },
+        el("button", { class: "btn sh-mi-plain",
+          onclick: async () => { dlg.close(); await backToChargen(); rerenderApp(); } }, "← Back to Chargen"),
+        el("p", { class: "hint" },
+          "Reopens the generator with play untouched. Damage, Kismet, pools, cash, purchases, "
+          + "advances and notes all stay as they are and come back when you finalize again. "
+          + "Use this to fix something you got wrong in the build.")),
+      el("div", { class: "sh-files-row" },
+        el("button", { class: "btn warn",
+          onclick: async () => { dlg.close(); await revertToChargenEnd(); rerenderApp(); } }, "Revert to Post-Chargen"),
+        el("p", { class: "hint" },
+          "Rewinds the character to the moment chargen ended and throws play away: Kismet and "
+          + "advances, everything bought in play, cash beyond the starting roll, damage, effects "
+          + "and ledgers. The build itself is untouched. There is no undo.")),
+    ],
+  });
+  return dlg;
+}
+
+/* Collapsible hamburger menu (upper-left of the sheet header) holding the
+ * whole-character actions: the save/load family, files, Homebrew, sharing, and
+ * the ways in and out of play. `act()` closes the menu and re-renders once the
+ * action settles, unless the action already navigated away from #sheet
+ * (enterHomebrew) in which case that view's own render wins.
+ *
+ * The menu is deliberately short. At full extent it used to render 19 rows in
+ * one column — around 745px of panel hanging off a strip at y=37 — so on a
+ * laptop or a landscape tablet the last items simply weren't on screen, and
+ * there was no scrollbar to find them with. Three things fixed that: the
+ * account rows moved out to the 👤 control (initAccountMenu), Import/Export
+ * collapsed into Files… and the two chargen exits into Chargen…, and the
+ * panel itself now scrolls (.sh-menu-panel max-height) so no future addition
+ * can run off the bottom again.
+ *
+ * Delete Character is gone with them. It was one row for the single case
+ * "delete the character that happens to be open", which Manage saves… already
+ * covers with a tick-box and the same shared-character lock; losing one-click
+ * permanent deletion is no loss at all. */
+function sheetMenu() {
   const act = fn => async () => {
     sheetMenuOpen = false;
     await fn();
@@ -4466,6 +4587,10 @@ function sheetMenu() {
   if (sheetMenuOpen) {
     const ro = !!(activeTabObj() && activeTabObj().readonly);
     const synced = typeof SYNC !== "undefined" && SYNC.enabled && SYNC.enabled();
+    // Opening a dialog from a menu row: the menu has to go, and the strip has
+    // to repaint so the ☰ button loses its open state, before the modal traps
+    // focus behind it.
+    const openDialog = fn => () => { sheetMenuOpen = false; renderWorkspaceBar(); fn(); };
 
     // Group 1 — Load / Save / New (character files). Load is the same picker as
     // the header; Save mirrors it (incl. the "Saved ✓" flash) and stays open so
@@ -4510,78 +4635,39 @@ function sheetMenu() {
       sheetMenuOpen = false; newCharacterTab();
     } }, "New");
 
-    // Group 2 — Import / Export.
-    const importBtn = el("button", { class: "btn sh-mi-load", onclick: () => importInput.click() }, "Import JSON");
-    const importMdBtn = el("button", { class: "btn sh-mi-load",
-      title: "Rebuild a character from a Markdown (Scabard) export — opens in the character generator",
-      onclick: () => importMdInput.click() }, "Import Markdown");
-    const exportJsonBtn = el("button", { class: "btn sh-mi-save", onclick: act(() => {
-      // Two versions, because they answer different questions. `app_version` on
-      // the record is what BUILT this character and travels with it forever;
-      // `exported_with` is this build, and is the only one an older file can
-      // offer. Kept outside `app_version` so a round trip can't overwrite the
-      // character's own provenance with whoever last exported it.
-      const payload = Object.assign({}, CHAR, {
-        exported_with: RULES.APP_VERSION,
-        exported_at: new Date().toISOString(),
-      });
-      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
-      const a = el("a", { href: URL.createObjectURL(blob),
-        download: (CHAR.name || "character") + ".json" });
-      a.click();
-    }) }, "Export JSON");
-    // Export Markdown reads the finalized play sheet; only offer it in play mode.
-    const exportMdBtn = CHAR.finalized
-      ? el("button", { class: "btn sh-mi-save", onclick: act(exportMarkdown) }, "Export Markdown (Scabard)") : null;
+    // Group 2 — Files… (import/export) and Homebrew.
+    const filesBtn = el("button", { class: "btn sh-mi-load",
+      title: "Import a character from a file, or export this one",
+      onclick: openDialog(openFilesModal) }, "Files…");
+    const homebrewBtn = el("button", { class: "btn sh-mi-brew", onclick: act(enterHomebrew) }, "Homebrew");
 
-    // Group 3 — Sharing / Shared characters / Homebrew (sharing + gallery need a backend).
+    // Group 3 — Sharing (needs a backend, a name, and write access).
     const sharingBtn = (synced && !ro && CHAR.name)
       ? el("button", { class: "btn sh-mi-plain", onclick: act(toggleSharing) },
           SYNC.isPublic(STORAGE.sanitizeName(CHAR.name))
             ? "Sharing: Public ✓ — make private"
             : "Sharing: Private — make public")
       : null;
-    const sharedBtn = synced
-      ? el("button", { class: "btn sh-mi-plain", onclick: act(openSharedGallery) }, "Shared characters") : null;
-    const homebrewBtn = el("button", { class: "btn sh-mi-brew", onclick: act(enterHomebrew) }, "Homebrew");
 
-    // Group 4 — Back to Chargen / Revert / Delete. Back/Revert only apply to a
-    // finalized character (they toggle play state), so hide them in chargen.
-    const backBtn = CHAR.finalized
-      ? el("button", { class: "btn sh-mi-plain", onclick: act(backToChargen) }, "← Back to Chargen") : null;
+    // Group 4 — play state. Chargen… only applies to a finalized character
+    // (both of its choices toggle play state), so it's absent in chargen.
+    const chargenBtn = CHAR.finalized
+      ? el("button", { class: "btn sh-mi-plain",
+          title: "Reopen the character generator — keeping play, or rewinding to the end of chargen",
+          onclick: openDialog(openChargenModal) }, "Chargen…") : null;
     const resyncBtn = (CHAR.finalized && !ro && CHAR.play && CHAR.play.kit)
       ? el("button", { class: "btn sh-mi-plain",
           title: "Rebuild play's copy of the items you still own from the chargen build",
           onclick: act(resyncKitFromBuild) }, "Re-sync Build → Kit") : null;
-    const revertBtn = CHAR.finalized
-      ? el("button", { class: "btn warn", onclick: act(revertToChargenEnd) }, "Revert to Post-Chargen") : null;
-    // Shared characters can't be deleted (see deleteSavedCharacters). The button
-    // stays live and says so on click rather than going grey, because greyed out
-    // with no reason is exactly how someone concludes the app is broken — and
-    // the fix (unshare) is one item up the same menu.
-    const sharedLock = !!CHAR.name && isSharedSave(CHAR.name);
-    const deleteBtn = el("button", { class: "btn sh-mi-delete", disabled: CHAR.name ? null : "1",
-      title: !CHAR.name ? "Character has no name — nothing saved to delete"
-           : sharedLock ? "Shared with other members — make it private before deleting it"
-                        : "Permanently delete this character's save",
-      onclick: act(() => deleteSavedCharacter(CHAR.name)) },
-      sharedLock ? "Delete Character 🔒" : "Delete Character");
     const manageBtn = el("button", { class: "btn sh-mi-delete",
-      title: "Tick several saved characters and delete them in one go",
+      title: "Tick saved characters — including this one — and delete them in one go",
       onclick: act(manageSavesModal) }, "Manage saves…");
-
-    // Group 5 — Admin / Sign out (danger red; only when signed in).
-    const adminBtn = (synced && SYNC.isAdmin())
-      ? el("button", { class: "btn sh-mi-danger", onclick: act(openAdminPanel) }, "Admin") : null;
-    const signOutBtn = synced
-      ? el("button", { class: "btn sh-mi-danger", onclick: act(doSignOut) }, "Sign out") : null;
 
     const groups = [
       [loadSel, saveBtn, renameBtn, dupBtn, newBtn],
-      [importBtn, importMdBtn, exportJsonBtn, exportMdBtn],
-      [sharingBtn, sharedBtn, homebrewBtn],
-      [backBtn, resyncBtn, revertBtn, deleteBtn, manageBtn],
-      [adminBtn, signOutBtn],
+      [filesBtn, homebrewBtn],
+      [sharingBtn],
+      [chargenBtn, resyncBtn, manageBtn],
     ].map(g => g.filter(Boolean)).filter(g => g.length);
 
     const panel = el("div", { class: "sh-menu-panel", role: "menu" });
@@ -4589,7 +4675,6 @@ function sheetMenu() {
       if (i > 0) panel.append(el("div", { class: "sh-menu-sep" }));
       g.forEach(b => panel.append(b));
     });
-    panel.append(importInput, importMdInput);
 
     wrap.append(
       el("div", { class: "sh-menu-backdrop", onclick: () => { sheetMenuOpen = false; renderWorkspaceBar(); } }),
