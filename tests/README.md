@@ -30,8 +30,11 @@ screenshots and a trace (open with `npx playwright show-trace <trace.zip>`).
 - **storage**: a chargen draft survives leaving the page, with `pagehide`
   alone (iOS never sends `beforeunload`); the 7-day-deletion tip appears on
   WebKit only, and once; iOS text fields are 16px.
-- **offline**: after one visit the service worker serves the app with the
-  network off.
+- **offline**: in every engine the service worker installs and caches every
+  file it lists. In Chromium and Firefox it also serves them, and reopens the
+  app, with the network off. (Playwright's WebKit blocks requests ahead of the
+  service worker when emulating offline, so those two are skipped there; the
+  real offline launch on an iPhone is still worth a manual check.)
 
 Fixtures are loaded from `docs/qa/fixtures/`. A new fixture there is picked up
 by the smoke and parity tests automatically.
