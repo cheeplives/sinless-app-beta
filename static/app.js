@@ -73,6 +73,19 @@ const el = (tag, attrs = {}, ...kids) => {
  * into the page — el() skips nulls for its own children, and this is the same
  * courtesy for a bare parent.append(). */
 const appendIf = (parent, kid) => { if (kid != null) parent.append(kid); };
+/* Save a Blob as a file. Every export goes through here because the bare
+ * `a.click()` + `revokeObjectURL` pattern is engine-dependent: Safari starts the
+ * download asynchronously and fails it ("WebKitBlobResource error 1") if the URL
+ * is revoked in the same tick, and older Firefox ignores a click on an anchor
+ * that isn't in the document. So: attach, click, detach, and revoke later. */
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = el("a", { href: url, download: filename, hidden: "1" });
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
 const fmt = amount => currencySymbol() + Number(amount || 0).toLocaleString();
 
 /* Raw dice-pool formulas (match computePools in rules.js). Shown on the
@@ -113,6 +126,75 @@ async function boot() {
   await recalc();
   showActiveTab();        // reveal #app or #sheet for the active tab + the tab strip
   refreshLoadList();
+  protectLocalSaves();    // returning players already have saves worth keeping
+}
+
+/* ---- keeping localStorage from being thrown away --------------------------
+ * Characters live in localStorage, and browsers are allowed to discard it:
+ * any engine may under storage pressure unless the origin is marked
+ * persistent, and WebKit (Safari, and every browser on iPhone/iPad) deletes a
+ * site's storage outright after 7 days of browsing without a visit — unless
+ * the site was installed to the Home Screen / Dock. Runs once per session, as
+ * soon as there is at least one saved character to lose: at boot, and from
+ * STORAGE's notifySaved() hook on the first save. */
+let localSavesProtected = false;
+function protectLocalSaves() {
+  if (localSavesProtected) return;
+  try { if (!STORAGE.listCharacters().length) return; } catch { return; }
+  localSavesProtected = true;
+  requestPersistentStorage();
+  maybeShowWebKitStorageTip();
+}
+
+const PERSIST_ASKED_KEY = "sinless:persist-asked";
+async function requestPersistentStorage() {
+  const s = navigator.storage;
+  if (!s || !s.persist || !s.persisted) return;
+  try {
+    if (await s.persisted()) return;
+    // Chrome and Safari decide silently, so asking again in a later session
+    // (after more use) can only help. Firefox asks the PLAYER with a prompt,
+    // and it reports that as a "prompt" permission state: there, ask once per
+    // device and leave it alone after that. Safari has no such permission
+    // name, so the query throws and state stays null — ask every session.
+    let state = null;
+    try { state = (await navigator.permissions.query({ name: "persistent-storage" })).state; }
+    catch { /* not queryable in this engine */ }
+    if (state === "denied") return;
+    if (state === "prompt") {
+      if (localStorage.getItem(PERSIST_ASKED_KEY)) return;
+      localStorage.setItem(PERSIST_ASKED_KEY, "1");
+    }
+    await s.persist();
+  } catch { /* best-effort: nothing here may break a save */ }
+}
+
+const WEBKIT_TIP_KEY = "sinless:webkit-storage-tip";
+function maybeShowWebKitStorageTip() {
+  try { if (localStorage.getItem(WEBKIT_TIP_KEY)) return; } catch { return; }
+  // Apple sets this vendor string in Safari and in every iOS/iPadOS browser
+  // (all of them are WebKit underneath, and all get the 7-day rule).
+  if (navigator.vendor !== "Apple Computer, Inc.") return;
+  // Installed web apps are exempt from the 7-day deletion.
+  if (navigator.standalone === true || matchMedia("(display-mode: standalone)").matches) return;
+  // Signed in: the server holds a copy of every character, so nothing is lost.
+  if (typeof SYNC !== "undefined" && SYNC.enabled && SYNC.enabled()) return;
+  const touchApple = /iPhone|iPad|iPod/.test(navigator.userAgent)
+    || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);  // iPadOS reports as a Mac
+  const install = touchApple
+    ? "tap Share, then Add to Home Screen"
+    : "in Safari choose File → Add to Dock";
+  const tip = el("div", { class: "storage-tip", role: "status" },
+    el("div", { class: "storage-tip-text" },
+      el("b", {}, "Keep your characters safe. "),
+      "This browser deletes a website’s saved data after 7 days without a visit. "
+      + `To stop that, install Sinless (${install}), `
+      + "or export each character from the ☰ menu as a backup."),
+    el("button", { class: "btn small", type: "button", onclick: () => {
+      try { localStorage.setItem(WEBKIT_TIP_KEY, "1"); } catch { /* shows again next time */ }
+      tip.remove();
+    } }, "Got it"));
+  document.body.append(tip);
 }
 
 /* Theme has two independent axes, both applied pre-paint by theme-init.js:

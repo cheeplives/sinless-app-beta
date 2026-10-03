@@ -1,0 +1,13 @@
+{
+  "name": "sinless-browser-tests",
+  "private": true,
+  "description": "Cross-browser tests for the Sinless app (Chromium, Firefox, WebKit). Not part of the app; never deployed.",
+  "scripts": {
+    "test": "playwright test",
+    "test:chromium": "playwright test --project=chromium",
+    "report": "playwright show-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.1"
+  }
+}

@@ -658,6 +658,16 @@ function initWorkspace() {
     e.preventDefault();
     e.returnValue = "";
   });
+  // iOS Safari never fires beforeunload, and mobile browsers in general skip it
+  // when a tab is closed or the page is navigated away from the app switcher.
+  // pagehide is the event every engine does fire on the way out (and on entry
+  // to the back/forward cache), so it repeats the flush. Running both on
+  // desktop is harmless: the saves are idempotent and SYNC collapses its queue
+  // per slug.
+  window.addEventListener("pagehide", () => {
+    commitAllTabs();
+    writeDescriptor();
+  });
 }
 
 /* What closing the window right now would actually cost.
