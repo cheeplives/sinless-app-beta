@@ -1050,10 +1050,7 @@ function exportActivePack() {
   if (!pack) return;
   const out = { format: "sinless-homebrew", version: 2, name: pack.name, ...pack.data };
   const blob = new Blob([JSON.stringify(out, null, 2)], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const a = el("a", { href: url, download: `sinless-homebrew-${STORAGE.sanitizeName(pack.name)}.json` });
-  a.click();
-  URL.revokeObjectURL(url);
+  downloadBlob(blob, `sinless-homebrew-${STORAGE.sanitizeName(pack.name)}.json`);
 }
 
 /* Import a JSON pack file into the active pack (creating one if needed). */

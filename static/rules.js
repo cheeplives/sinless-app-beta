@@ -36,7 +36,7 @@ const BUNDLE = (typeof DATA_BUNDLE !== "undefined")
  * default fill claim this build made it: "unknown" is a fact worth keeping,
  * and a confidently wrong version is worse than none when you are working out
  * why an old file behaves oddly. */
-const APP_VERSION = "372";
+const APP_VERSION = "373";
 
 // ============================================================== game constants
 // The numeric knobs the engine reads; grouped by chargen step below.
@@ -3003,6 +3003,24 @@ const AMMO_STAT_COLUMNS = {
 const AMMO_MODES_RE =
   /\bmodes?\s*(=|\+|-)\s*([A-Za-z]{2}(?:\s*\(\d+\))?(?:\s*,\s*[A-Za-z]{2}(?:\s*\(\d+\))?)*)/gi;
 
+// text.split(/(?<!\d)[,.]\s*|[,.](?!\d)\s*/) without the lookbehind: Safari
+// before 16.4 can't parse one, and a regex literal it can't parse is a syntax
+// error that takes the whole of rules.js down with it. Splits on "," or "."
+// (plus trailing whitespace) unless it sits directly between two digits.
+function splitClausesOutsideNumbers(text) {
+  const parts = [];
+  const sep = /[,.]\s*/g;
+  let start = 0, m;
+  while ((m = sep.exec(text))) {
+    const i = m.index;
+    if (/\d/.test(text.charAt(i - 1)) && /\d/.test(text.charAt(i + 1))) continue;
+    parts.push(text.slice(start, i));
+    start = sep.lastIndex;
+  }
+  parts.push(text.slice(start));
+  return parts;
+}
+
 function ammoStatMods(effectText) {
   const out = { acc: 0, damage: 0, pen: 0, bar: 0, mag: 0, recoil: 0, hardening: 0,
                 conceal: 0, weight: 0, zr: 0, rarity: 0, set: {}, modes: null, notes: [] };
@@ -3019,7 +3037,7 @@ function ammoStatMods(effectText) {
   // Split on clause punctuation, but not on the dot INSIDE a number: the data
   // separates clauses with ". " and a decimal never has a space after the point,
   // so a comma or a period that isn't between two digits ends a clause.
-  for (const rawPart of text.split(/(?<!\d)[,.]\s*|[,.](?!\d)\s*/)) {
+  for (const rawPart of splitClausesOutsideNumbers(text)) {
     const part = rawPart.trim();
     if (!part) continue;
     let m;
@@ -3742,7 +3760,9 @@ function senseCapability(source, clause) {
  * dragging the rest along — Augmented Eyesight's firearm range shift is a
  * combat note, not a sense. */
 function senseClauses(text) {
-  return String(text || "").split(/(?<=[.;])\s+/)
+  // split(/(?<=[.;])\s+/), spelled without a lookbehind (see
+  // splitClausesOutsideNumbers): the separator keeps its "." or ";".
+  return String(text || "").replace(/([.;])\s+/g, "$1\u0000").split("\u0000")
     .map(c => c.trim().replace(/^grants\s+/i, ""))
     .filter(Boolean);
 }

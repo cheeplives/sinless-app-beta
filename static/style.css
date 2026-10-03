@@ -251,11 +251,14 @@ body{background:var(--ink);color:var(--text);font-family:var(--body);font-size:1
 .ws-tabs{display:flex;align-items:stretch;gap:4px;min-width:0;overflow-x:auto;
   scrollbar-width:thin}
 .ws-tab{display:flex;align-items:center;gap:7px;max-width:190px;
-  padding:0 8px 0 11px;margin-top:5px;cursor:grab;user-select:none;
+  padding:0 8px 0 11px;margin-top:5px;cursor:grab;-webkit-user-select:none;user-select:none;
   /* pan-x, not none: a swipe across the chips has to be able to scroll the
      strip, or tabs past the right edge are unreachable on touch. The drag
      arms on a long press instead and blocks panning from JS. */
   touch-action:pan-x;
+  /* iOS: a long press would otherwise raise the link/copy callout over the chip
+     before the drag can arm. */
+  -webkit-touch-callout:none;
   border:1px solid var(--line);border-bottom:none;border-radius:8px 8px 0 0;
   background:var(--ink);color:var(--dim);font-size:12.5px;white-space:nowrap;
   transition:color .12s,background .12s}
@@ -298,11 +301,11 @@ body.ws-reordering .ws-tab{transition:none}
 #workspace-tabs .sh-menu{align-self:center;margin-right:8px}
 #workspace-tabs .sh-menu-btn{width:34px;height:30px}
 #workspace-tabs .sh-menu-btn .bar{width:16px}
-#workspace-tabs .sh-menu-panel{top:37px;max-height:calc(100vh - 49px)}
+#workspace-tabs .sh-menu-panel{top:37px;max-height:calc(100vh - 49px);max-height:calc(100dvh - 49px)}
 
 /* ---------- rail ---------- */
 #rail{background:linear-gradient(180deg,var(--rail-grad-1) 0%,var(--rail-grad-2) 100%);border-right:1px solid var(--line);
-  padding:18px 16px;position:sticky;top:var(--ws-h);height:calc(100vh - var(--ws-h));overflow-y:auto}
+  padding:18px 16px;position:sticky;top:var(--ws-h);height:calc(100vh - var(--ws-h));height:calc(100dvh - var(--ws-h));overflow-y:auto}
 .rail-brand{margin-bottom:16px}
 .brand-mark{font-family:var(--disp);font-weight:700;font-size:26px;letter-spacing:.24em;
   background:linear-gradient(90deg,var(--manon),var(--brand-grad-end));-webkit-background-clip:text;background-clip:text;color:transparent}
@@ -425,7 +428,7 @@ td .sub{color:var(--dim);font-size:11.5px}
    amp powers. Sits under the short Effect line; muted until opened so it never
    competes with the stats. */
 .desc-expander{margin-top:3px}
-.desc-expander>summary{cursor:pointer;font-size:11px;color:var(--dim);user-select:none;
+.desc-expander>summary{cursor:pointer;font-size:11px;color:var(--dim);-webkit-user-select:none;user-select:none;
   display:inline-block;letter-spacing:.04em;text-transform:uppercase}
 .desc-expander>summary:hover{color:var(--manon)}
 .desc-expander[open]>summary{color:var(--manon);margin-bottom:3px}
@@ -534,7 +537,7 @@ tr.sh-ritual-trained{background:rgba(157,123,255,.06)}
 tr.sh-ritual-trained td:first-child{border-left:2px solid var(--manon-dim);padding-left:12px}
 .skill-name-line{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 .skill-spec-toggle{display:inline-flex;align-items:center;gap:3px;margin-left:auto;
-  font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--dim);cursor:pointer;user-select:none}
+  font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--dim);cursor:pointer;-webkit-user-select:none;user-select:none}
 .skill-spec-toggle input[type=checkbox]{margin:0}
 .skill-spec-text{margin-top:4px;width:100%;font-size:12px;padding:3px 6px}
 .skill-spec-note{color:var(--manon);font-style:italic}
@@ -749,7 +752,7 @@ label.opt input{margin-top:3px}
    effects list and a form stat block. place() reads offsetHeight to decide
    whether to flip above, so the cap has to bite BEFORE it measures. */
 .sh-popover.sh-running-pop{max-width:min(420px,calc(100vw - 12px));
-  max-height:70vh;overflow-y:auto}
+  max-height:70vh;max-height:70dvh;overflow-y:auto}
 .sh-run-group{margin-bottom:8px}
 .sh-popover-sub{font-family:var(--disp);font-size:10px;letter-spacing:.12em;
   text-transform:uppercase;color:var(--dim);margin-bottom:3px}
@@ -1104,7 +1107,7 @@ label.opt input{margin-top:3px}
 .sh-skillname{overflow-wrap:normal}
 .sh-spec-chip{display:inline-flex;align-items:center;gap:3px;font-size:10px;line-height:1;
   letter-spacing:.04em;color:var(--dim);border:1px solid var(--line);border-radius:9px;
-  padding:2px 6px;cursor:pointer;user-select:none;white-space:nowrap}
+  padding:2px 6px;cursor:pointer;-webkit-user-select:none;user-select:none;white-space:nowrap}
 .sh-spec-chip:hover{border-color:var(--manon-dim)}
 .sh-spec-chip.on{color:var(--manon);border-color:var(--manon)}
 .sh-spec-chip input{margin:0;width:11px;height:11px}
@@ -1126,7 +1129,7 @@ label.opt input{margin-top:3px}
 .skill-to-chip{display:inline-flex;align-items:center;font-size:10px;line-height:1;
   letter-spacing:.06em;text-transform:uppercase;color:var(--bad);
   border:1px solid var(--bad);border-radius:9px;
-  padding:2px 6px;cursor:default;user-select:none;white-space:nowrap}
+  padding:2px 6px;cursor:default;-webkit-user-select:none;user-select:none;white-space:nowrap}
 .skill-to-chip.unusable{background:rgba(255,93,108,.13)}
 /* same red, for the loadout's per-weapon dice readout when the mapped skill is
    trained only and the character has none of it */
@@ -1222,7 +1225,7 @@ label.opt input{margin-top:3px}
 .wpn-ammo-note{color:var(--amber);font-style:italic;margin-top:2px}
 .wpn-mods{margin-top:2px}
 .sh-fire-kata{display:inline-flex;align-items:center;gap:3px;font-size:10.5px;
-  color:var(--manon);cursor:pointer;user-select:none;white-space:nowrap}
+  color:var(--manon);cursor:pointer;-webkit-user-select:none;user-select:none;white-space:nowrap}
 .sh-fire-kata input{margin:0;width:12px;height:12px}
 
 .sh-track{margin-top:10px}
@@ -1437,7 +1440,7 @@ input.sh-unit-name::placeholder{color:var(--dim);font-weight:600}
 .sh-unit-stat.boosted b{color:var(--manon)}
 .sh-unit-stat .delta{font-size:10px;color:var(--manon)}
 .sh-unit-details{margin:6px 0 4px;border:1px solid var(--line);border-radius:6px;background:var(--panel);padding:2px 8px}
-.sh-unit-details>summary{cursor:pointer;font-size:12px;color:var(--dim);padding:4px 0;user-select:none}
+.sh-unit-details>summary{cursor:pointer;font-size:12px;color:var(--dim);padding:4px 0;-webkit-user-select:none;user-select:none}
 .sh-unit-details[open]>summary{color:var(--text);margin-bottom:4px}
 .sh-callout{border-left:3px solid var(--bad);background:rgba(255,93,108,.08);padding:6px 10px;
   margin-bottom:6px;font-size:12.5px;border-radius:0 6px 6px 0}
@@ -1591,7 +1594,7 @@ input.sh-unit-name::placeholder{color:var(--dim);font-weight:600}
    flex:none so an overflowing column squashes nothing. */
 .sh-menu-panel{position:absolute;top:44px;left:0;z-index:46;display:flex;flex-direction:column;gap:6px;
   background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px;min-width:220px;
-  max-height:calc(100vh - 56px);overflow-y:auto;overscroll-behavior:contain;
+  max-height:calc(100vh - 56px);max-height:calc(100dvh - 56px);overflow-y:auto;overscroll-behavior:contain;
   box-shadow:0 12px 28px rgba(0,0,0,.5)}
 .sh-menu-panel > *{flex:none}
 .sh-menu-panel .btn,.sh-menu-panel .btn-select{width:100%;text-align:left}
@@ -1614,7 +1617,7 @@ input.sh-unit-name::placeholder{color:var(--dim);font-weight:600}
    host item's row stays compact. */
 .mount-modal-backdrop{position:fixed;inset:0;z-index:80;background:rgba(0,0,0,.55);
   display:flex;align-items:center;justify-content:center;padding:16px}
-.mount-modal{max-width:600px;width:100%;max-height:82vh;overflow:auto;margin:0;
+.mount-modal{max-width:600px;width:100%;max-height:82vh;max-height:82dvh;overflow:auto;margin:0;
   box-shadow:0 12px 28px rgba(0,0,0,.5)}
 /* openSheetModal's header row (title + close), shared by every big-form dialog
  * built on it. */
@@ -1707,7 +1710,7 @@ tr.sh-modslots-row td{padding-top:0;padding-bottom:10px;border-bottom:1px solid 
    field you typed it into (#48). Only the dice scroll; head, controls and the
    success total stay put. */
 .sh-roller{position:fixed;right:16px;bottom:70px;z-index:60;width:264px;
-  max-height:calc(100vh - 90px);display:flex;flex-direction:column;
+  max-height:calc(100vh - 90px);max-height:calc(100dvh - 90px);display:flex;flex-direction:column;
   background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px;
   box-shadow:0 12px 28px rgba(0,0,0,.5)}
 /* Nothing else in the panel may shrink; the dice take whatever is left. */
@@ -1834,7 +1837,7 @@ tr.sh-modslots-row td{padding-top:0;padding-bottom:10px;border-bottom:1px solid 
 /* Collapsed rule description (#64): the summary is a quiet affordance, not a
    heading -- it sits under the select and should not compete with it. */
 .settings-rule-help > summary{cursor:pointer;font:400 11px/1.4 var(--body);
-  color:var(--dim);margin-top:4px;list-style:none;user-select:none}
+  color:var(--dim);margin-top:4px;list-style:none;-webkit-user-select:none;user-select:none}
 .settings-rule-help > summary::-webkit-details-marker{display:none}
 .settings-rule-help > summary::before{content:"▸ ";display:inline-block}
 .settings-rule-help[open] > summary::before{content:"▾ "}
@@ -1884,7 +1887,7 @@ tr.sh-modslots-row td{padding-top:0;padding-bottom:10px;border-bottom:1px solid 
    browser's .cat-head so "Ammo" means the same thing in both lists */
 .sh-gear-cat td{background:var(--panel-2);border-bottom:1px solid var(--line);
   cursor:pointer;padding:7px 8px;font-family:var(--disp);font-size:12px;letter-spacing:.04em;
-  user-select:none}
+  -webkit-user-select:none;user-select:none}
 .sh-gear-cat:hover td{background:var(--line)}
 .sh-gear-cat td:focus-visible{outline:1px solid var(--manon);outline-offset:-2px}
 .sh-gear-cat .cat-arrow{display:inline-block;width:14px;color:var(--dim)}

@@ -73,6 +73,19 @@ const el = (tag, attrs = {}, ...kids) => {
  * into the page — el() skips nulls for its own children, and this is the same
  * courtesy for a bare parent.append(). */
 const appendIf = (parent, kid) => { if (kid != null) parent.append(kid); };
+/* Save a Blob as a file. Every export goes through here because the bare
+ * `a.click()` + `revokeObjectURL` pattern is engine-dependent: Safari starts the
+ * download asynchronously and fails it ("WebKitBlobResource error 1") if the URL
+ * is revoked in the same tick, and older Firefox ignores a click on an anchor
+ * that isn't in the document. So: attach, click, detach, and revoke later. */
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = el("a", { href: url, download: filename, hidden: "1" });
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
 const fmt = amount => currencySymbol() + Number(amount || 0).toLocaleString();
 
 /* Raw dice-pool formulas (match computePools in rules.js). Shown on the

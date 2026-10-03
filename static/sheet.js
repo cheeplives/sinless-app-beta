@@ -4479,9 +4479,7 @@ function openFilesModal() {
           exported_at: new Date().toISOString(),
         });
         const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
-        const a = el("a", { href: URL.createObjectURL(blob),
-          download: (CHAR.name || "character") + ".json" });
-        a.click();
+        downloadBlob(blob, (CHAR.name || "character") + ".json");
         close();
       } }, "Export JSON");
       // Export Markdown reads the finalized play sheet, so it has nothing to
@@ -15235,9 +15233,7 @@ function poolEffectsPanel({ after = null } = {}) {
 function exportMarkdown() {
   const md = buildMarkdown();
   const blob = new Blob([md], { type: "text/markdown" });
-  const a = el("a", { href: URL.createObjectURL(blob),
-    download: (CHAR.name || "character").replace(/[^\w-]+/g, "-") + ".md" });
-  a.click();
+  downloadBlob(blob, (CHAR.name || "character").replace(/[^\w-]+/g, "-") + ".md");
 }
 
 function buildMarkdown() {
