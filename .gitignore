@@ -12,3 +12,8 @@ api/sessions/
 
 # agent worktrees (transient)
 .claude/worktrees/
+
+# Browser test tooling (tests/): installed and generated locally / in CI only.
+tests/node_modules/
+tests/test-results/
+tests/playwright-report/

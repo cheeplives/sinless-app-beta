@@ -43,6 +43,11 @@
 <IfModule mod_alias.c>
   RedirectMatch 404 (?:^|/)\.git
 </IfModule>
+# The browser-test harness (tests/) and CI config ship in the repo but are not
+# part of the site.
+<IfModule mod_alias.c>
+  RedirectMatch 404 (?:^|/)(?:tests|\.github)(?:/|$)
+</IfModule>
 # Fallback if mod_alias is unavailable (returns 403 instead of 404).
 <IfModule mod_rewrite.c>
   RewriteEngine On
