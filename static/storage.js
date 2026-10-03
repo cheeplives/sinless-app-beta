@@ -97,6 +97,8 @@ function collidingCharacter(character) {
  * workspace.js loads after this file, and the node tests load it alone. */
 function notifySaved() {
   if (typeof scheduleDirtySweep === "function") scheduleDirtySweep();
+  // The first save is when there's suddenly something to lose (app.js).
+  if (typeof protectLocalSaves === "function") protectLocalSaves();
 }
 
 function saveCharacter(character) {

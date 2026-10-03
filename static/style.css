@@ -2308,3 +2308,33 @@ body.sheet-readonly .sh-readonly-banner .btn{pointer-events:auto;opacity:1}
 .sh-shop-foot .sh-shop-totals b{font-family:var(--mono);font-size:18px;color:var(--amber)}
 .sh-shop-foot .sh-shop-warn{margin-top:6px;font-size:12px;color:var(--bad)}
 .sh-shop-buttons{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+
+/* ---------- storage tip (WebKit only; see protectLocalSaves in app.js) ----------
+ * Bottom-centre, clear of the alerts (bottom-left) and the roller FAB
+ * (bottom-right, 46px + 16px). On a phone both span the bottom edge, so the tip
+ * drops from the top instead, just under the workspace tab strip. */
+.storage-tip{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:70;
+  width:min(460px,calc(100vw - 32px - 2 * 62px));display:flex;align-items:center;gap:12px;
+  background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--amber);
+  border-radius:8px;padding:10px 12px;font-size:12.5px;line-height:1.45;
+  box-shadow:0 8px 24px rgba(0,0,0,.45)}
+.storage-tip-text{flex:1;min-width:0}
+.storage-tip .btn{flex:none}
+@media (max-width:560px){
+  .storage-tip{left:10px;right:10px;top:calc(var(--ws-h) + 8px);bottom:auto;width:auto;transform:none}
+}
+
+/* ---------- iOS: stop the zoom-on-focus ----------
+ * Safari on iPhone zooms the whole page into any text field whose font is
+ * under 16px, and leaves it zoomed after the keyboard closes; almost every
+ * field here is 11-14px. -webkit-touch-callout is iOS-only, so this reaches no
+ * other engine, and the width cap keeps it to phones (iPad Safari browses as
+ * a desktop and doesn't zoom, and its compact tablet layouts stay as drawn).
+ * !important because the fields' own sizes come from class rules that would
+ * otherwise outrank a bare element selector. Pinch-zoom is left alone. */
+@supports (-webkit-touch-callout:none){
+  @media (max-width:940px){
+    input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]),
+    select,textarea{font-size:16px!important}
+  }
+}
