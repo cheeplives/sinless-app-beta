@@ -10931,6 +10931,21 @@ function openShop({ title, sub, sections }) {
   let maxRarity = "";
   let closeShop = () => {};
   let approving = false;
+  // Price adjustment, in percent: haggling, a fence's markup, a GM's sale.
+  // Each line carries its own (`adjust`) over its list price (`list`); the
+  // basket-wide figure sets every line at once and is what a newly added line
+  // starts at. Cash only -- ZP isn't money, so nothing haggles it down.
+  let basketAdjust = 0;
+  const ADJUST_MIN = -100, ADJUST_MAX = 500;
+  const clampAdjust = v => {
+    const n = Math.round(Number(v));
+    return Number.isFinite(n) ? Math.max(ADJUST_MIN, Math.min(ADJUST_MAX, n)) : 0;
+  };
+  const setAdjust = (line, pct) => {
+    line.adjust = clampAdjust(pct);
+    line.cash = Math.max(0, Math.round(line.list * (1 + line.adjust / 100)));
+  };
+  const pctText = n => (n > 0 ? "+" : n < 0 ? "−" : "") + Math.abs(n) + "%";
 
   const cartTotal = () => cart.reduce(
     (t, l) => ({ cash: t.cash + l.cash * l.qty, zp: t.zp + l.zp * l.qty, n: t.n + l.qty }),
@@ -11028,7 +11043,11 @@ function openShop({ title, sub, sections }) {
     const same = s.stackable && cart.find(l =>
       l.section === s.key && l.name === name && l.summary === summary);
     if (same) same.qty += 1;
-    else cart.push({ section: s.key, name, opts, summary, cash, zp, qty: 1 });
+    else {
+      const line = { section: s.key, name, opts, summary, list: cash, cash, zp, qty: 1, adjust: 0 };
+      setAdjust(line, basketAdjust);
+      cart.push(line);
+    }
     drawAll();
   };
 
@@ -11038,6 +11057,15 @@ function openShop({ title, sub, sections }) {
     drawAll();
   };
 
+  // A line's price, painted in place. The ±% fields repaint prices and totals
+  // as you type rather than redrawing the basket: rebuilding the field being
+  // typed in would lose it mid-edit, and a redraw fired by leaving the field
+  // (its change event) could replace the Buy button under a click on its way.
+  const paintPrice = (line, box) => box.replaceChildren(
+    line.adjust && line.list ? el("s", { class: "sh-shop-listprice" }, fmt(line.list * line.qty)) : "",
+    line.adjust && line.list ? " " : "",
+    priceText(line.cash * line.qty, line.zp * line.qty));
+
   const drawCart = () => {
     if (!cart.length) { cartBox.replaceChildren(); return; }
     const total = cartTotal();
@@ -11046,6 +11074,15 @@ function openShop({ title, sub, sections }) {
       const s = sections.find(x => x.key === line.section) || {};
       const detail = [sections.length > 1 ? s.label : "", line.summary]
         .filter(Boolean).join(" · ");
+      const price = el("span", { class: "cat-cost" });
+      paintPrice(line, price);
+      // Only lines that cost money can be haggled; a ZP-only amp power has
+      // nothing for a percentage to act on.
+      const adjustInput = line.list ? el("input", { type: "number", step: "5",
+        min: String(ADJUST_MIN), max: String(ADJUST_MAX),
+        value: String(line.adjust), "aria-label": `Price adjustment for ${line.name}, percent`,
+        oninput: e => { setAdjust(line, e.target.value); paintPrice(line, price); refreshFigures(); } }) : null;
+      line.ui = { price, input: adjustInput };
       kids.push(el("div", { class: "sh-shop-line" },
         el("div", { class: "sh-shop-name" },
           el("b", {}, line.name),
@@ -11056,19 +11093,31 @@ function openShop({ title, sub, sections }) {
               el("b", {}, String(line.qty)),
               el("button", { title: "One more", onclick: () => setQty(line, line.qty + 1) }, "+"))
           : null,
-        el("span", { class: "cat-cost" }, priceText(line.cash * line.qty, line.zp * line.qty)),
+        adjustInput ? el("label", { class: "sh-shop-adjust", title: "Adjust this item's price by a percentage — "
+              + "negative for a discount, positive for a markup" }, adjustInput, el("span", {}, "%"))
+          : null,
+        price,
         el("button", { class: "row-del", title: "Take out of the basket",
           onclick: () => setQty(line, 0) }, "✕")));
     }
     cartBox.replaceChildren(...kids);
   };
 
-  const drawFoot = () => {
+  // The parts of the foot that follow the prices, repainted in place.
+  const figures = el("div", {});
+  const listNote = el("span", { class: "sub" });
+  let buyBtn = null;
+  const refreshFigures = () => {
     const t = cartTotal();
     const zpLeft = (CALC.zoetics || {}).zp_remaining || 0;
     const zpOver = t.zp > zpLeft;
     const over = t.cash - CHAR.play.cash;
-    const kids = [
+    const listTotal = cart.reduce((sum, l) => sum + l.list * l.qty, 0);
+    listNote.textContent = t.cash !== listTotal
+      ? `  ·  list price ${fmt(listTotal)} (${t.cash < listTotal
+          ? `saving ${fmt(listTotal - t.cash)}` : `${fmt(t.cash - listTotal)} over`})`
+      : "";
+    figures.replaceChildren(
       el("div", { class: "sh-shop-totals" },
         el("span", { class: "sub" }, "Total "), el("b", {}, fmt(t.cash)),
         t.zp ? el("span", { class: "sub" }, "  ·  " + t.zp + " ZP") : null),
@@ -11076,27 +11125,55 @@ function openShop({ title, sub, sections }) {
         over > 0
           ? `You have ${fmt(CHAR.play.cash)} — this overdraws by ${fmt(over)}.`
           : `You have ${fmt(CHAR.play.cash)}, leaving ${fmt(-over)}.`),
+      // Stated, not predicted: what ZP is left after a purchase is the engine's
+      // to say, and in Classic ZR it is not simply remaining-minus-spent (taking
+      // a first amp power also brings carried ZR against ZP). The shelf that
+      // knows that rule warns about it from its own warnings() hook.
+      t.zp ? el("div", { class: "sub", style: zpOver ? "color:var(--bad)" : "" },
+        zpOver
+          ? `Only ${zpLeft} ZP remains — ZP cannot go negative, so this basket cannot be approved.`
+          : `${zpLeft} ZP remaining; this basket spends ${t.zp}.`) : null);
+    if (buyBtn) {
+      buyBtn.disabled = !(t.n && !zpOver);
+      buyBtn.textContent = !t.n ? "Approve" : over > 0 ? "Buy anyway"
+        : "Buy " + t.n + " item" + (t.n === 1 ? "" : "s");
+    }
+  };
+
+  const drawFoot = () => {
+    const listTotal = cart.reduce((sum, l) => sum + l.list * l.qty, 0);
+    const kids = [
+      // One figure for the whole basket: sets every line, and new lines start
+      // at it. A line changed on its own afterwards keeps its own figure.
+      listTotal ? el("label", { class: "sh-shop-adjust sh-shop-adjust-all",
+          title: "Set every item's price adjustment at once — negative for a discount, positive for a markup" },
+        el("span", { class: "sub" }, "Price adjustment "),
+        el("input", { type: "number", step: "5", min: String(ADJUST_MIN), max: String(ADJUST_MAX),
+          value: String(basketAdjust), "aria-label": "Price adjustment for the whole basket, percent",
+          oninput: e => {
+            basketAdjust = clampAdjust(e.target.value);
+            for (const l of cart) {
+              setAdjust(l, basketAdjust);
+              if (!l.ui) continue;
+              paintPrice(l, l.ui.price);
+              if (l.ui.input) l.ui.input.value = String(l.adjust);
+            }
+            refreshFigures();
+          } }),
+        el("span", {}, "%"),
+        listNote) : null,
+      figures,
     ];
-    // Stated, not predicted: what ZP is left after a purchase is the engine's
-    // to say, and in Classic ZR it is not simply remaining-minus-spent (taking
-    // a first amp power also brings carried ZR against ZP). The shelf that
-    // knows that rule warns about it from its own warnings() hook.
-    if (t.zp) kids.push(el("div", { class: "sub", style: zpOver ? "color:var(--bad)" : "" },
-      zpOver
-        ? `Only ${zpLeft} ZP remains — ZP cannot go negative, so this basket cannot be approved.`
-        : `${zpLeft} ZP remaining; this basket spends ${t.zp}.`));
     for (const s of sections) {
       for (const w of (s.warnings ? s.warnings(mine(s)) : []))
         kids.push(el("div", { class: "sh-shop-warn" }, "⚠ " + w));
     }
-    const buyBtn = el("button", { class: "btn-add",
-      ...(t.n && !zpOver ? {} : { disabled: "1" }),
-      onclick: approve },
-      !t.n ? "Approve" : over > 0 ? "Buy anyway" : "Buy " + t.n + " item" + (t.n === 1 ? "" : "s"));
+    buyBtn = el("button", { class: "btn-add", onclick: approve });
     kids.push(el("div", { class: "sh-shop-buttons" },
       buyBtn,
       el("button", { class: "btn", onclick: () => closeShop() },
         cart.length ? "Cancel" : "Close")));
+    refreshFigures();
     foot.replaceChildren(...kids);
   };
 
@@ -11113,7 +11190,14 @@ function openShop({ title, sub, sections }) {
     for (const line of lines) {
       const s = sections.find(x => x.key === line.section);
       if (!s) continue;
-      for (let n = 0; n < line.qty; n++) s.commit(line);
+      for (let n = 0; n < line.qty; n++) {
+        const logged = CHAR.play.cash_log.length;
+        s.commit(line);
+        // Say so in the ledger when the price wasn't the list price, so the
+        // Activity line explains the figure next to it.
+        if (line.adjust && line.list && CHAR.play.cash_log.length > logged)
+          CHAR.play.cash_log[0].label += ` (${pctText(line.adjust)})`;
+      }
     }
     await playChangedRecalc();
   };

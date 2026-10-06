@@ -2311,6 +2311,11 @@ body.sheet-readonly .sh-readonly-banner .btn{pointer-events:auto;opacity:1}
 .sh-shop-line .sh-shop-name .sub{font-size:11px}
 .sh-shop-line .cat-cost{flex-shrink:0}
 .sh-shop-qty{display:flex;align-items:center;gap:4px;flex-shrink:0}
+/* ±% price adjustment: per basket line, and once for the whole basket in the foot. */
+.sh-shop-adjust{display:inline-flex;align-items:center;gap:3px;flex-shrink:0;font-size:12px;color:var(--dim)}
+.sh-shop-adjust input[type=number]{width:58px;text-align:right}
+.sh-shop-adjust-all{margin-bottom:6px;flex-wrap:wrap}
+.sh-shop-listprice{color:var(--dim);font-weight:normal}
 .sh-shop-qty button{background:var(--panel-2);border:1px solid var(--line);color:var(--text);
   border-radius:5px;width:22px;height:22px;line-height:1;cursor:pointer;font-size:13px}
 .sh-shop-qty button:hover{border-color:var(--manon)}
