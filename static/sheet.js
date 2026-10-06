@@ -2274,6 +2274,13 @@ function rollerOverlay() {
       // or the second Twin Fire roll is indistinguishable from a stray reopen.
       (isPool && st.seq)
         ? el("span", { class: "sh-roller-seq" }, `${st.seq.i} of ${st.seq.n}`) : null,
+      // The same New Round the Actions strip has: pools back to full, actions
+      // unspent, Heat down a point. Here too because the roller is where a
+      // player is between turns, and it stays open over whatever tab they're on.
+      (activeTabObj() && activeTabObj().readonly) ? null
+        : el("button", { class: "btn small good sh-roller-newround",
+            title: "Start a new round: refill every pool and clear spent actions",
+            onclick: () => { newRound(); rollerRefresh(); } }, "↻ New Round"),
       el("button", { class: "sh-roller-close", title: "Close",
         onclick: () => { st.open = false; rollerRefresh(); } }, "✕")),
     el("div", { class: "sh-roller-controls" },
@@ -13666,10 +13673,23 @@ const modDoublesAmmo = row => !!row && /doubl\w*\s+ammo/i.test(row.ModeEffect ||
 // Remove a mounted weapon and keep weapon-attached mods consistent: drop mods on
 // the removed weapon and shift the index of mods attached to later weapons.
 function removeUnitWeapon(u, wi, table) {
+  detachUnitWeapon(u, wi, table);
+  playChangedRecalc();
+}
+
+/* Take weapon `wi` off unit `u` and hand back everything that belongs to it:
+ * its name, the names of the weapon mods attached to it, and its firing state
+ * (magazine, mode). Re-keys what's left the same way removeUnitWeapon always
+ * has, so no later weapon inherits this one's mods or magazine. Shared by
+ * selling (which discards the result) and stowing/swapping (which keep it).
+ * No recalc: callers decide when. */
+function detachUnitWeapon(u, wi, table) {
+  const name = u.weapons[wi];
   u.weapons.splice(wi, 1);
+  const mods = [];
   u.mods = (u.mods || []).reduce((acc, m) => {
     const idx = modWeaponIdx(m);
-    if (idx === wi) return acc;
+    if (idx === wi) { mods.push(modName(m)); return acc; }
     acc.push(idx != null && idx > wi ? { ...m, weapon: idx - 1 } : m);
     return acc;
   }, []);
@@ -13677,16 +13697,163 @@ function removeUnitWeapon(u, wi, table) {
   // otherwise the removed gun's magazine and mode are inherited by whichever
   // weapon shifts into its slot.
   const slot = table && (CHAR.play.rigging.units || {})[unitStateKey(table, u)];
+  let gun = null;
   if (slot && slot.guns) {
     const next = {};
     for (const [k, v] of Object.entries(slot.guns)) {
       const idx = +k;
-      if (idx === wi) continue;
+      if (idx === wi) { gun = v; continue; }
       next[idx > wi ? idx - 1 : idx] = v;
     }
     slot.guns = next;
   }
-  playChangedRecalc();
+  return { name, mods, gun };
+}
+
+/* Mount a detached weapon (see detachUnitWeapon) on unit `u`: the weapon, its
+ * mods re-pointed at its new index, and its firing state. */
+function attachUnitWeapon(u, item, table) {
+  u.weapons = u.weapons || []; u.mods = u.mods || [];
+  const wi = u.weapons.push(item.name) - 1;
+  for (const m of item.mods || []) u.mods.push({ name: m, weapon: wi });
+  if (item.gun) {
+    const rg = CHAR.play.rigging;
+    const key = unitStateKey(table, u);
+    const slot = (rg.units[key] = rg.units[key] || { inertia: 0, physical: 0, integrity: 0 });
+    (slot.guns = slot.guns || {})[wi] = item.gun;
+  }
+}
+
+/* ---- stowed attachments ---------------------------------------------------
+ * A drone or vehicle can own weapons and mods that aren't fitted: taken off
+ * with Swap ("Leave empty") rather than sold. They live on the unit as
+ * `u.stowed`, a list of { kind: "weapon", name, mods, gun } and
+ * { kind: "mod", name }. The engine only reads u.weapons / u.mods, so stowed
+ * kit takes no hard point, no Body ÷ 3 slot and no weight -- and older saves,
+ * which have no `stowed`, read exactly as before. */
+function unitStowed(u) { return (u.stowed = u.stowed || []); }
+
+/* What a unit's stowed kit is worth, for selling the unit with it and for
+ * selling a stowed item on its own. A stowed weapon carries its mods. */
+function stowedItemValue(cfg, item, mult) {
+  if (item.kind === "mod") return flatFittedValue([item.name], [cfg.modTable], mult);
+  return flatFittedValue([item.name], cfg.weaponTables, mult)
+    + flatFittedValue(item.mods || [], [cfg.modTable], mult);
+}
+function stowedValue(cfg, u, mult) {
+  return (u.stowed || []).reduce((sum, it) => sum + stowedItemValue(cfg, it, mult), 0);
+}
+
+/* Everything the character owns that could be fitted to unit `u` as a weapon
+ * (kind "weapon") or a unit mod (kind "mod"): this unit's stowed items, plus
+ * the stowed AND fitted ones on the character's other units of the same type
+ * -- drone kit fits drones, vehicle kit fits vehicles (they're different
+ * tables). Weapon-scoped mods aren't offered on their own: they ride with the
+ * weapon they're attached to. */
+function unitSwapChoices(table, u, kind) {
+  const cfg = RIG_UNIT_CFG[table];
+  const out = [];
+  for (const src of allUnits(table)) {
+    const srcName = src.label || src.name;
+    unitStowed(src).forEach(it => {
+      if (it.kind === kind) out.push({ src, srcName, stowed: it, name: it.name, mods: it.mods || [] });
+    });
+    if (src === u) continue;
+    if (kind === "weapon") {
+      (src.weapons || []).forEach((wn, wi) => out.push({ src, srcName, wi, name: wn,
+        mods: (src.mods || []).filter(m => modWeaponIdx(m) === wi).map(modName) }));
+    } else {
+      (src.mods || []).forEach((m, mi) => {
+        if (modWeaponIdx(m) != null) return;
+        const mr = unitFindModRow(cfg, modName(m));
+        if (mr && mr.Target === "weapon") return;     // a legacy weapon mod, not a unit one
+        out.push({ src, srcName, mi, name: modName(m), mods: [] });
+      });
+    }
+  }
+  return out;
+}
+
+/* The Swap dialog for a unit's weapon or unit mod. `current` is the fitted
+ * one being swapped ({ wi } or { mi }), or null to fit into free space.
+ * Picking a choice moves it here; the current one is stowed on this unit.
+ * Nothing is bought or sold. `after` runs once the swap has landed (the
+ * Modify dialog uses it to redraw itself). */
+function openUnitSwap({ table, u, kind, current, after }) {
+  const cfg = RIG_UNIT_CFG[table];
+  const unitName = u.label || u.name;
+  const curName = current ? (kind === "weapon" ? u.weapons[current.wi] : modName(u.mods[current.mi])) : null;
+  const choices = unitSwapChoices(table, u, kind);
+  // A drone's hard points bind (a vehicle's Body ÷ 3 is only a guideline):
+  // fitting a weapon into free space needs a free hard point. Swapping one
+  // for another never changes the count.
+  const r = DATA.tables[cfg.table].find(x => x[cfg.nameKey] === u.name) || {};
+  const full = kind === "weapon" && !current && table === "drones"
+    && (u.weapons || []).length >= cfg.capOf(r);
+  const effectOf = c => kind === "weapon"
+    ? ((unitFindWeaponRow(cfg, c.name) || {}).Effect || (unitFindWeaponRow(cfg, c.name) || {}).ModeEffect || "")
+    : ((unitFindModRow(cfg, c.name) || {}).Effect || "");
+
+  const apply = async (choice, close) => {
+    if (current) {
+      const off = kind === "weapon"
+        ? { kind, ...detachUnitWeapon(u, current.wi, table) }
+        : { kind, name: modName(u.mods.splice(current.mi, 1)[0]) };
+      unitStowed(u).push(off);
+    }
+    if (choice) {
+      let item;
+      if (choice.stowed) {
+        const list = unitStowed(choice.src);
+        list.splice(list.indexOf(choice.stowed), 1);
+        item = choice.stowed;
+      } else if (kind === "weapon") {
+        item = detachUnitWeapon(choice.src, choice.wi, table);
+      } else {
+        item = { name: modName(choice.src.mods.splice(choice.mi, 1)[0]) };
+      }
+      if (kind === "weapon") attachUnitWeapon(u, item, table);
+      else u.mods.push(item.name);
+    }
+    close();
+    schedulePlaySave();
+    await recalc();
+    if (after) after(); else renderSheet();
+  };
+  const row = (label, where, effect, onPick, btnLabel) =>
+    el("div", { class: "sh-modswap-row" },
+      el("div", { class: "sh-modswap-info" },
+        el("b", {}, label),
+        where ? el("div", { class: "sub" }, where) : null,
+        effect ? el("div", { class: "sub sh-modswap-eff" }, effect) : null),
+      onPick ? el("button", { class: "btn small", onclick: onPick }, btnLabel) : null);
+  const noun = kind === "weapon" ? "weapon" : "mod";
+  openSheetModal({
+    title: `${current ? "Swap" : "Fit"} ${noun} — ${unitName}`,
+    sub: current
+      ? `Now fitted: ${curName}. Pick what to fit instead; ${curName} is stowed with ${unitName}.`
+      : full ? `${unitName} has no free hard point — swap out a fitted weapon instead.`
+             : `Pick one of your ${noun}s to fit to ${unitName}.`,
+    maxWidth: "500px",
+    build: (refresh, close) => [
+      choices.length
+        ? el("div", { class: "sh-modswap-list" },
+            ...choices.map(c => row(
+              c.name + (c.mods.length ? ` + ${c.mods.join(", ")}` : ""),
+              c.stowed
+                ? (c.src === u ? "Stowed with this unit" : `Stowed with ${c.srcName}`)
+                : `Fitted to ${c.srcName} — comes off it`,
+              effectOf(c), full ? null : () => apply(c, close), "Fit")))
+        : el("p", { class: "hint" },
+            `No other ${table === "drones" ? "drone" : "vehicle"} ${noun}s owned. `
+            + "Buy one from the Add list in Modify."),
+      current
+        ? el("div", { class: "sh-modswap-list sh-modswap-empty" },
+            row("Leave empty", `${curName} comes off and is stowed with ${unitName}, ready to re-fit`,
+              "", () => apply(null, close), "Stow"))
+        : null,
+    ],
+  });
 }
 
 // A unit's mounted weapon, found by name across its weapon tables (a drone's
@@ -14120,6 +14287,32 @@ function unitModifyBody(table, u, refresh, commit, close) {
     else unitModIdx.push(mi);
   });
 
+  // Swap (#swap): a fitted weapon or unit mod trades places with one the
+  // character already owns -- stowed, or on another unit of the same type --
+  // or comes off into this unit's stowed list. See openUnitSwap.
+  const swapBtn = (kind, current) => ro ? null : el("button", {
+    class: "btn small sh-unit-swap", title: "Swap for one you already own, or stow it",
+    onclick: () => openUnitSwap({ table, u, kind, current, after: commit }) }, "⇄ Swap");
+  const fitOwnedBtn = kind => (ro || !unitSwapChoices(table, u, kind).length) ? null
+    : el("button", { class: "btn small", style: "margin-top:6px",
+        onclick: () => openUnitSwap({ table, u, kind, current: null, after: commit }) },
+        kind === "weapon" ? "Fit an owned weapon…" : "Fit an owned mod…");
+  const stowedRows = unitStowed(u).map(it => el("div", { class: "sub", style: "margin:2px 0" },
+    ro ? el("b", {}, it.name)
+      : el("span", { class: "chip", style: "margin:2px 4px 0 0;cursor:pointer",
+          title: "Sell or remove — it's stowed, not fitted",
+          onclick: async () => {
+            const result = await promptDisposal(it.name, stowedItemValue(cfg, it, mult));
+            if (!result) return;
+            const list = unitStowed(u);
+            list.splice(list.indexOf(it), 1);
+            logCash(`${result.sold ? "Sold" : "Lost"} ${it.name} (stowed with ${u.label || u.name})`,
+              result.sold ? result.amount : 0);
+            await commit();
+          } }, it.name + " ✕"),
+    el("span", {}, it.kind === "weapon" ? " weapon" : " mod"),
+    (it.mods && it.mods.length) ? el("span", { style: "color:var(--manon)" }, ` + ${it.mods.join(", ")}`) : null));
+
   const weaponRows = u.weapons.map((wn, wi) => {
     const wr = unitFindWeaponRow(cfg, wn) || {};
     const effect = wr.Effect || wr.ModeEffect || "";
@@ -14156,6 +14349,7 @@ function unitModifyBody(table, u, refresh, commit, close) {
               await playChangedRecalc();
               refresh();
             } }, wn + " ✕"),
+      swapBtn("weapon", { wi }),
       bits.length ? ` ${bits.join(" · ")}` : "",
       effect ? el("div", { class: "sub", style: "margin:2px 0 0 4px;color:var(--manon)" }, effect) : null,
       modChips.length ? el("div", { style: "margin:2px 0 0 4px" }, ...modChips) : null,
@@ -14176,6 +14370,7 @@ function unitModifyBody(table, u, refresh, commit, close) {
               if (await disposeOfUnitMod(en, mi, nm, u.label || u.name,
                 Math.round((+mr.Cost || 0) * mult))) refresh();
             } }, nm + " ✕"),
+      swapBtn("mod", { mi }),
       effect ? el("span", { style: "color:var(--manon)" }, effect) : null);
   });
 
@@ -14224,10 +14419,16 @@ function unitModifyBody(table, u, refresh, commit, close) {
     unitRepairControls(cfg, u, st, u.label || u.name, commit),
     el("div", { class: "sh-cal-legend", style: "margin-top:10px" }, `Weapons (${u.weapons.length})`),
     weaponRows.length ? el("div", {}, ...weaponRows) : el("p", { class: "hint" }, "Nothing mounted."),
+    fitOwnedBtn("weapon"),
     addWeapon ? el("div", { class: "sh-unit-add" }, el("b", {}, "Add weapon"), addWeapon) : null,
     el("div", { class: "sh-cal-legend", style: "margin-top:10px" }, `Mods (${u.mods.length})`),
     modRows.length ? el("div", {}, ...modRows) : el("p", { class: "hint" }, "Nothing fitted."),
+    fitOwnedBtn("mod"),
     addMod ? el("div", { class: "sh-unit-add" }, el("b", {}, "Add unit mod"), addMod) : null,
+    stowedRows.length
+      ? el("div", { class: "sh-cal-legend", style: "margin-top:10px" }, `Stowed (${stowedRows.length})`)
+      : null,
+    stowedRows.length ? el("div", {}, ...stowedRows) : null,
   ].filter(Boolean);
 }
 
@@ -14707,6 +14908,10 @@ function shRigging(body) {
               ...modItems.flatMap((it, n) => [n ? " · " : null, it.name,
                 it.effect ? el("span", { style: "color:var(--manon)" }, ` (${it.effect})`) : null]))
           : null,
+        (u.stowed && u.stowed.length)
+          ? el("div", { class: "sub", style: "color:var(--dim)" }, el("b", {}, "Stowed: "),
+              u.stowed.map(it => it.name).join(" · "))
+          : null,
         (!weaponItems.length && !modItems.length)
           ? el("p", { class: "hint" }, "Nothing fitted — open Modify to add a weapon or mod.")
           : null);
@@ -14724,7 +14929,8 @@ function shRigging(body) {
           // condition is no reason to discount the autocannon on its roof.
           const fitted =
             flatFittedValue(u.mods, [cfg.modTable], mult)
-            + flatFittedValue(u.weapons, cfg.weaponTables, mult);
+            + flatFittedValue(u.weapons, cfg.weaponTables, mult)
+            + stowedValue(cfg, u, mult);           // stowed kit goes with the unit too
           if (!await disposeOfItem({ category, arr: unitArr, index: localIndex, inPlay,
             name: u.label || u.name, value: Math.round((+r.Cost || 0) * baseMult) + fitted,
             modsValue: fitted })) return;

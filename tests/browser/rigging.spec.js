@@ -32,3 +32,92 @@ test("ticking Active applies a drone's bonus straight away, and the card shows i
   await expect.poll(read).toEqual(before);
   expectNoErrors(errors);
 });
+
+// ---- Swap for drone/vehicle attachments ------------------------------------
+function swapCharacter() {
+  const c = fixture("kitchen-sink-final");
+  c.play.purchases.drones = [
+    { name: "Orb", weapons: ["Sentry Gun"], mods: [{ name: "Extended Magazine", weapon: 0 }, "Armor"] },
+    { name: "Roto-Drone", weapons: ["Missile Launcher"], mods: [] },
+  ];
+  c.play.rigging = { ...(c.play.rigging || {}),
+    units: { "drones:0": { inertia: 0, physical: 0, integrity: 0, guns: { 0: { loaded: 7 } } } } };
+  return c;
+}
+const unitState = page => page.evaluate(() => allDrones().map(d =>
+  ({ name: d.name, weapons: d.weapons, mods: d.mods, stowed: d.stowed || [] })));
+
+async function openModify(page, drone) {
+  await domClick(page.locator(".sh-tabs button", { hasText: /rigging/i }));
+  await domClick(page.locator(".sh-unit", { hasText: drone }).first().getByRole("button", { name: "Modify" }));
+  await expect(page.locator(".mount-modal")).toHaveCount(1);
+}
+// Click a button in the topmost dialog's row whose label starts with `label`.
+async function pick(page, label, button) {
+  const dlg = page.locator(".mount-modal").last();
+  await domClick(dlg.locator(".sh-modswap-row", { has: page.locator("b", { hasText: label }) })
+    .getByRole("button", { name: button }));
+}
+
+test("Swap moves drone weapons (with their mods and magazine) and stows what comes off", async ({ page }) => {
+  const errors = watchErrors(page);
+  await openWith(page, [swapCharacter()]);
+  const cash = await page.evaluate(() => CHAR.play.cash);
+
+  // Orb's Sentry Gun ⇄ the Roto-Drone's Missile Launcher.
+  await openModify(page, "Orb");
+  const modal = page.locator(".mount-modal").first();
+  await domClick(modal.locator(".sub", { hasText: "Sentry Gun" }).getByRole("button", { name: "⇄ Swap" }).first());
+  await expect(page.locator(".mount-modal")).toHaveCount(2);
+  await pick(page, "Missile Launcher", "Fit");
+  await expect(page.locator(".mount-modal")).toHaveCount(1);
+  let s = await unitState(page);
+  expect(s[0].weapons).toEqual(["Missile Launcher"]);
+  expect(s[0].stowed).toEqual([{ kind: "weapon", name: "Sentry Gun", mods: ["Extended Magazine"], gun: { loaded: 7 } }]);
+  expect(s[1].weapons).toEqual([]);
+
+  // The Orb's one hard point is full: fitting into free space is refused.
+  await domClick(modal.getByRole("button", { name: "Fit an owned weapon…" }));
+  await expect(page.locator(".mount-modal").last()).toContainText("no free hard point");
+  await expect(page.locator(".mount-modal").last().getByRole("button", { name: "Fit" })).toHaveCount(0);
+  await page.keyboard.press("Escape");
+
+  // Unit mod: Armor comes off into the stowed list.
+  await domClick(modal.locator(".sub", { hasText: "Armor" }).getByRole("button", { name: "⇄ Swap" }).last());
+  await pick(page, "Leave empty", "Stow");
+  s = await unitState(page);
+  expect(s[0].mods).toEqual([]);
+  expect(s[0].stowed.map(i => i.name)).toEqual(["Sentry Gun", "Armor"]);
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".mount-modal")).toHaveCount(0);
+
+  // Roto-Drone fits the stowed Sentry Gun; its mod and magazine come along.
+  await openModify(page, "Roto-Drone");
+  await domClick(page.locator(".mount-modal").getByRole("button", { name: "Fit an owned weapon…" }));
+  await pick(page, "Sentry Gun", "Fit");
+  s = await unitState(page);
+  expect(s[1].weapons).toEqual(["Sentry Gun"]);
+  expect(s[1].mods).toEqual([{ name: "Extended Magazine", weapon: 0 }]);
+  expect(s[0].stowed.map(i => i.name)).toEqual(["Armor"]);
+  expect(await page.evaluate(() => CHAR.play.rigging.units["drones:1"].guns[0])).toEqual({ loaded: 7 });
+
+  // The Rigging card lists what's stowed; nothing was bought or sold.
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".sh-unit", { hasText: "Orb" }).first()).toContainText("Stowed: Armor");
+  expect(await page.evaluate(() => CHAR.play.cash)).toBe(cash);
+  expect(await page.evaluate(() => CALC.errors)).toEqual([]);
+  expectNoErrors(errors);
+});
+
+test("the die roller has a New Round button that refills pools", async ({ page }) => {
+  const errors = watchErrors(page);
+  await openWith(page, [fixture("kitchen-sink-final")]);
+  const used = () => page.evaluate(() => POOL_ORDER.map(p => poolState(p).used));
+  await page.evaluate(() => { poolState(POOL_ORDER[0]).setUsed(2); CHAR.play.actions_used = { simple: 1 }; });
+  await domClick(page.locator(".sh-roller-fab"));
+  await domClick(page.locator("#die-roller").getByRole("button", { name: "↻ New Round" }));
+  expect((await used()).every(n => n === 0)).toBe(true);
+  expect(await page.evaluate(() => CHAR.play.actions_used)).toEqual({});
+  await expect(page.locator("#die-roller .sh-roller")).toBeVisible();   // roller stays open
+  expectNoErrors(errors);
+});
