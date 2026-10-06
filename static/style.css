@@ -1431,6 +1431,8 @@ input.sh-unit-name::placeholder{color:var(--dim);font-weight:600}
 /* Derived read-out tile sitting with the unit's counters (Move). Boxed and
    larger than the stat line it came out of, since it's read constantly in a
    chase; `.boosted` marks a value raised by a spirit infusion. */
+/* A drone or vehicle's own special effect, under its stat line. */
+.sh-unit-effect{color:var(--manon);margin-top:2px}
 .sh-unit-stat{display:inline-flex;align-items:baseline;gap:6px;
   border:1px solid var(--line);border-radius:6px;background:var(--panel);
   padding:4px 10px}

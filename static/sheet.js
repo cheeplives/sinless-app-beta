@@ -14628,12 +14628,15 @@ function shRigging(body) {
       const linkToggle = el("label", { class: "opt" },
         el("input", { type: "checkbox", ...(isLinked ? { checked: 1 } : {}),
           disabled: (unitReadonly || !activeRig || (!isLinked && linkedCount() >= linkLimit)) ? "1" : null,
-          onchange: e => {
+          onchange: async e => {
             if (e.target.checked && linkedCount() >= linkLimit) {
               alert(`Active VCR links only ${linkLimit} unit(s).`); e.target.checked = false; return;
             }
-            rg.linked[key] = e.target.checked; playChanged();
-            renderSheet();       // the on-station list and Overview both follow this
+            rg.linked[key] = e.target.checked;
+            // Recalc, not just a redraw: a deployed drone's rider (initiative
+            // dice, skill dice, cover) is worked out by the engine, so without
+            // it the bonus only appeared after some unrelated change.
+            await playChangedRecalc();
           } }),
         el("span", {}, isLinked ? "Linked to VCR" : "Link to VCR"));
       // Running off-link. Costs no VCR link and takes no rig, but the drone is
@@ -14646,9 +14649,9 @@ function shRigging(body) {
                          : "Deployed off-link (this drone has no passive effect of its own)" },
         el("input", { type: "checkbox", ...(isActive ? { checked: 1 } : {}),
           disabled: unitReadonly ? "1" : null,
-          onchange: e => {
-            rg.active[key] = e.target.checked; playChanged();
-            renderSheet();
+          onchange: async e => {
+            rg.active[key] = e.target.checked;
+            await playChangedRecalc();       // see the link toggle above
           } }),
         el("span", {}, "Active")) : null;
       // Hotseat rides with the unit itself now, not a separate rollup (#94) --
@@ -14701,7 +14704,8 @@ function shRigging(body) {
         weaponItems.length ? el("div", {}, ...weaponItems.map(loadoutLine)) : null,
         modItems.length
           ? el("div", { class: "sub" }, el("b", {}, "Mods: "),
-              modItems.map(it => it.name).join(" · "))
+              ...modItems.flatMap((it, n) => [n ? " · " : null, it.name,
+                it.effect ? el("span", { style: "color:var(--manon)" }, ` (${it.effect})`) : null]))
           : null,
         (!weaponItems.length && !modItems.length)
           ? el("p", { class: "hint" }, "Nothing fitted — open Modify to add a weapon or mod.")
@@ -14757,6 +14761,13 @@ function shRigging(body) {
                 + ` · Hardening ${unitHardening(r, sm, key)}`
                 + ` · weapons ${summary.weapon_count ?? u.weapons.length}/${summary.weapon_cap ?? cfg.capOf(r)}`;
             })()),
+          // The unit's own special effect from its data row (a Bug-Spy's
+          // Observation/Initiative dice, a Shield Drone's dodge reroll). It used
+          // to be readable only in the Active toggle's tooltip.
+          unitPassiveEffect(cfg.table, u)
+            ? el("div", { class: "sub sh-unit-effect" },
+                el("b", {}, "Effect: "), unitPassiveEffect(cfg.table, u))
+            : null,
           // Physical Condition + Vehicle Integrity tracks (issue #22), then
           // Inertia sitting with them. Inertia is a free-form tally the engine
           // never reads — it's a place to note momentum during a chase. The old
