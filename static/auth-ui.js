@@ -230,10 +230,11 @@ function sharedRow(c) {
   const actions = el("div", { class: "admin-actions" });
 
   if (isOwner) {
-    // For owned characters, show Unshare (destructive) and View
+    // Your own: Open your saved copy in a tab, duplicate it, or stop sharing.
     actions.append(
       el("button", { class: "btn small warn", onclick: () => unshareCharacter(c) }, "Unshare"),
-      el("button", { class: "btn small good", onclick: () => viewShared(c.id) }, "View"));
+      el("button", { class: "btn small", onclick: () => copyShared(c.id) }, "Save a copy"),
+      el("button", { class: "btn small good", onclick: () => openOwnShared(c) }, "Open"));
   } else {
     // For other people's characters, show Save a copy and View
     actions.append(
@@ -253,6 +254,17 @@ async function viewShared(id) {
   if (!rec || !rec.data) { alert("That character is no longer available."); return; }
   $("#shared").hidden = true;
   await openReadonly(rec.data, { id: rec.id, owner: rec.owner });
+}
+
+/* Open one of YOUR shared characters for editing: it's already in your saves
+ * (sharing publishes a saved character), so load that rather than the
+ * read-only gallery copy. Falls back to the gallery copy if this browser has
+ * no local save for it yet. */
+async function openOwnShared(c) {
+  const local = STORAGE.loadCharacter(STORAGE.sanitizeName(c.name || ""));
+  if (!local) { await viewShared(c.id); return; }
+  $("#shared").hidden = true;
+  await openCharacter(RULES.mergeDefaults(local));
 }
 
 async function copyShared(id) {

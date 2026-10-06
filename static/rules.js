@@ -36,7 +36,7 @@ const BUNDLE = (typeof DATA_BUNDLE !== "undefined")
  * default fill claim this build made it: "unknown" is a fact worth keeping,
  * and a confidently wrong version is worse than none when you are working out
  * why an old file behaves oddly. */
-const APP_VERSION = "377";
+const APP_VERSION = "378";
 
 // ============================================================== game constants
 // The numeric knobs the engine reads; grouped by chargen step below.
@@ -4630,6 +4630,26 @@ const VEHICLE_CONDITIONS = ["Blinged", "Pristine", "Good", "Fair", "Poor"];
 const VEHICLE_CONDITION_FACTORS = { Blinged: 3, Pristine: 1, Good: 0.75, Fair: 0.5, Poor: 0.25 };
 const VEHICLE_CONDITION_EFFECTS = { Blinged: "+2 Street Etiquette" };
 
+/* Aerial units and the weapons that can't ride on them. A unit is aerial when
+ * its data says it flies (Move Type "Fly") or that it hovers with a flight
+ * ceiling (the Mobile Sentinel, which has no Move Type but reads exactly like
+ * the Aerial Warden). A weapon refuses aerial mounts when its own text says
+ * so -- today only the drone Sentry Gun -- so homebrew opts in the same way. */
+function unitIsAerial(row) {
+  row = row || {};
+  return String(row["Move Type"] || "").trim().toLowerCase() === "fly"
+    || /flight ceiling/i.test(String(row.Effect || ""));
+}
+function weaponBarsAerial(row) {
+  row = row || {};
+  return /cannot be mounted on aerial/i.test(`${row.Effect || ""} ${row.ModeEffect || ""}`);
+}
+/* Why `weaponRow` can't go on `unitRow`, or null if it can. */
+function aerialMountProblem(unitRow, weaponRow, unitName, weaponName) {
+  if (!unitIsAerial(unitRow) || !weaponBarsAerial(weaponRow)) return null;
+  return `${weaponName} cannot be mounted on an aerial unit, and ${unitName} flies.`;
+}
+
 function priceFittedVehicle(entry, baseRow, data, weaponAndModTables, gearCostMultiplier) {
   // Vehicle Condition AND the small-heritage surcharge scale the BASE price
   // only — fitted weapons/mods always pay face value. Drones have no condition
@@ -4649,7 +4669,8 @@ function priceFittedVehicle(entry, baseRow, data, weaponAndModTables, gearCostMu
         cost += asNumber(found.Cost);
         fitted.push({ name: requestedName,
                       weight: asNumber(found.Weight),
-                      is_weapon: !dataKey.includes("mods") });
+                      is_weapon: !dataKey.includes("mods"),
+                      aerial_barred: !dataKey.includes("mods") && weaponBarsAerial(found) });
         break;
       }
     }
@@ -4714,7 +4735,10 @@ function checkDroneLimits(summary, warnings, errors) {
   }
 }
 
-function priceDronesAndVehicles(character, data, gearCostMultiplier, warnings, errors) {
+// `playErrors`, when given, also gets the aerial-mount error: unlike an
+// over-full hard point (which the unit's own weapons n/cap read-out shows), a
+// weapon on a mount it can't use has nowhere else to say so after Finalize.
+function priceDronesAndVehicles(character, data, gearCostMultiplier, warnings, errors, playErrors) {
   // Weapons first, then the mod table — priceFittedVehicle walks the list in
   // order and stops at the first match, and charges for either kind alike.
   const flatten = cfg => [...cfg.weapons, cfg.mods];
@@ -4729,6 +4753,16 @@ function priceDronesAndVehicles(character, data, gearCostMultiplier, warnings, e
       if (!row) continue;
       const [cost, summary] = priceFittedVehicle(entry, row, data, weaponTables, mult);
       check(summary, warnings, errors);
+      // A mount, like a hard point, is physical: a weapon that can't ride on a
+      // flying unit isn't on it, so this binds rather than warns.
+      if (unitIsAerial(row)) {
+        for (const f of summary.fitted_detail || []) {
+          if (!f.aerial_barred) continue;
+          const message = `${entry.label || entry.name}: ${f.name} cannot be mounted on an aerial unit.`;
+          errors.push(message);
+          if (playErrors) playErrors.push(message);
+        }
+      }
       total += cost;
       summaries.push(summary);
     }
@@ -6293,7 +6327,7 @@ function calculate(character) {
                        playWarnings, playErrors);
   // priceDronesAndVehicles applies the surcharge to vehicles only (drones pay
   // face value) — it splits internally, so it takes the raw multiplier.
-  const vehicles = priceDronesAndVehicles(character, data, gearCostMultiplier, warnings, errors);
+  const vehicles = priceDronesAndVehicles(character, data, gearCostMultiplier, warnings, errors, playErrors);
   const misc = priceMiscGearAndLifestyle(character, data, 1,
                                          augments.has_hyperthyroid);
   // Cybertechtronic augments are surcharged; Bioware pays face value.
@@ -6699,6 +6733,7 @@ return {
   gearIsDose, gearMaxDoses, liveDoseRows,
   rigStats, deployedUnitKeys, applyExtendedMagazine, meleeDamage, isStrengthDamage,
   meleeDamageIsComputable, assignWeaponModSlots, bowRating,
+  unitIsAerial, weaponBarsAerial, aerialMountProblem,
   weaponBaseCost, weaponModCost, weaponModCostPercent,
   DEFAULT_HARDENING, hardeningOf,
   WILDLING_EFFECT_ID, WILDLING_BEAST_DICE, parsePoolDice,

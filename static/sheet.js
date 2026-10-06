@@ -4668,10 +4668,19 @@ function sheetMenu() {
       title: "Tick saved characters — including this one — and delete them in one go",
       onclick: act(manageSavesModal) }, "Manage saves…");
 
+    // The members' gallery: open, view or copy anyone's shared characters.
+    // Also on the 👤 Account menu; here too because this is where a player
+    // looks for a character to load.
+    const galleryBtn = synced
+      ? el("button", { class: "btn sh-mi-load",
+          title: "Characters other members have shared — view them, or save a copy as your own",
+          onclick: openDialog(openSharedGallery) }, "Shared characters…")
+      : null;
+
     const groups = [
       [loadSel, saveBtn, renameBtn, dupBtn, newBtn],
       [filesBtn, homebrewBtn],
-      [sharingBtn],
+      [galleryBtn, sharingBtn],
       [chargenBtn, resyncBtn, manageBtn],
     ].map(g => g.filter(Boolean)).filter(g => g.length);
 
@@ -13752,6 +13761,7 @@ function stowedValue(cfg, u, mult) {
  * weapon they're attached to. */
 function unitSwapChoices(table, u, kind) {
   const cfg = RIG_UNIT_CFG[table];
+  const unitRow = DATA.tables[cfg.table].find(x => x[cfg.nameKey] === u.name) || {};
   const out = [];
   for (const src of allUnits(table)) {
     const srcName = src.label || src.name;
@@ -13771,6 +13781,10 @@ function unitSwapChoices(table, u, kind) {
       });
     }
   }
+  // Shown, but not fittable, with the reason: a Sentry Gun simply missing from
+  // a flying drone's list would read as a bug.
+  if (kind === "weapon") for (const c of out)
+    c.blocked = RULES.aerialMountProblem(unitRow, unitFindWeaponRow(cfg, c.name), u.label || u.name, c.name);
   return out;
 }
 
@@ -13843,7 +13857,7 @@ function openUnitSwap({ table, u, kind, current, after }) {
               c.stowed
                 ? (c.src === u ? "Stowed with this unit" : `Stowed with ${c.srcName}`)
                 : `Fitted to ${c.srcName} — comes off it`,
-              effectOf(c), full ? null : () => apply(c, close), "Fit")))
+              c.blocked || effectOf(c), (full || c.blocked) ? null : () => apply(c, close), "Fit")))
         : el("p", { class: "hint" },
             `No other ${table === "drones" ? "drone" : "vehicle"} ${noun}s owned. `
             + "Buy one from the Add list in Modify."),
@@ -14293,7 +14307,7 @@ function unitModifyBody(table, u, refresh, commit, close) {
   const swapBtn = (kind, current) => ro ? null : el("button", {
     class: "btn small sh-unit-swap", title: "Swap for one you already own, or stow it",
     onclick: () => openUnitSwap({ table, u, kind, current, after: commit }) }, "⇄ Swap");
-  const fitOwnedBtn = kind => (ro || !unitSwapChoices(table, u, kind).length) ? null
+  const fitOwnedBtn = kind => (ro || !unitSwapChoices(table, u, kind).some(c => !c.blocked)) ? null
     : el("button", { class: "btn small", style: "margin-top:6px",
         onclick: () => openUnitSwap({ table, u, kind, current: null, after: commit }) },
         kind === "weapon" ? "Fit an owned weapon…" : "Fit an owned mod…");
@@ -14382,6 +14396,7 @@ function unitModifyBody(table, u, refresh, commit, close) {
   }));
   const addWeapon = ro ? null : fittedCategoryEditor({
     id: "rig-dlg-w", items: [], groups: weaponGroups,
+    guard: name => RULES.aerialMountProblem(r, unitFindWeaponRow(cfg, name), u.label || u.name, name),
     onAdd: name => {
       const wr = unitFindWeaponRow(cfg, name) || {};
       const cost = Math.round((+wr.Cost || 0) * mult);

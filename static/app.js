@@ -2976,6 +2976,10 @@ function tabDrones(p) {
         const guard = name => {
           const cand = findFitting(name, wtabs);
           if (!cand) return null;
+          if (cand.isWeapon) {
+            const aerial = RULES.aerialMountProblem(r, cand.row, it.name, name);
+            if (aerial) return aerial;
+          }
           const current = fitted();
           const weaponCount = current.filter(f => f.isWeapon).length;
           if (kind === "drone") {

@@ -37,8 +37,8 @@ test("ticking Active applies a drone's bonus straight away, and the card shows i
 function swapCharacter() {
   const c = fixture("kitchen-sink-final");
   c.play.purchases.drones = [
-    { name: "Orb", weapons: ["Sentry Gun"], mods: [{ name: "Extended Magazine", weapon: 0 }, "Armor"] },
-    { name: "Roto-Drone", weapons: ["Missile Launcher"], mods: [] },
+    { name: "Dog-Patrol Drone", weapons: ["Sentry Gun"], mods: [{ name: "Extended Magazine", weapon: 0 }, "Armor"] },
+    { name: "Tracked-Patrol Drone", weapons: ["Missile Launcher"], mods: [] },
   ];
   c.play.rigging = { ...(c.play.rigging || {}),
     units: { "drones:0": { inertia: 0, physical: 0, integrity: 0, guns: { 0: { loaded: 7 } } } } };
@@ -64,8 +64,9 @@ test("Swap moves drone weapons (with their mods and magazine) and stows what com
   await openWith(page, [swapCharacter()]);
   const cash = await page.evaluate(() => CHAR.play.cash);
 
-  // Orb's Sentry Gun ⇄ the Roto-Drone's Missile Launcher.
-  await openModify(page, "Orb");
+  // Dog-Patrol's Sentry Gun ⇄ the Tracked-Patrol's Missile Launcher (both ground
+  // drones: a Sentry Gun can't go on a flying one).
+  await openModify(page, "Dog-Patrol Drone");
   const modal = page.locator(".mount-modal").first();
   await domClick(modal.locator(".sub", { hasText: "Sentry Gun" }).getByRole("button", { name: "⇄ Swap" }).first());
   await expect(page.locator(".mount-modal")).toHaveCount(2);
@@ -76,7 +77,7 @@ test("Swap moves drone weapons (with their mods and magazine) and stows what com
   expect(s[0].stowed).toEqual([{ kind: "weapon", name: "Sentry Gun", mods: ["Extended Magazine"], gun: { loaded: 7 } }]);
   expect(s[1].weapons).toEqual([]);
 
-  // The Orb's one hard point is full: fitting into free space is refused.
+  // Its one hard point is full: fitting into free space is refused.
   await domClick(modal.getByRole("button", { name: "Fit an owned weapon…" }));
   await expect(page.locator(".mount-modal").last()).toContainText("no free hard point");
   await expect(page.locator(".mount-modal").last().getByRole("button", { name: "Fit" })).toHaveCount(0);
@@ -91,8 +92,8 @@ test("Swap moves drone weapons (with their mods and magazine) and stows what com
   await page.keyboard.press("Escape");
   await expect(page.locator(".mount-modal")).toHaveCount(0);
 
-  // Roto-Drone fits the stowed Sentry Gun; its mod and magazine come along.
-  await openModify(page, "Roto-Drone");
+  // Tracked-Patrol fits the stowed Sentry Gun; its mod and magazine come along.
+  await openModify(page, "Tracked-Patrol Drone");
   await domClick(page.locator(".mount-modal").getByRole("button", { name: "Fit an owned weapon…" }));
   await pick(page, "Sentry Gun", "Fit");
   s = await unitState(page);
@@ -103,7 +104,7 @@ test("Swap moves drone weapons (with their mods and magazine) and stows what com
 
   // The Rigging card lists what's stowed; nothing was bought or sold.
   await page.keyboard.press("Escape");
-  await expect(page.locator(".sh-unit", { hasText: "Orb" }).first()).toContainText("Stowed: Armor");
+  await expect(page.locator(".sh-unit", { hasText: "Dog-Patrol Drone" }).first()).toContainText("Stowed: Armor");
   expect(await page.evaluate(() => CHAR.play.cash)).toBe(cash);
   expect(await page.evaluate(() => CALC.errors)).toEqual([]);
   expectNoErrors(errors);
@@ -119,5 +120,37 @@ test("the die roller has a New Round button that refills pools", async ({ page }
   expect((await used()).every(n => n === 0)).toBe(true);
   expect(await page.evaluate(() => CHAR.play.actions_used)).toEqual({});
   await expect(page.locator("#die-roller .sh-roller")).toBeVisible();   // roller stays open
+  expectNoErrors(errors);
+});
+
+test("a weapon that can't go on aerial units is refused on a flying drone", async ({ page }) => {
+  const errors = watchErrors(page);
+  const c = fixture("kitchen-sink-final");
+  c.play.purchases.drones = [
+    { name: "Orb", weapons: [], mods: [], stowed: [{ kind: "weapon", name: "Sentry Gun", mods: [] }] },
+    { name: "Dog-Patrol Drone", weapons: [], mods: [] },
+  ];
+  await openWith(page, [c]);
+  // Fitting it in the Swap dialog: shown with the reason, no Fit button.
+  await openModify(page, "Orb");
+  await expect(page.locator(".mount-modal").getByRole("button", { name: "Fit an owned weapon…" })).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  // ...while the ground drone can take it.
+  await openModify(page, "Dog-Patrol Drone");
+  await domClick(page.locator(".mount-modal").getByRole("button", { name: "Fit an owned weapon…" }));
+  await pick(page, "Sentry Gun", "Fit");
+  expect(await page.evaluate(() => allDrones()[1].weapons)).toEqual(["Sentry Gun"]);
+  await page.keyboard.press("Escape");
+  // Buying it for the Orb from the Add weapon list is refused too.
+  await openModify(page, "Orb");
+  page.once("dialog", d => { expect(d.message()).toContain("cannot be mounted on an aerial unit"); d.accept(); });
+  const dlg = page.locator(".mount-modal");
+  await domClick(dlg.locator(".cat-head", { hasText: "Ballistic" }).first());
+  await domClick(dlg.locator(".cat-item", { has: page.locator("b", { hasText: /^Sentry Gun$/ }) })
+    .locator(".btn-add").first());
+  expect(await page.evaluate(() => allDrones()[0].weapons)).toEqual([]);
+  // And a save that already has one is flagged.
+  await page.evaluate(async () => { allDrones()[0].weapons.push("Sentry Gun"); await recalc(); });
+  expect(await page.evaluate(() => CALC.errors)).toContain("Orb: Sentry Gun cannot be mounted on an aerial unit.");
   expectNoErrors(errors);
 });
