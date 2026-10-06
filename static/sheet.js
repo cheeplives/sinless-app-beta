@@ -4977,8 +4977,14 @@ function underbarrelWeapons() {
   for (const en of ownedWeapons()) {
     const host = en.ref;
     if (host.equipped === false) continue;
+    // Only a MOUNTED launcher grants its gun. Owned-but-unmounted mods are in
+    // host.mods too (see weaponModSlots); absent equipped_mods still means
+    // everything owned is mounted, as for every save before swapping existed.
+    const mounted = new Set(host.equipped_mods || (host.mods || []).map(m =>
+      (m && typeof m === "object") ? m.name : m));
     for (const m of host.mods || []) {
       const modName = (m && typeof m === "object") ? m.name : m;
+      if (!mounted.has(modName)) continue;
       const modRow = (DATA.tables.weapon_mods || []).find(x => x.Modification === modName);
       const grants = modRow && String(modRow.GrantsWeapon || "").trim();
       if (!grants) continue;
@@ -10344,6 +10350,7 @@ function weaponModSlots(entry, mult, weaponName, weaponRow) {
   const equipped = entry.ref.equipped_mods || sub.items.slice();
   const equipList = () => (entry.ref.equipped_mods = entry.ref.equipped_mods || sub.items.slice());
   const boxes = RULES.assignWeaponModSlots(equipped, table).assigned;
+  const ro = !!(activeTabObj() && activeTabObj().readonly);
   const grid = el("div", { class: "sh-modslots" });
   for (const slot of order) {
     const modName = boxes[slot];
@@ -10371,31 +10378,42 @@ function weaponModSlots(entry, mult, weaponName, weaponRow) {
       if (modRow && modRow.Effect)
         box.append(el("div", { class: "sh-modslot-eff" }, modRow.Effect));
     }
-    // Owned but not mounted: everything else in sub.items with a row for
-    // THIS slot, and not equipped anywhere else on the gun (a dual-slot mod
-    // already mounted in its other slot has no business offering to move).
+    // Swap: one button per slot, opening a dialog of everything the character
+    // owns that could go here -- this gun's own unmounted mods, and mods on
+    // the character's OTHER guns (a laser sight bought for the pistol can go on
+    // the rifle) -- plus "Leave empty" to take the current one off without
+    // selling it. Nothing is bought or sold, so no money changes hands; a mod
+    // moved between guns leaves the gun it came from, so each gun's resale
+    // value keeps following what it actually owns.
     const equippedSet = new Set(equipped);
-    const others = sub.items.filter(m => {
-      const n = sublistName(m);
-      if (n === modName || equippedSet.has(n)) return false;
-      return !!table.find(mm => mm.Modification === n && mm.Slot === slot);
-    });
-    if (others.length) {
-      box.append(el("div", { class: "sh-modslot-owned" },
-        ...[...new Set(others.map(sublistName))].map(n => el("button", {
-          class: "btn small", title: `Equip ${n} instead of ${modName || "an empty slot"} — `
-            + "already paid for, this just swaps which one is on the gun",
-          onclick: async () => {
-            const eq = equipList();
-            if (modName) { const at = eq.indexOf(modName); if (at >= 0) eq.splice(at, 1); }
-            eq.push(n);
-            // A swap changes which mod's Acc/Conceal/Recoil actually count —
-            // that's computed in priceWeapons() at recalc, not carried on the
-            // character, so a plain re-render would show the old numbers
-            // until something else happened to trigger one.
-            await playChangedRecalc();
-          },
-        }, `⇄ ${n}`))));
+    const choices = [];
+    // This gun's own: owned, with a row for THIS slot, and not mounted
+    // anywhere on the gun (a dual-slot mod already in its other slot stays put).
+    for (const n of new Set(sub.items.map(sublistName))) {
+      if (n === modName || equippedSet.has(n)) continue;
+      if (table.find(mm => mm.Modification === n && mm.Slot === slot))
+        choices.push({ name: n, src: null });
+    }
+    // Other guns'. Not offered: a mod this gun already owns (two of one mod on
+    // a gun is an error), one built into this weapon, or one this weapon type
+    // can't take ("Req Type", e.g. the rifle-only Bi-pod).
+    const ownNames = new Set(sub.items.map(sublistName));
+    const integrated = RULES.weaponIntegratedMods(weaponRow || {}, table);
+    for (const src of ownedWeapons()) {
+      if (src.ref === entry.ref) continue;
+      const srcMounted = new Set(src.ref.equipped_mods || (src.ref.mods || []).map(sublistName));
+      for (const n of new Set((src.ref.mods || []).map(sublistName))) {
+        const row = table.find(mm => mm.Modification === n && mm.Slot === slot);
+        if (!row || ownNames.has(n) || integrated.includes(n)) continue;
+        if (row["Req Type"] && (weaponRow || {}).Type !== row["Req Type"]) continue;
+        choices.push({ name: n, src, mounted: srcMounted.has(n) });
+      }
+    }
+    if (!ro && (modName || choices.length)) {
+      box.append(el("button", { class: "btn small sh-modslot-swap",
+        title: `Choose what goes in this ${slot} slot from the mods you already own`,
+        onclick: () => openModSwap({ entry, slot, modName, choices, weaponName, equipList, sub }) },
+        "⇄ Swap"));
     }
     // Buying stays offered even with a slot full — that's the point: a
     // second Overbarrel mod is bought here and sits owned-but-unequipped
@@ -10430,6 +10448,68 @@ function weaponModSlots(entry, mult, weaponName, weaponRow) {
     grid.append(box);
   }
   return grid;
+}
+
+/* The Swap dialog for one weapon-mod slot (see weaponModSlots). Each choice
+ * is a mod the character already owns; picking one mounts it here, and
+ * whatever was here comes off but stays owned by this gun. A choice from
+ * another gun moves over, taking its underbarrel ammo/mode state with it
+ * (that state is keyed by the mod on its host). "Leave empty" just takes the
+ * current mod off. */
+function openModSwap({ entry, slot, modName, choices, weaponName, equipList, sub }) {
+  const table = DATA.tables.weapon_mods;
+  const effectOf = n => ((table.find(m => m.Modification === n && m.Slot === slot)
+    || table.find(m => m.Modification === n) || {}).Effect || "");
+  const apply = async (choice, close) => {
+    const eq = equipList();                  // lock in "equipped" before anything moves
+    if (modName) { const at = eq.indexOf(modName); if (at >= 0) eq.splice(at, 1); }
+    if (choice && choice.src) {
+      const s = choice.src.ref;
+      const srcEq = (s.equipped_mods = s.equipped_mods || (s.mods || []).map(sublistName));
+      const at = (s.mods || []).findIndex(x => sublistName(x) === choice.name);
+      if (at >= 0) {
+        const [moved] = s.mods.splice(at, 1);
+        const eqAt = srcEq.indexOf(choice.name);
+        if (eqAt >= 0) srcEq.splice(eqAt, 1);
+        const ubState = s.ub_state && s.ub_state[choice.name];
+        if (s.ub_state) delete s.ub_state[choice.name];
+        sub.add(moved);
+        if (ubState) (entry.ref.ub_state = entry.ref.ub_state || {})[choice.name] = ubState;
+      }
+    }
+    if (choice) eq.push(choice.name);
+    close();
+    // Which mods count (Acc, Conceal, Recoil, Ammo) is worked out at recalc.
+    await playChangedRecalc();
+  };
+  const row = (label, where, effect, onPick, btnLabel) =>
+    el("div", { class: "sh-modswap-row" },
+      el("div", { class: "sh-modswap-info" },
+        el("b", {}, label),
+        where ? el("div", { class: "sub" }, where) : null,
+        effect ? el("div", { class: "sub sh-modswap-eff" }, effect) : null),
+      el("button", { class: "btn small", onclick: onPick }, btnLabel));
+  openSheetModal({
+    title: `${slot} — ${weaponName}`,
+    sub: modName
+      ? `Now fitted: ${modName}. Pick what to fit instead; ${modName} stays with this gun.`
+      : "This slot is empty. Pick one of your mods to fit.",
+    maxWidth: "480px",
+    build: (refresh, close) => [
+      choices.length
+        ? el("div", { class: "sh-modswap-list" },
+            ...choices.map(c => row(c.name,
+              c.src ? `On ${c.src.ref.name}${c.mounted ? " (fitted — comes off that gun)" : " (spare)"}`
+                    : "Spare on this gun",
+              effectOf(c.name), () => apply(c, close), "Fit")))
+        : el("p", { class: "hint" }, `No other ${slot} mods owned. Buy one from the slot's list.`),
+      modName
+        ? el("div", { class: "sh-modswap-list sh-modswap-empty" },
+            row("Leave empty", `${modName} comes off and stays with this gun, ready to re-fit`,
+              "", () => apply(null, close), "Unmount"))
+        : null,
+    ],
+  });
 }
 
 /* Split an upgrade cost string into the Woolong part and any special-currency
