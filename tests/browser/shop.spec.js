@@ -55,3 +55,59 @@ test("a basket line's price can be adjusted by a percentage, and the ledger says
   expect(log).toContainEqual(["Bought Kalishnikov A-80 (+50%)", -Math.round(ak * 1.5)]);
   expectNoErrors(errors);
 });
+
+test("augments can be bought at α-cyber grade: ZR reduced, price doubled, Undo matches the grade", async ({ page }) => {
+  const errors = watchErrors(page);
+  const c = fixture("kitchen-sink-final");
+  c.play.cash = 200000;
+  await openWith(page, [c]);
+  await domClick(page.locator(".sh-tabs button", { hasText: /augments/i }));
+  await domClick(page.locator(".sh-shop-open").first());
+  const dlg = page.locator(".mount-modal");
+  const add = async name => {
+    await dlg.locator(".sh-shop-search").fill(name);
+    await domClick(dlg.locator(".cat-item", { has: page.locator("b", { hasText: new RegExp(`^${name}$`) }) })
+      .locator(".btn-add").first());
+    await dlg.locator(".sh-shop-search").fill("");
+  };
+  const price = (name, alpha) => page.evaluate(([n, a]) => {
+    const r = DATA.tables.augments.find(x => x.Name === n);
+    return Math.round(RULES.augmentEffCost(r, { alpha: a })
+      * RULES.surchargeFor("cyberware", CALC.budget.gear_cost_multiplier || 1));
+  }, [name, alpha]);
+  const std = await price("Commlink", false), alpha = await price("Commlink", true);
+  expect(alpha).toBe(std * 2);
+
+  await add("Commlink");
+  await add("Augmented Eyesight");
+  // No ZR, nothing for α-grade to reduce: no option on that line.
+  await expect(dlg.locator(".sh-shop-line", { hasText: "Augmented Eyesight" }).locator(".sh-shop-toggle")).toHaveCount(0);
+  await domClick(dlg.locator(".sh-shop-line", { hasText: "Augmented Eyesight" }).locator(".row-del"));
+
+  const line = dlg.locator(".sh-shop-line", { hasText: "Commlink" });
+  await domClick(line.locator(".sh-shop-toggle input"));
+  await expect(line).toContainText("α-cyber · ZR 0.2 (std 0.3)");
+  await expect(line.locator(".cat-cost")).toContainText(await page.evaluate(n => fmt(n), alpha));
+  // A plain add of the same augment afterwards is its own (standard) line.
+  await add("Commlink");
+  await expect(dlg.locator(".sh-shop-line", { hasText: "Commlink" })).toHaveCount(2);
+
+  const zrBefore = await page.evaluate(() => CALC.zoetics.cyber_zr);
+  const cash = await page.evaluate(() => CHAR.play.cash);
+  await dlg.locator(".sh-shop-buttons .btn-add").click();
+  await expect(dlg).toHaveCount(0);
+  expect(await page.evaluate(() => CHAR.play.cash)).toBe(cash - alpha - std);
+  const owned = await page.evaluate(() => CHAR.play.purchases.augments.filter(a => a.name === "Commlink"));
+  expect(owned).toEqual(expect.arrayContaining([
+    expect.objectContaining({ name: "Commlink", alpha: true }),
+    expect.not.objectContaining({ alpha: true })]));
+  expect(await page.evaluate(() => CALC.zoetics.cyber_zr)).toBeCloseTo(zrBefore + 0.2 + 0.3, 5);
+
+  // Undo the α purchase: the α entry goes, the standard one stays, the α price comes back.
+  page.once("dialog", d => d.accept());           // "Undo …?" confirm
+  await page.evaluate(() => undoCashSpend(CHAR.play.cash_log.find(e => /Installed Commlink \(α-cyber\)/.test(e.label))));
+  await expect.poll(() => page.evaluate(() =>
+    CHAR.play.purchases.augments.filter(a => a.name === "Commlink").map(a => !!a.alpha))).toEqual([false]);
+  expect(await page.evaluate(() => CHAR.play.cash)).toBe(cash - std);
+  expectNoErrors(errors);
+});

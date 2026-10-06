@@ -592,8 +592,8 @@ function removeNamedEntry(list, name) {
   list.splice(i, 1);
   return true;
 }
-function removeCountedEntry(list, name, countKey) {
-  const i = list.map(x => x.name).lastIndexOf(name);
+function removeCountedEntry(list, name, countKey, match) {
+  const i = list.map(x => x.name === name && (!match || match(x))).lastIndexOf(true);
   if (i < 0) return false;
   const count = list[i][countKey] || 1;
   if (count > 1) list[i][countKey] = count - 1;
@@ -643,7 +643,11 @@ const CASH_UNDO = {
   drone:     u => removeNamedEntry(CHAR.play.purchases.drones, u.name),
   vehicle:   u => removeNamedEntry(CHAR.play.purchases.vehicles, u.name),
   gear:      u => removeCountedEntry(CHAR.play.purchases.gear, u.name, "qty"),
-  augment:   u => removeCountedEntry(CHAR.play.purchases.augments, u.name, "count"),
+  // Matches the grade bought (`alpha` is on entries since α-grade could be
+  // bought in the shop) so undoing an α purchase can't take a standard copy of
+  // the same augment instead. Older ledger rows carry no `alpha`: any grade.
+  augment:   u => removeCountedEntry(CHAR.play.purchases.augments, u.name, "count",
+    "alpha" in u ? (a => !!a.alpha === !!u.alpha) : null),
   // Programs are bare names, not entries.
   program: u => {
     const list = CHAR.play.purchases.programs;
@@ -10913,6 +10917,11 @@ function buyDialog({ title, sub, fields, priceOf, spent = 0, confirmLabel }) {
  *              row. Called qty times, which is what keeps Undo per item rather
  *              than per basket.
  *   stackable  true when the same thing can sit in the basket more than once
+ *   lineToggle optional { key, label, applies(name), summary(name, on), title }:
+ *              a checkbox on each basket line it applies to, stored as
+ *              line.opts[key] and handed to price() and commit() -- an
+ *              augment bought at α-cyber grade, say. Ticking it re-prices
+ *              the line.
  *   warnings(cart) -> [string]   optional soft warnings for the footer
  *   note       optional line under the pills
  *
@@ -11092,6 +11101,22 @@ function openShop({ title, sub, sections }) {
               el("button", { title: "One fewer", onclick: () => setQty(line, line.qty - 1) }, "–"),
               el("b", {}, String(line.qty)),
               el("button", { title: "One more", onclick: () => setQty(line, line.qty + 1) }, "+"))
+          : null,
+        (s.lineToggle && s.lineToggle.applies(line.name))
+          ? el("label", { class: "opt sh-shop-toggle", title: s.lineToggle.title || "" },
+              el("input", { type: "checkbox", ...((line.opts || {})[s.lineToggle.key] ? { checked: "1" } : {}),
+                onchange: e => {
+                  const t = s.lineToggle;
+                  line.opts = { ...(line.opts || {}), [t.key]: e.target.checked };
+                  const { cash = 0, zp = 0 } = s.price(line.name, line.opts) || {};
+                  line.list = cash; line.zp = zp;
+                  setAdjust(line, line.adjust);
+                  // The summary is also what keeps a later plain add of the
+                  // same item from merging into this line.
+                  line.summary = t.summary(line.name, e.target.checked);
+                  drawAll();
+                } }),
+              el("span", {}, s.lineToggle.label))
           : null,
         adjustInput ? el("label", { class: "sh-shop-adjust", title: "Adjust this item's price by a percentage — "
               + "negative for a discount, positive for a markup" }, adjustInput, el("span", {}, "%"))
@@ -12143,17 +12168,28 @@ function augmentShopSections() {
   // augmentEffCost, not the raw row: it carries the Classic-ZR cyberlimb
   // doubling, so the quote matches what the engine prices. Bioware is grown to
   // fit and never carries the small-heritage surcharge.
-  const costOf = name => {
+  const costOf = (name, alpha) => {
     const r = rowOf(name);
-    return Math.round(RULES.augmentEffCost(r, {})
+    return Math.round(RULES.augmentEffCost(r, { alpha: !!alpha })
       * RULES.surchargeFor(r.Type === "Bioware" ? "bioware" : "cyberware", mult));
   };
+  // α-cyber grade (bleeding edge): ZR −20% (min −0.1), price ×2 (min +1,000),
+  // the same rule the Augments tab and chargen use. Only augments that carry
+  // ZR can go α -- there's nothing to reduce on the rest.
+  const hasZr = name => +rowOf(name).ZR > 0;
+  const lineAlpha = l => !!(l.opts && l.opts.alpha);
   // Installed plus basketed, as the entry shape augmentAvailability expects.
   const withBasket = cart => [...allAugmentsOwned(),
     ...cart.flatMap(l => Array.from({ length: l.qty }, () => ({ name: l.name, count: 1 })))];
 
   const augments = {
     key: "augments", label: "Augments", stackable: true,
+    lineToggle: {
+      key: "alpha", label: "α-cyber", applies: hasZr,
+      title: "Buy at α-cyber grade: ZR −20% (min −0.1), price ×2 (min +1,000)",
+      summary: (name, on) => on
+        ? `α-cyber · ZR ${RULES.augmentEffZr(rowOf(name), { alpha: true })} (std ${+rowOf(name).ZR})` : "",
+    },
     note: mult > 1
       ? `Heritage surcharge ×${mult} applies to cybertechtronic augments (Bioware pays face value).`
       : "",
@@ -12213,7 +12249,7 @@ function augmentShopSections() {
           }),
         }));
     },
-    price: name => ({ cash: costOf(name), zp: 0 }),
+    price: (name, opts) => ({ cash: costOf(name, opts && opts.alpha), zp: 0 }),
     warnings: cart => {
       if (!cart.length) return [];
       const z = CALC.zoetics;
@@ -12221,7 +12257,7 @@ function augmentShopSections() {
       for (const l of cart) {
         const r = rowOf(l.name);
         bi += (+r.BI || 0) * l.qty;
-        zr += (+r.ZR || 0) * l.qty;
+        zr += RULES.augmentEffZr(r, { alpha: lineAlpha(l) }) * l.qty;
       }
       const out = [];
       const newBI = z.body_index + bi;
@@ -12235,14 +12271,15 @@ function augmentShopSections() {
     },
     commit: line => {
       const name = line.name;
+      const alpha = lineAlpha(line) && hasZr(name);
       // Stackable augments (Knowledge Skillsoft, Chipjack, Memory) grow one
       // entry's count so repeated buys read as "× N" rather than a wall of
-      // duplicate rows.
+      // duplicate rows -- of the same grade; an α one is its own entry.
       const existing = isStackableAugment(name)
-        && CHAR.play.purchases.augments.find(a => a.name === name && !a.alpha);
+        && CHAR.play.purchases.augments.find(a => a.name === name && !!a.alpha === alpha);
       if (existing) existing.count = (existing.count || 1) + 1;
       else {
-        const entry = { name, count: 1 };
+        const entry = { name, count: 1, ...(alpha ? { alpha: true } : {}) };
         // A freshly-bought Skillsoft only starts slotted if a free Chipjack is
         // still available -- otherwise it lands unslotted rather than silently
         // busting the cap. Re-read per unit, so the second Skillsoft in one
@@ -12257,7 +12294,8 @@ function augmentShopSections() {
         }
         CHAR.play.purchases.augments.push(entry);
       }
-      logCash(`Installed ${name}`, -line.cash, { kind: "augment", name });
+      logCash(`Installed ${name}${alpha ? " (α-cyber)" : ""}`, -line.cash,
+        { kind: "augment", name, alpha });
     },
   };
 
@@ -12333,10 +12371,12 @@ function shAugments(body) {
     const isSkillsoft = a.name.startsWith("Skillsoft");
     const hasZr = !!(+r.ZR);
     const alphaZr = hasZr ? RULES.augmentEffZr(r, { alpha: true }) : 0;
-    // Going alpha adds max(base cost, 1000) — mirrors rules.js effCost (min
-    // applied to raw cost, then × the gear multiplier) so the play-mode cash
-    // ledger stays in step with the recalculated total.
-    const alphaExtra = Math.round(Math.max(+r.Cost || 0, 1000) * augMult);
+    // What going alpha adds, as the engine prices it (augmentEffCost: quality
+    // tier and the Classic-ZR cyberlimb doubling included), × the surcharge and
+    // × every unit in the stack -- so the ledger stays in step with the
+    // recalculated total. Same figure the Buy dialog's α-cyber option charges.
+    const alphaExtra = Math.round((RULES.augmentEffCost(r, { ...a, alpha: true })
+      - RULES.augmentEffCost(r, { ...a, alpha: false })) * augMult * (a.count || 1));
     const alphaCell = hasZr
       ? el("label", { class: "opt", title: `α-cyber grade: ZR ${alphaZr} (−20%, min −0.1), cost ×2 (min +${currencySymbol()}1,000)` },
           el("input", { type: "checkbox", ...(a.alpha ? { checked: 1 } : {}),
