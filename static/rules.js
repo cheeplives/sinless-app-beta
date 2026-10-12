@@ -36,7 +36,7 @@ const BUNDLE = (typeof DATA_BUNDLE !== "undefined")
  * default fill claim this build made it: "unknown" is a fact worth keeping,
  * and a confidently wrong version is worse than none when you are working out
  * why an old file behaves oddly. */
-const APP_VERSION = "380";
+const APP_VERSION = "381";
 
 // ============================================================== game constants
 // The numeric knobs the engine reads; grouped by chargen step below.
@@ -3846,7 +3846,9 @@ function scoreKnowledgeSkills(character, finalIntelligence, finalCharisma,
     if (bonus) adjust[name] = bonus;
     // Carry an etiquette you never bought but are currently getting a bonus to:
     // rolling it at all is the whole point of the bonus.
-    if (base || bonus) finalValues[name] = base + bonus;
+    // A penalty (Ad Supported chrome in a boardroom) can't take a rating
+    // below nothing.
+    if (base || bonus) finalValues[name] = Math.max(0, base + bonus);
   }
 
   return {
@@ -5341,12 +5343,20 @@ function parseEtiquetteBonuses(text) {
  * change how anyone reads you. Installed augments and spirit relationships have
  * no such flag and always count.
  *
- * Sources stack. The one exception is Bling, which collapses to its best single
- * source first (a blinged gun and a blinged ride are one look, not two) and then
- * adds to everything else like any other source — so the no-stacking rule stays
- * scoped to Bling, where it belongs.
+ * GEAR DOESN'T STACK. A character takes only the highest bonus to any given
+ * etiquette from gear -- worn armor (Style, Material, Extras), equipped weapon
+ * mods, carried gear, augments, an augment's quality tier, Bling -- not the
+ * sum. A penalty isn't a bonus, so a better piece doesn't cancel it: an
+ * Ad Supported augment's -4 Aristocratic still shows through Bespoke chrome.
+ * Penalties don't stack with each other either; the worst one applies. So
+ * gear contributes (best bonus) + (worst penalty) per etiquette.
  *
- * Returns { adjust: {etiquette: n}, sources: [{etiquette, bonus, label}] }. */
+ * Non-gear sources -- an infused or bonded spirit, the lifestyle -- aren't
+ * gear and add on top as before.
+ *
+ * Returns { adjust: {etiquette: n}, sources: [{etiquette, bonus, label}] };
+ * `sources` lists what actually counts, so gear a better piece outranks
+ * isn't listed. */
 function etiquetteModifiers(character, data) {
   const adjust = {};
   for (const e of ETIQUETTES) adjust[e] = 0;
@@ -5356,6 +5366,26 @@ function etiquetteModifiers(character, data) {
       adjust[etiquette] += bonus;
       sources.push({ etiquette, bonus, label });
     }
+  };
+  // Gear: best bonus and worst penalty per etiquette, settled at the end.
+  const gearBest = {}, gearWorst = {};
+  const gearOne = (etiquette, bonus, label) => {
+    if (bonus > 0 && (!gearBest[etiquette] || bonus > gearBest[etiquette].bonus))
+      gearBest[etiquette] = { etiquette, bonus, label };
+    if (bonus < 0 && (!gearWorst[etiquette] || bonus < gearWorst[etiquette].bonus))
+      gearWorst[etiquette] = { etiquette, bonus, label };
+  };
+  const applyGear = (text, label) => {
+    for (const { etiquette, bonus } of parseEtiquetteBonuses(text)) gearOne(etiquette, bonus, label);
+  };
+  // An augment made at a quality tier (Fashionware: Ad Supported … Bespoke)
+  // says so in the tier's "Etiquette Bonus" column. Only rows flagged
+  // Quality = Y take a tier, the same test augmentQualityMultiplier uses.
+  const applyQuality = (aug, label) => {
+    const row = findRow(data.augments, "Name", nameOf(aug)) || {};
+    if (row.Quality !== "Y" || !aug || !aug.quality) return;
+    const tier = findRow(data.fashionware_qualities || [], "Quality", aug.quality) || {};
+    applyGear(tier["Etiquette Bonus"], `${nameOf(aug)} (${aug.quality})`);
   };
   const nameOf = x => (x && typeof x === "object") ? x.name : x;
   const isBling = name => /^bling/i.test(String(name || ""));
@@ -5371,13 +5401,13 @@ function etiquetteModifiers(character, data) {
       const name = nameOf(value);
       if (!name || isBling(name)) continue;
       const row = findRow(table, column, name) || {};
-      for (const col of effectCols) apply(row[col], `${name} on ${a.name}`);
+      for (const col of effectCols) applyGear(row[col], `${name} on ${a.name}`);
     }
     for (const extra of a.extras || []) {
       const name = nameOf(extra);
       if (!name || isBling(name)) continue;
       const row = findRow(data.armor_extras, "Extra", name) || {};
-      apply(row.Effects || row.Effect, `${name} on ${a.name}`);
+      applyGear(row.Effects || row.Effect, `${name} on ${a.name}`);
     }
   }
   // Equipped weapons and the mods fitted to them; carried gear; installed
@@ -5390,18 +5420,33 @@ function etiquetteModifiers(character, data) {
       const name = nameOf(mod);
       if (!name || isBling(name)) continue;
       const row = findRow(data.weapon_mods, "Modification", name) || {};
-      apply(row.Effect, `${name} on ${w.name}`);
+      applyGear(row.Effect, `${name} on ${w.name}`);
     }
   }
   for (const g of character.gear || []) {
     if (g.carried === false) continue;
     const row = findRow(data.misc_gear, "Item", nameOf(g)) || {};
-    apply(row.Effect, nameOf(g));
-    apply(row.Notes, nameOf(g));
+    applyGear(row.Effect, nameOf(g));
+    applyGear(row.Notes, nameOf(g));
   }
   for (const aug of character.augments || []) {
     const row = findRow(data.augments, "Name", nameOf(aug)) || {};
-    apply(row.Effect, nameOf(aug));
+    applyGear(row.Effect, nameOf(aug));
+    applyQuality(aug, nameOf(aug));
+  }
+  // Augments mounted on worn armor / equipped weapons / carried gear count
+  // while their host does (the same host test tallyMountedAugments uses).
+  for (const [list, on] of [[character.armor, h => h.active !== false],
+                            [character.weapons, h => h.equipped !== false],
+                            [character.gear, h => h.carried !== false]]) {
+    for (const host of list || []) {
+      if (!on(host)) continue;
+      for (const m of host.mounted || []) {
+        const row = findRow(data.augments, "Name", nameOf(m)) || {};
+        applyGear(row.Effect, `${nameOf(m)} on ${host.name}`);
+        applyQuality(m, `${nameOf(m)} on ${host.name}`);
+      }
+    }
   }
   // Speaker spirits give nothing for the relationship alone — a spirit you know
   // is not a spirit that is doing anything for you. The rider lands only when
@@ -5444,11 +5489,16 @@ function etiquetteModifiers(character, data) {
     for (const e of ETIQUETTES) { adjust[e] += bonus; sources.push({ etiquette: e, bonus, label: `${l.name} lifestyle` }); }
     break;                      // one lifestyle is lived at a time
   }
-  // Bling last, already collapsed to one number per etiquette.
-  for (const b of blingEtiquette(character, data)) {
-    adjust[b.etiquette] += b.bonus;
-    sources.push({ etiquette: b.etiquette, bonus: b.bonus,
-                   label: `Bling (${b.sources.join(", ")})` });
+  // Bling is gear like the rest: its best source competes with everything else.
+  for (const b of blingEtiquette(character, data))
+    gearOne(b.etiquette, b.bonus, `Bling (${b.sources.join(", ")})`);
+  // Settle gear: the best bonus and the worst penalty per etiquette.
+  for (const e of ETIQUETTES) {
+    for (const src of [gearBest[e], gearWorst[e]]) {
+      if (!src) continue;
+      adjust[e] += src.bonus;
+      sources.push(src);
+    }
   }
   return { adjust, sources };
 }

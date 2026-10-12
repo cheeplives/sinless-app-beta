@@ -1585,15 +1585,15 @@ function tabKnowledge(p) {
     const bonus = etqAdjust[name] || 0;
     const base = CHAR.etiquettes[name] || 0;
     const from = (CALC.etiquette_sources || [])
-      .filter(s => s.etiquette === name).map(s => `${s.label} +${s.bonus}`);
+      .filter(s => s.etiquette === name).map(s => `${s.label} ${signed(s.bonus)}`);
     etbl.append(el("tr", {},
       el("td", {}, name),
       el("td", { class: "num" }, stepper(
         () => CHAR.etiquettes[name] || 0,
         v => { CHAR.etiquettes[name] = v; }, 0, 6)),
       el("td", { class: "num", title: from.join(", ") || null },
-        bonus ? `+${bonus}` : "—"),
-      el("td", { class: "num" }, String(base + bonus))));
+        bonus ? signed(bonus) : "—"),
+      el("td", { class: "num" }, String(Math.max(0, base + bonus)))));
   }
   p.append(etbl);
   if (Object.keys(etqAdjust).length)
@@ -1971,7 +1971,8 @@ function tabAugments(p) {
           onchange: e => { it.quality = e.target.value; refresh(); } },
           el("option", { value: "" }, "Quality…"),
           ...(DATA.tables.fashionware_qualities || []).map(q =>
-            el("option", { value: q.Quality }, `${q.Quality} ×${q.Multiplier}`)));
+            el("option", { value: q.Quality },
+            `${q.Quality} ×${q.Multiplier}` + (q["Etiquette Bonus"] ? ` — ${q["Etiquette Bonus"]}` : ""))));
         qs.value = it.quality || "";
         qualityCtl = qs;
       }

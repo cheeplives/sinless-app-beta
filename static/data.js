@@ -295,10 +295,10 @@ const DATA_BUNDLE ={
 {"Name":"Kill Display","ZR":"0.1","BI":"","Cost":"800","Rarity":"2","Strength":"","Body":"","Reaction":"","Intelligence":"","Willpower":"","Charisma":"","RaisesMax":"","Armor Slot":"N","Impact Armor":"","ImpArmMin":"","Ballistic Armor":"","Type":"Fashionware","Quality":"","Ban":"","Effect":"Synthskin display that shows a kill counter. Usually prominently displayed (like on forehead or knuckles)","Description":"Kill Display: A simple synthskin display that is on all the time, like a skinwatch. Except that it displays kills or other threat-display stuff. It can, of course, be updated in real time. The display is a few inches and can be mounted on any part of the body. Of course, it will be a part of the body viewable by the public. Otherwise, what's the point? (The display is on the honor system...nobody is going around auditing people's kill displays). Either hard AF or super lame, depending on who you are and who you're hanging out with.","Req Limb":"","Damage":"","STR Mult":"","AltMove":"","MoveMode":"","Skill Bonus":"","Skill Note":""}
 ],
 "fashionware_qualities":[
-{"Quality":"Ad Supported","Multiplier":"0.5"},
-{"Quality":"Normal","Multiplier":"1"},
-{"Quality":"Excellent","Multiplier":"5"},
-{"Quality":"Bespoke","Multiplier":"15"}
+{"Quality":"Ad Supported","Multiplier":"0.5","Etiquette Bonus":"+1 Wasteland and Street Etiquette, -4 Aristocratic Etiquette"},
+{"Quality":"Normal","Multiplier":"1","Etiquette Bonus":""},
+{"Quality":"Excellent","Multiplier":"5","Etiquette Bonus":"+2 Street Etiquette"},
+{"Quality":"Bespoke","Multiplier":"15","Etiquette Bonus":"+2 Street and Aristocratic Etiquette"}
 ],
 "decks":[
 {"Name":"MasterDeck","ZR":"1","BI":"","Cost":"14000","MCP":"3","Hardening":"1","Threads":"4","Core":"Single","Mods":"0","IO":"1"},

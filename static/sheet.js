@@ -9736,17 +9736,17 @@ function shSkills(body) {
       const base = (ep.values || {})[name] || 0;
       const from = (CALC.etiquette_sources || [])
         .filter(s => s.etiquette === name)
-        .map(s => `${s.label} +${s.bonus}`);
+        .map(s => `${s.label} ${signed(s.bonus)}`);
       // Rollable at its FINAL rating, with no pool attached (#72): an etiquette
       // test is the rating on its own, so there is nothing to spend and the
       // roller opens with the count already right.
       row.append(rollable(el("span", {
         class: "sh-tag magic" + (bonus ? " sh-tag-boosted" : ""),
-      }, bonus ? `${name} ${total} (${base}+${bonus})` : `${name} ${total}`), {
+      }, bonus ? `${name} ${total} (${base}${signed(bonus)})` : `${name} ${total}`), {
         dice: total, label: `${name} Etiquette`,
         title: `Roll ${total}d6 — ${name} Etiquette`
-          + (bonus ? ` (${base} bought +${bonus} from ${from.join(", ")})` : ""),
-        note: bonus ? `${base} bought +${bonus} from ${from.join(", ")}` : "No pool — this is the rating on its own",
+          + (bonus ? ` (${base} bought ${signed(bonus)} from ${from.join(", ")})` : ""),
+        note: bonus ? `${base} bought ${signed(bonus)} from ${from.join(", ")}` : "No pool — this is the rating on its own",
       }));
     }
     know.append(el("h4", { class: "sh-h4" }, "Etiquettes"), row);
@@ -12482,7 +12482,8 @@ function shAugments(body) {
       } },
         el("option", { value: "" }, "Quality…"),
         ...(DATA.tables.fashionware_qualities || []).map(q =>
-          el("option", { value: q.Quality }, `${q.Quality} ×${q.Multiplier}`)));
+          el("option", { value: q.Quality },
+            `${q.Quality} ×${q.Multiplier}` + (q["Etiquette Bonus"] ? ` — ${q["Etiquette Bonus"]}` : ""))));
       qualitySel.value = a.quality || "";
     }
     return el("tr", {},
@@ -15770,7 +15771,7 @@ function buildMarkdown() {
     if (Object.keys(etqAdjust).length) {
       const by = {};
       for (const s of CALC.etiquette_sources || [])
-        (by[s.label] ||= []).push(`+${s.bonus} ${s.etiquette}`);
+        (by[s.label] ||= []).push(`${signed(s.bonus)} ${s.etiquette}`);
       L.push("**Etiquette bonuses** (from worn/carried gear, outside the cap): "
         + Object.entries(by).map(([label, list]) => `${list.join(", ")} — ${label}`)
           .join(" · "));
