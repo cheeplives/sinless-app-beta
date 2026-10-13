@@ -2105,7 +2105,7 @@ function sheetInitiative() {
  * stale queue or somebody else's penalty label. */
 function openPoolRoller({ dice, bonus = 0, label, note, pool,
                           extraPenalty = 0, penaltyLabel = null, queue = null, seq = null,
-                          prepaid = null, onResult = null }) {
+                          prepaid = null, onResult = null, capToPool = false }) {
   const wound = woundPenalty().size;
   const extra = Math.max(0, +extraPenalty || 0);
   Object.assign(rollerState, {
@@ -2135,11 +2135,31 @@ function openPoolRoller({ dice, bonus = 0, label, note, pool,
     penalty: wound + extra,
     penaltyLabel: penaltyLabel
       || (extra && wound ? "Wound + test" : extra ? "Test" : "Wound"),
+    // Dodge and soak: the dice you dial in come out of the pool, so you can't
+    // dial in more than the pool has left this round. See rollerPoolCap.
+    capToPool: !!capToPool,
   });
   // A roll with nothing in it is no roll: a caller that preloads only bonus
-  // dice (Soak, Dodge) starts at zero limit, but a bare one needs a die.
+  // dice (Soak, Dodge) starts at zero limit, but a bare one needs a die --
+  // unless the pool it's capped to is empty, when there's nothing to roll.
   if (rollerTotalDice() < 1 && !rollerFreeDice()) rollerState.count = Math.max(1, rollerState.count);
+  rollerClampToPool();
   rollerRefresh();
+}
+
+/* A capped roll (Dodge, soak) can't dial in more dice than its pool has left
+ * this round: those dice ARE the pool. Free dice (passive soak dice, a dodge
+ * bonus) aren't the pool's, so they stay outside the cap. Re-read live, so a
+ * roll that spends the pool, a New Round that refills it, or picking another
+ * pool from the roller's own list all move the ceiling. */
+function rollerPoolCap() {
+  const st = rollerState;
+  if (!st.capToPool || !st.pool || st.mode !== "pool") return Infinity;
+  return Math.max(0, poolState(st.pool).remaining);
+}
+function rollerClampToPool() {
+  const cap = rollerPoolCap();
+  if (rollerState.count > cap) rollerState.count = cap;
 }
 
 /* Take the roll's limit dice out of the chosen pool. Bonus dice are free — they
@@ -2234,7 +2254,7 @@ function rollerOverlay() {
     onclick: () => {
       if (!st.open && st.mode !== "free") {
         Object.assign(st, { mode: "free", bonus: 0, bonusDice: 0, bonusAdded: 0,
-          dice: [], spent: null });
+          dice: [], spent: null, capToPool: false });
       }
       // Reopening by hand is a NEW roll, so a queued follow-up and any
       // test-specific penalty from the roll before it are dropped here along
@@ -2252,6 +2272,8 @@ function rollerOverlay() {
     },
   }, "⚄"));
   if (!st.open) return wrap;
+  rollerClampToPool();          // the pool may have moved since the last draw
+  const poolCap = rollerPoolCap();
 
   const successes = st.dice.filter(d => d.value >= 4).length;
   const selected = st.dice.filter(d => d.selected).length;
@@ -2265,6 +2287,7 @@ function rollerOverlay() {
       const next = st.count + delta;
       st.count = Math.max(0, delta > 0 ? Math.min(next, st.count + Math.max(0, headroom())) : next);
       if (rollerTotalDice() < 1) st.count = 1;      // never roll nothing
+      rollerClampToPool();                          // ...but never more than the pool has
       rollerRefresh();
     },
   }, label);
@@ -2304,7 +2327,7 @@ function rollerOverlay() {
                   ? ` · ${(st.penaltyLabel || "Wound").toLowerCase()} −${eff.penalty} already taken off`
                   : "") },
           el("input", { type: "number", class: "sh-roller-count-input",
-            min: "0", max: String(ROLLER_MAX_DICE),
+            min: "0", max: String(Math.min(ROLLER_MAX_DICE, poolCap)),
             value: String(st.count),
             "aria-label": "Skill dice",
             oninput: e => {
@@ -2315,18 +2338,29 @@ function rollerOverlay() {
               st.count = Number.isFinite(raw)
                 ? Math.max(0, Math.min(raw, ROLLER_MAX_DICE - free))
                 : 0;
+              rollerClampToPool();
               rollerRefresh();
             },
             // An empty box while typing is fine; an empty box you walked away
-            // from is a roll of nothing, so it settles back to a usable value.
-            onblur: () => { if (rollerTotalDice() < 1) { st.count = 1; rollerRefresh(); } },
+            // from is a roll of nothing, so it settles back to a usable value
+            // (within the pool, for a capped roll).
+            onblur: () => {
+              if (rollerTotalDice() < 1) { st.count = 1; rollerClampToPool(); rollerRefresh(); }
+            },
           }),
           // "d6" was noise beside a box you type a die count into — the panel
           // is a die roller, and nothing else in it is measured in anything
           // else (#48). The bonus-dice shorthand stays: that IS information.
           suffix ? el("span", { class: "sh-roller-count-unit" }, suffix) : null);
       })(),
-      stepBtn(1, "+"),
+      (() => {
+        const plus = stepBtn(1, "+");
+        if (st.count >= poolCap) {
+          plus.disabled = true;
+          plus.title = `No more ${st.pool} left this round`;
+        }
+        return plus;
+      })(),
       el("button", { class: "btn sh-roller-roll",
         // Wounds can take a small test to nothing. That's the rule, but it has
         // to read as "you can't attempt this" rather than as a broken button.
@@ -2376,6 +2410,7 @@ function rollerOverlay() {
       el("span", { class: "sub" + (!st.pool && st.prepaid ? " sh-roller-prepaid" : "") },
         st.pool
           ? `−${eff.limit}d on roll${eff.bonus ? ` (${eff.bonus} bonus free)` : ""}`
+            + (Number.isFinite(poolCap) ? ` · up to ${poolCap} — ${st.pool} left this round` : "")
           : st.prepaid ? `already paid: ${st.prepaid}`
           : "no pool spent")));
     // Wounds come off before anything else is decided, so they're stated here
@@ -2698,7 +2733,7 @@ function conditionCard() {
       el("button", { class: "btn roll",
         title: "Roll to soak — Brawn pool dice, plus any passive soak dice",
         onclick: () => openPoolRoller({ dice: 0, bonus: CALC.combat.soak_bonus || 0,
-          pool: "Brawn", label: "Soak",
+          pool: "Brawn", label: "Soak", capToPool: true,
           note: (CALC.combat.soak_bonus ? `${CALC.combat.soak_bonus} passive soak dice — ` : "")
             + "dial in the Brawn you're spending" }) }, "⚄ Soak"),
       el("span", { class: "sub", style: "align-self:center" },
@@ -2745,7 +2780,7 @@ function dodgeCard() {
   const dodgeTracked = play.dodge_dice || 0;      // legacy hand-tracked dice, still counted
   const dodgeFree = (c.dodge_bonus || 0) + dodgeTracked;
   const dodgeRoll = () => openPoolRoller({ dice: 0, bonus: dodgeFree, pool: "Finesse",
-    label: "Dodge",
+    label: "Dodge", capToPool: true,
     note: (dodgeFree ? `${dodgeFree} dodge dice free — ` : "")
       + "dial in the Finesse you're spending" });
   // Cover and drone riders are the ★-worthy ones: they change how hard you are
@@ -7915,6 +7950,9 @@ function conditionTrack(label, max, get, set) {
  * worse than one the player closes themselves.
  */
 function activeSpells() { return (CHAR.play && CHAR.play.active_spells) || []; }
+/* Spells listed A–Z by name (the Magic tab's lists). */
+const bySpellName = (a, b) => String(a.name || "").localeCompare(String(b.name || ""),
+  undefined, { sensitivity: "base", numeric: true });
 
 /* The three skills a cast can be rolled on. Nothing in the spells table names a
  * skill — there is no column for it, and School ("Incantor", "Mentalism", …)
@@ -8216,7 +8254,7 @@ function drainSoakButtons(s) {
   const btns = [el("button", { class: "btn small roll",
     title: `Soak Drain with Channeling${fet.bonus ? ` — includes ${fet.best.name} +${fet.bonus}d` : ""}`,
     onclick: () => openPoolRoller({
-      dice: ch.final, bonus: chBonus, pool: ch.pool || "Resolve",
+      dice: ch.final, bonus: chBonus, pool: ch.pool || "Resolve", capToPool: true,
       label: `Drain soak — Channeling (${s.name} F${s.force})`,
       note: `${ch.final} Channeling`
         + (ch.dice_bonus ? ` + ${ch.dice_bonus} skill bonus` : "")
@@ -8227,7 +8265,7 @@ function drainSoakButtons(s) {
     btns.push(el("button", { class: "btn small roll",
       title: "Soak what Channeling left over with Brawn — Stun drain only",
       onclick: () => openPoolRoller({
-        dice: 0, bonus: 0, pool: "Brawn",
+        dice: 0, bonus: 0, pool: "Brawn", capToPool: true,
         label: `Drain soak — Brawn (${s.name} F${s.force})`,
         note: "Second soak, after Channeling — dial in the Brawn you're spending",
       }) }, "⚄ Brawn"));
@@ -8294,7 +8332,8 @@ function activeSpellRow(s, { detail = false, ro = false, after = null } = {}) {
 }
 
 function activeSpellsBanner() {
-  const list = activeSpells();
+  // Sorted copy for display; dismissing goes by each cast's uid, not position.
+  const list = activeSpells().slice().sort(bySpellName);
   if (!list.length) return null;
   const ro = !!(activeTabObj() && activeTabObj().readonly);
   const card = el("div", { class: "sh-callout sh-active-spells" },
@@ -12821,7 +12860,10 @@ function shMagic(body) {
   const allSpells = [
     ...CHAR.magic.spells.map(s => ({ ...s, inPlay: false })),
     ...play.purchases.spells.map(s => ({ ...s, inPlay: true }))]
-    .filter(s => !forgottenSpells.has(s.name));
+    .filter(s => !forgottenSpells.has(s.name))
+    // A–Z by name, rather than the order they were learned. Safe to reorder:
+    // every row acts on its spell by name, never by position.
+    .sort(bySpellName);
   if (allSpells.length || type === "Mage" || type === "Archmage") {
     const wrap = el("div", { class: "card sh-card" },
       el("div", { class: "sh-card-head" },
