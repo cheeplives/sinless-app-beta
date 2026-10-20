@@ -5130,6 +5130,8 @@ function canonicalSkillName(name) {
  * The active tests are the ones the rest of the engine already uses: armor must
  * be worn, weapons equipped, gear carried, augments are installed and always
  * count, and a spirit must be infused or bonded rather than merely known.
+ * A spell counts only while it is up -- cast and still on the Active Spells
+ * banner (`play.active_spells`) -- not merely because it is known (JC-026).
  * Vehicles and drones count as owned — a rigger's kit isn't "worn".
  *
  * Returns { bonus: {skill: n}, notes: {skill: [text]}, sources: [...] }. */
@@ -5230,7 +5232,13 @@ function gearSkillEffects(character, data, warnings) {
   // skipMove: their "Move" is the unit's own speed, not their owner's.
   rowsOf(character.vehicles, "vehicles", "Vehicle", null, true);
   rowsOf(character.drones, "drones", "Drone", null, true);
-  rowsOf((character.magic || {}).spells, "spells", "Name");
+  // Known is not cast (JC-026): a spell's Skill Bonus / Skill Note lands only
+  // while a cast of it is on the Active Spells banner, and leaves when the last
+  // one is dismissed. Casting it twice doesn't stack -- the known spell is the
+  // row being read, so it contributes once however many casts are up.
+  const castNames = new Set((((character.play || {}).active_spells) || [])
+    .map(s => s && s.name).filter(Boolean));
+  rowsOf((character.magic || {}).spells, "spells", "Name", e => castNames.has(nameOf(e)));
   rowsOf(character.rituals, "rituals", "Name");
   // Amp powers. Play-bought powers are already merged into magic.amp_powers by
   // applyPlayAdvances, which runs first, so this is the same set the hardcoded

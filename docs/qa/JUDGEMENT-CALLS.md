@@ -680,7 +680,7 @@ Raised while implementing the rulings above, and ruled on in the same round.
   Cybertechtronic Eyes" on every existing character, so it needs a P02 re-run.
 
 ## JC-026: A known spell grants its Skill Bonus / Skill Note unconditionally
-- **Status:** OPEN
+- **Status:** RESOLVED
 - **Where:** `gearSkillEffects` (`static/rules.js:3944`,
   `rowsOf((character.magic || {}).spells, "spells", "Name")`)
 - **Observed:** `gearSkillEffects` gates every other source on being currently
@@ -711,11 +711,18 @@ Raised while implementing the rulings above, and ruled on in the same round.
 - **Raised by:** the effect-text-review pass (`docs/effect-text-review/`,
   now deleted) while adding `Skill Bonus`/`Skill Note` prose-vs-column checks
   across every table; recorded here so the question survives the bundle.
-- **RULING (owner only):** _
+- **RULING (owner only):** **B — only while active.** A spell gives its bonus
+  only while it is active.
 - **Follow-up on ruling:** If A, no code changes — just note the design intent
   somewhere `gearSkillEffects`'s doc comment can point to. If B or C, every
   spell currently carrying a Skill Bonus or Skill Note needs to be re-audited
   against whatever "active" ends up meaning, which is a P02/P04 re-run.
+- **Applied:** `gearSkillEffects` gates spells on `play.active_spells`: a known
+  spell's Skill Bonus / Skill Note applies while a cast of it is on the Active
+  Spells banner, and stops when the last cast is dismissed. Multiple casts of
+  the same spell contribute once. Still a no-op for the shipped data (no spell
+  row populates those columns); `Bound Servant` can now be migrated into them
+  safely, since its bonus would follow the cast rather than the purchase.
 
 ## JC-027: Hotseat counted as deployment in the engine and as a modifier in the UI
 - **Status:** RESOLVED
