@@ -11688,22 +11688,14 @@ function shGear(body) {
       .map(([id, label]) => el("button", { onclick: jump(id) }, label))));
 
   // ===== Woolongs on hand + Lifestyle — half-width, side by side.
-  const amt = el("input", { type: "number", value: "100", min: "1",
-    "aria-label": `${RULES.currencyName()} to add or subtract`, style: "width:90px" });
-  const applyCash = sign => {
-    const n = parseInt(amt.value, 10);
-    if (!Number.isFinite(n) || n <= 0) return;
-    logCash(sign > 0 ? "Cash awarded" : "Cash spent", sign * n, { kind: "manual" });
-    playChanged();
-  };
+  // One way to adjust money by hand (#111): the same amount-then-reason dialog
+  // the header's money tile opens, so a manual change always carries its why.
   const woolongsCard = el("div", { class: "card sh-card", id: "gear-cash" },
     el("h3", {}, `${RULES.currencyName()} on hand`),
     el("div", { class: "sh-cash-row" },
       el("div", { class: "big cash" }, fmt(play.cash)),
-      el("span", { class: "sh-inline-adjust" },
-        amt,
-        el("button", { class: "btn good", onclick: () => applyCash(1) }, "+ Add"),
-        el("button", { class: "btn warn", onclick: () => applyCash(-1) }, "− Subtract"))),
+      ro ? null : el("button", { class: "btn sh-cash-adjust", onclick: adjustCash,
+        title: "Add or subtract an amount, with a note saying why" }, "Adjust Money Manually")),
     priceAdjustField(),
     el("p", { class: "hint" },
       "Unspent chargen cash was forfeited at finalize; starting cash was rolled 4d6×100. "

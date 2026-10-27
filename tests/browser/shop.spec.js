@@ -151,3 +151,19 @@ test("the sheet-wide price adjustment carries into Buy dialogs and purchases out
   expect(top.delta).toBe(-paid);
   expectNoErrors(errors);
 });
+
+// #111: the Gear tab adjusts money through the same dialog as the header tile.
+test("Adjust Money Manually on the Gear tab asks for an amount and a reason", async ({ page }) => {
+  const errors = watchErrors(page);
+  await openWith(page, [fixture("kitchen-sink-final")]);
+  await domClick(page.locator(".sh-tabs button", { hasText: /gear/i }));
+  const answers = ["-250", "Bribed the doorman"];
+  page.on("dialog", d => d.accept(answers.shift()));
+  const cash = await page.evaluate(() => CHAR.play.cash);
+  await page.locator("#gear-cash").getByRole("button", { name: "Adjust Money Manually" }).click();
+  await expect.poll(() => page.evaluate(() => CHAR.play.cash)).toBe(cash - 250);
+  expect(await page.evaluate(() => CHAR.play.cash_log[0])).toMatchObject(
+    { label: "Bribed the doorman", delta: -250 });
+  await expect(page.locator("#gear-cash .sh-inline-adjust")).toHaveCount(0);
+  expectNoErrors(errors);
+});
