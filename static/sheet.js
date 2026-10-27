@@ -7365,7 +7365,9 @@ function shOverview(body) {
           const notes = [
             [arow.material, arow.style].filter(Boolean).join(" · ") || r.Slot || "",
             `wt ${r.wt || 0}`,
-            `ZR ${r.ZR || 0}`,
+            // Under the Clothing/Armor Ignored rule (#110) the piece's ZR is
+            // still listed, but marked as not counting.
+            RULES.houseRule("armor_zr") === "houserule" && +r.ZR ? `ZR ${r.ZR} (ignored)` : `ZR ${r.ZR || 0}`,
             (r.Rarity && r.Rarity !== "-") ? `Rarity ${r.Rarity}` : "",
           ].filter(Boolean).join(" · ");
           const aeffects = arow.effects || [];
