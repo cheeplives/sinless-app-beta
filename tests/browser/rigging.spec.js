@@ -1,6 +1,6 @@
 // Drones on the Rigging tab: what ticking Active does, and what the card shows.
 const { test, expect } = require("@playwright/test");
-const { fixture, watchErrors, expectNoErrors, openWith, domClick } = require("./helpers");
+const { fixture, watchErrors, expectNoErrors, openWith, domClick, waitForApp } = require("./helpers");
 
 function character() {
   const c = fixture("kitchen-sink-final");
@@ -179,5 +179,25 @@ test("mounting a drone weapon asks for a price adjustment on top of the Modify d
   await expect.poll(() => page.evaluate(() => CHAR.play.cash)).toBe(cash - Math.round(list * 0.5));
   expect(await unitState(page)).toMatchObject([{ weapons: [gun] }]);
   expect(await page.evaluate(() => CHAR.play.cash_log[0].label)).toMatch(/\(−50%\)$/);
+  expectNoErrors(errors);
+});
+
+// #107: a character that came back from the server carries its empty rigging
+// maps as [] (PHP turns {} into []). Ticking Active on one used to set a named
+// property on an array, which JSON drops -- so the tick vanished on save.
+test("Active survives a save and reopen after the rigging maps came back from the server as []", async ({ page }) => {
+  const errors = watchErrors(page);
+  const c = character();
+  c.play.rigging = { ...(c.play.rigging || {}), linked: [], active: [], hotseat: [] };
+  await openWith(page, [c]);
+  await domClick(page.locator(".sh-tabs button", { hasText: /rigging/i }));
+  await domClick(page.locator(".sh-unit", { hasText: "Bug-Spy" }).first()
+    .locator("label.opt", { hasText: "Active" }).locator("input"));
+  await page.waitForTimeout(1000);   // the play autosave's debounce
+  await page.reload(); await waitForApp(page);
+  expect(await page.evaluate(() => CHAR.play.rigging.active)).toEqual({ "drones:0": true });
+  await domClick(page.locator(".sh-tabs button", { hasText: /rigging/i }));
+  await expect(page.locator(".sh-unit", { hasText: "Bug-Spy" }).first()
+    .locator("label.opt", { hasText: "Active" }).locator("input")).toBeChecked();
   expectNoErrors(errors);
 });

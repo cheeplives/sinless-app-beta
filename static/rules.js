@@ -1171,7 +1171,11 @@ function defaultCharacter() {
       // equippedDeckName). Distinct from an empty active_deck, which means
       // "never chose" and resolves to the first owned deck.
       decking: { active_deck: "", loaded: [], jacked_out: false },
-      rigging: { active_rig: "", units: {} },
+      // linked / active / hotseat are keyed maps ("drones:0" -> true). Listed
+      // here so mergeDefaults repairs one that came back from the server as []
+      // (PHP decodes an empty {} to an array and re-encodes it as []), which
+      // silently dropped every flag set on it at the next save (#107).
+      rigging: { active_rig: "", units: {}, linked: {}, active: {}, hotseat: {} },
       // The campaign clock. `start` is null until the player sets one — a date
       // nobody chose is worse than no date, and the sheet refuses to advance
       // time without it. Months only ever move through the Time Passes dialog,

@@ -14239,9 +14239,13 @@ function shiftUnitStateDown(table, removedAt, newLength) {
  */
 function rigFlags() {
   const rg = CHAR.play.rigging;
-  rg.linked = rg.linked || {};
-  rg.active = rg.active || {};
-  rg.hotseat = rg.hotseat || {};
+  // A plain object, not just a truthy one: a map that round-tripped through
+  // the server as [] takes `rg.active["drones:0"] = true` happily and then
+  // drops it on JSON.stringify, so the tick vanished on save (#107).
+  const keyed = v => (v && typeof v === "object" && !Array.isArray(v)) ? v : {};
+  rg.linked = keyed(rg.linked);
+  rg.active = keyed(rg.active);
+  rg.hotseat = keyed(rg.hotseat);
   return rg;
 }
 
