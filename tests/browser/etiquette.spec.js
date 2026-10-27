@@ -16,6 +16,11 @@ test("quality tiers set Etiquette; gear takes the best bonus, not the sum", asyn
     const sel = page.locator("tr", { has: page.locator("td b", { hasText: new RegExp(`^${aug}$`) }) })
       .locator(".fw-quality-select");
     await sel.selectOption(tier);
+    // A pricier tier is a purchase and asks its price (#108); a cheaper one is
+    // a refund and doesn't. Take the asked price at list.
+    const ask = page.locator(".mount-modal");
+    await ask.waitFor({ timeout: 1000 }).catch(() => {});
+    if (await ask.count()) await domClick(ask.getByRole("button", { name: /^Buy/ }));
     await expect.poll(() => page.evaluate(n =>
       allAugmentsOwned().find(a => a.name === n).quality || "", aug)).toBe(tier);
   };

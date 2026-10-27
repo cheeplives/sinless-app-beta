@@ -154,3 +154,30 @@ test("a weapon that can't go on aerial units is refused on a flying drone", asyn
   expect(await page.evaluate(() => CALC.errors)).toContain("Orb: Sentry Gun cannot be mounted on an aerial unit.");
   expectNoErrors(errors);
 });
+
+// #108: mounting a weapon in a drone's Modify dialog asks its own price.
+test("mounting a drone weapon asks for a price adjustment on top of the Modify dialog", async ({ page }) => {
+  const errors = watchErrors(page);
+  const c = fixture("kitchen-sink-final");
+  c.play.cash = 1000000;
+  c.play.purchases.drones = [{ name: "Dog-Patrol Drone", weapons: [], mods: [] }];
+  await openWith(page, [c]);
+  await openModify(page, "Dog-Patrol Drone");
+  const modify = page.locator(".mount-modal").first();
+  const gun = "Sentry Gun";
+  const list = await page.evaluate(n => Math.round(+(DATA.tables.drone_ballistic_weapons
+    .find(w => w["Drone Ballistic Weapon"] === n) || {}).Cost || 0), gun);
+  const cash = await page.evaluate(() => CHAR.play.cash);
+  const item = modify.locator(".cat-item", { has: page.locator("b", { hasText: new RegExp(`^${gun}$`) }) }).first();
+  await domClick(modify.locator(".cat-head", { hasText: /^Ballistic Weapon/ }).first());
+  await domClick(item.locator(".btn-add"));
+  const ask = page.locator(".mount-modal").last();
+  await expect(page.locator(".mount-modal")).toHaveCount(2);
+  await ask.locator("input[type=number]").fill("-50");
+  await domClick(ask.getByRole("button", { name: /^Buy/ }));
+  await expect(page.locator(".mount-modal")).toHaveCount(1);   // the Modify dialog stays open
+  await expect.poll(() => page.evaluate(() => CHAR.play.cash)).toBe(cash - Math.round(list * 0.5));
+  expect(await unitState(page)).toMatchObject([{ weapons: [gun] }]);
+  expect(await page.evaluate(() => CHAR.play.cash_log[0].label)).toMatch(/\(−50%\)$/);
+  expectNoErrors(errors);
+});

@@ -112,46 +112,6 @@ test("augments can be bought at α-cyber grade: ZR reduced, price doubled, Undo 
   expectNoErrors(errors);
 });
 
-// #108: one price adjustment for the whole sheet, read by every purchase path.
-test("the sheet-wide price adjustment carries into Buy dialogs and purchases outside them", async ({ page }) => {
-  const errors = watchErrors(page);
-  const c = fixture("kitchen-sink-final");   // a finalized Mage with a spell
-  c.play.cash = 100000;
-  await openWith(page, [c]);
-
-  await domClick(page.locator(".sh-tabs button", { hasText: /gear/i }));
-  const field = page.locator(".sh-price-adjust-field input");
-  await field.fill("-20");
-  await field.dispatchEvent("change");
-  await expect(page.locator(".sh-price-adj").first()).toContainText("−20%");
-  expect(await page.evaluate(() => CHAR.play.price_adjust)).toBe(-20);
-
-  // An empty basket shows the figure already, and new lines start at it.
-  await domClick(page.locator(".sh-shop-open").first());
-  const dlg = page.locator(".mount-modal");
-  await expect(dlg.locator(".sh-shop-adjust-all input")).toHaveValue("-20");
-  await addToBasket(page, "Katana");
-  await expect(dlg.locator(".sh-shop-line", { hasText: "Katana" }).locator(".sh-shop-adjust input"))
-    .toHaveValue("-20");
-  await domClick(dlg.getByRole("button", { name: "Cancel" }));
-  await expect(dlg).toHaveCount(0);
-
-  // A spell's +1 Force never goes through a basket, and still pays the adjusted price.
-  await domClick(page.locator(".sh-tabs button", { hasText: /magic/i }));
-  const adv = page.locator(".sh-spell button", { hasText: /^\+1 Force/ }).first();
-  const spell = await adv.evaluate(b => b.closest(".sh-spell").querySelector("b").textContent);
-  const perForce = await page.evaluate(n => Math.round(+DATA.tables.spells.find(s => s.Name === n).Cost || 0), spell);
-  const paid = Math.round(perForce * 0.8);
-  await expect(adv).toContainText(await page.evaluate(n => fmt(n), paid));
-  const cash = await page.evaluate(() => CHAR.play.cash);
-  await domClick(adv);
-  await expect.poll(() => page.evaluate(() => CHAR.play.cash)).toBe(cash - paid);
-  const top = await page.evaluate(() => CHAR.play.cash_log[0]);
-  expect(top.label).toMatch(/\(−20%\)$/);
-  expect(top.delta).toBe(-paid);
-  expectNoErrors(errors);
-});
-
 // #111: the Gear tab adjusts money through the same dialog as the header tile.
 test("Adjust Money Manually on the Gear tab asks for an amount and a reason", async ({ page }) => {
   const errors = watchErrors(page);
@@ -165,5 +125,41 @@ test("Adjust Money Manually on the Gear tab asks for an amount and a reason", as
   expect(await page.evaluate(() => CHAR.play.cash_log[0])).toMatchObject(
     { label: "Bribed the doorman", delta: -250 });
   await expect(page.locator("#gear-cash .sh-inline-adjust")).toHaveCount(0);
+  expectNoErrors(errors);
+});
+
+// #108: a purchase outside the Buy basket asks for its own ±%, from 0 each time.
+test("a spell's +1 Force asks for a price adjustment, and the ledger says so", async ({ page }) => {
+  const errors = watchErrors(page);
+  const c = fixture("kitchen-sink-final");   // a finalized Mage with a spell
+  c.play.cash = 100000;
+  await openWith(page, [c]);
+  await domClick(page.locator(".sh-tabs button", { hasText: /magic/i }));
+  const adv = page.locator(".sh-spell button", { hasText: /^\+1 Force/ }).first();
+  const spell = await adv.evaluate(b => b.closest(".sh-spell").querySelector("b").textContent);
+  const perForce = await page.evaluate(n => Math.round(+DATA.tables.spells.find(s => s.Name === n).Cost || 0), spell);
+  const cash = await page.evaluate(() => CHAR.play.cash);
+
+  // Cancel changes nothing.
+  await domClick(adv);
+  const dlg = page.locator(".mount-modal");
+  await expect(dlg.locator("input[type=number]")).toHaveValue("0");
+  await domClick(dlg.getByRole("button", { name: "Cancel" }));
+  await expect(dlg).toHaveCount(0);
+  expect(await page.evaluate(() => CHAR.play.cash)).toBe(cash);
+
+  await domClick(page.locator(".sh-spell button", { hasText: /^\+1 Force/ }).first());
+  await dlg.locator("input[type=number]").fill("-20");
+  const paid = Math.round(perForce * 0.8);
+  await expect(dlg.locator(".sh-buy-total b")).toContainText(await page.evaluate(n => fmt(n), paid));
+  await domClick(dlg.getByRole("button", { name: /^Buy/ }));
+  await expect.poll(() => page.evaluate(() => CHAR.play.cash)).toBe(cash - paid);
+  const top = await page.evaluate(() => CHAR.play.cash_log[0]);
+  expect(top.label).toMatch(/\(−20%\)$/);
+  expect(top.delta).toBe(-paid);
+
+  // The next purchase starts at 0 again.
+  await domClick(page.locator(".sh-spell button", { hasText: /^\+1 Force/ }).first());
+  await expect(dlg.locator("input[type=number]")).toHaveValue("0");
   expectNoErrors(errors);
 });
