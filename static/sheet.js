@@ -11734,6 +11734,9 @@ function shGear(body) {
     loadCard.append(el("div", { class: "sh-advrow" },
       el("span", { class: "sub" }, "Chrome — Zoetic Rating (not weight)"),
       el("b", { class: "sub" }, String(chromeZr))));
+  // Concealment is a question about what's on you, so it sits with the load
+  // rather than heading the Gear list (player request).
+  appendIf(loadCard, concealCallout());
   if (overburdened)
     loadCard.append(el("div", { class: "sh-callout", style: "border-color:var(--bad);color:var(--bad)" },
       el("b", {}, "Overburdened — "),
@@ -12163,7 +12166,7 @@ function shGear(body) {
       onclick: () => { gearCats.forEach(c => { gearCatOpen[c] = false; }); renderSheet(); } },
       "Collapse all")) : null;
   body.append(el("div", { class: "card sh-card", id: "gear-gear" },
-    el("h3", {}, "Gear"), concealCallout(), gearCatBar, gt));
+    el("h3", {}, "Gear"), gearCatBar, gt));
 
   // ===== Vehicles / rigs / decks owned (configured on their own tabs).
   // Drones and vehicles get their full Rigging-tab stat + attachment lines here
