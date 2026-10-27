@@ -17,7 +17,10 @@ concurrency:
 jobs:
   test:
     name: ${{ matrix.project }}
-    runs-on: ubuntu-latest
+    # Pinned: ubuntu-latest moved to 26.04, which the pinned Playwright
+    # (1.56.1) can't install browsers or system deps for. Move this forward
+    # together with a Playwright upgrade.
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     strategy:
       fail-fast: false          # one engine failing must not hide another's result
