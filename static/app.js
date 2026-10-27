@@ -1622,11 +1622,51 @@ function tabKnowledge(p) {
 }
 
 /* ------------------------------------------------ 4. magic */
+/* The familiar picker at the top of the Magic tab (#109), shared by chargen
+ * and the play sheet -- each hands in where its choice lives (chargen writes
+ * magic.familiar, play writes play.familiar; see RULES.familiarState). Hovering
+ * the picker or the effect line shows the familiar's full description.
+ *
+ * `condition` is play-only: a familiar whose dice need a circumstance ("At
+ * night") gets a toggle for it there. Chargen has no night to be in. */
+function familiarCard({ value, onChange, condition, readonly }) {
+  const rows = DATA.tables.familiars || [];
+  const row = rows.find(r => r.Familiar === value);
+  const tip = row ? (row.Description || row.Effect || "") : "";
+  const sel = el("select", { title: tip || "Pick a familiar to adopt",
+      "aria-label": "Familiar", disabled: readonly ? "1" : null,
+      onchange: e => onChange(e.target.value) },
+    el("option", { value: "" }, "No familiar"),
+    ...rows.map(r => el("option", { value: r.Familiar, title: r.Description || r.Effect || "" },
+      r.Familiar)),
+    // A homebrew familiar this browser doesn't have still shows by name rather
+    // than silently reading as "No familiar".
+    value && !row ? el("option", { value }, `${value} (not in this browser's data)`) : null);
+  sel.value = value || "";
+  return el("div", { class: "card familiar-card", style: "max-width:520px" },
+    el("h3", {}, "Familiar"),
+    sel,
+    row && row.Effect ? el("p", { class: "sub familiar-effect", title: tip }, row.Effect) : null,
+    row && row.Condition && condition
+      ? el("label", { class: "opt", title: `${row.Familiar}'s bonus dice apply only ${row.Condition.toLowerCase()}` },
+          el("input", { type: "checkbox", ...(condition.get() ? { checked: 1 } : {}),
+            disabled: readonly ? "1" : null,
+            onchange: e => condition.set(e.target.checked) }),
+          el("span", {}, `${row.Condition} — bonus dice on`))
+      : null,
+    row && row.Condition && !condition
+      ? el("p", { class: "hint" }, `Its dice apply only ${row.Condition.toLowerCase()} — the play sheet has a toggle for it.`)
+      : null);
+}
+
 function tabMagic(p) {
   const type = CALC.magic.type;
   p.append(el("h2", {}, `Magic \u2014 ${type} `,
     (type === "Mage" || type === "Archmage") ? chip("force", true) : null,
     (type === "Amp" || type === "Archmage") ? chip("zp", true) : null));
+  if (type !== "Hedge")
+    p.append(familiarCard({ value: CHAR.magic.familiar || "",
+      onChange: v => { CHAR.magic.familiar = v; refresh(); } }));
 
   // House rule: gear/weapon ZR imposes a spellcasting dice penalty (\u22121d per full
   // point) instead of reducing ZP. Surface it here on the Magic tab.

@@ -36,7 +36,7 @@ const BUNDLE = (typeof DATA_BUNDLE !== "undefined")
  * default fill claim this build made it: "unknown" is a fact worth keeping,
  * and a confidently wrong version is worse than none when you are working out
  * why an old file behaves oddly. */
-const APP_VERSION = "382";
+const APP_VERSION = "384";
 
 // ============================================================== game constants
 // The numeric knobs the engine reads; grouped by chargen step below.
@@ -986,6 +986,7 @@ function defaultCharacter() {
       spells: [],
       amp_powers: [],
       archmage_bind: false,
+      familiar: "",       // familiars-table name (#109); play.familiar overrides
     },
     speaker: {
       relationships: [],
@@ -3343,6 +3344,56 @@ function deployedUnitKeys(character) {
   for (const map of [rigging.linked || {}, rigging.active || {}])
     for (const [key, on] of Object.entries(map)) if (on) deployed[key] = true;
   return deployed;
+}
+
+/* The familiar a magic user has adopted (#109), and the bonus dice it gives.
+ *
+ * One choice per character, made from the top of the Magic tab: chargen writes
+ * `magic.familiar`, and play writes `play.familiar` over it (JC-010 -- nothing
+ * after Finalize touches the chargen record). `play.familiar === ""` is a
+ * familiar dismissed in play, which is why play's own value wins whenever it is
+ * not null.
+ *
+ * This is NOT the Bound Servant spell. That spell's +2d Sorcery/Channeling
+ * stays prose and follows JC-026 (a spell gives its bonus only while it is
+ * cast); a familiar is a standing companion, so its dice are on whenever one is
+ * chosen. A row's `Condition` ("At night") gates every die it gives behind the
+ * play-mode `play.familiar_condition` toggle, which only the sheet can switch.
+ *
+ * Dice, not rating, for the same reason a deployed drone's are: "bonus dice" is
+ * what the text says, so they ride free on top of the skill (dice_bonus) and a
+ * trained-only skill with them can be rolled without ranks. Columns:
+ *   Skill Dice    "Shadow +1, Subterfuge +1" -- the Skill Bonus grammar
+ *   Pool Dice     "Resolve +2" -- that many dice on every skill in the pool
+ *   Trained Dice  "2" -- that many on every trained-only (*) skill
+ *   Kismet        Kismet granted at the start of every sector turn
+ * Hedge mages have no magic to bond a familiar with, so they get none. */
+function familiarState(character, data, magicType) {
+  const play = character.play || {};
+  const chosen = play.familiar != null ? play.familiar : (character.magic || {}).familiar;
+  const none = { name: "", row: null, dice: {}, conditional: "", active: false, kismet: 0 };
+  if (!chosen || magicType === "Hedge") return none;
+  const row = findRow(data.familiars || [], "Familiar", chosen);
+  if (!row) return { ...none, name: chosen, missing: true };
+  const conditional = String(row.Condition || "").trim();
+  const active = !conditional || !!play.familiar_condition;
+  const dice = {};
+  const add = (skill, n) => { if (n) dice[skill] = (dice[skill] || 0) + n; };
+  if (active) {
+    for (const b of parseSkillBonuses(row["Skill Dice"])) add(b.skill, b.bonus);
+    for (const part of String(row["Pool Dice"] || "").split(",")) {
+      const m = /^\s*(\w+)\s*([+-]\s*\d+)\s*$/.exec(part);
+      if (!m) continue;
+      const n = toInt(asNumber(m[2].replace(/\s+/g, "")));
+      for (const [skill, [pool]] of Object.entries(SKILLS))
+        if (pool.toLowerCase() === m[1].toLowerCase()) add(skill, n);
+    }
+    const trained = toInt(asNumber(row["Trained Dice"]));
+    for (const skill of Object.keys(SKILLS))
+      if (TRAINED_ONLY_SKILLS.has(skill)) add(skill, trained);
+  }
+  return { name: row.Familiar, row, dice, conditional, active,
+           kismet: Math.max(0, toInt(asNumber(row.Kismet))) };
 }
 
 /**
@@ -6281,6 +6332,11 @@ function calculate(character) {
       skillDice[sense.skill] = (skillDice[sense.skill] || 0) + sense.dice;
     }
   }
+  // The adopted familiar's dice (#109) -- the same free-dice layer.
+  const familiar = familiarState(character, data, magicType);
+  for (const [name, n] of Object.entries(familiar.dice)) {
+    skillDice[name] = (skillDice[name] || 0) + n;
+  }
   for (const [name, dice] of Object.entries(skillDice)) {
     if (skillScoring.skills[name]) skillScoring.skills[name].dice_bonus = dice;
   }
@@ -6688,6 +6744,7 @@ function calculate(character) {
       amp_zp_remaining: round2(heritage.zoetic_potential - amp.spent),
       infusion_pts: magicBudget.infusion_pts,
       relationship_pts: magicBudget.relationship_pts,
+      familiar,
     },
     /* Speaker practice AFTER applyPlayAdvances has folded in what Kismet
      * bought. character.speaker is chargen-owned, so a play purchase never
