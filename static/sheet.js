@@ -235,6 +235,7 @@ function ensurePlay() {
     images: [],                           // [{ url (data URL), caption, big }]
     infusion_spirits: {},                 // infusion slot -> spirit placed in it
     bond_slots: [],                       // [{ spirit, force, favors }] spirits placed in bonds
+    price_adjust: 0,                      // sheet-wide ±% on every purchase (#108)
   };
   CHAR.play = CHAR.play || {};
   for (const [k, v] of Object.entries(d)) {
@@ -553,6 +554,34 @@ function undoKismetSpend(entry) {
 function logCash(label, delta, undo) {
   CHAR.play.cash += delta;
   CHAR.play.cash_log.unshift(undo ? { label, delta, undo } : { label, delta });
+}
+
+/* The sheet-wide price adjustment (#108), in percent: haggling, a fence's
+ * markup, a GM's standing discount. One figure on the character, so every
+ * purchase path reads the same number — the Buy baskets start their lines at
+ * it, and the fitted-mod, mount, upgrade and repair buttons that never pass
+ * through a basket charge it directly. Cash only: ZP isn't money. */
+const PRICE_ADJUST_MIN = -100, PRICE_ADJUST_MAX = 500;
+function clampPriceAdjust(v) {
+  const n = Math.round(Number(v));
+  return Number.isFinite(n) ? Math.max(PRICE_ADJUST_MIN, Math.min(PRICE_ADJUST_MAX, n)) : 0;
+}
+function priceAdjust() { return clampPriceAdjust((CHAR.play || {}).price_adjust || 0); }
+function pctText(n) { return (n > 0 ? "+" : n < 0 ? "−" : "") + Math.abs(n) + "%"; }
+/* What a purchase listed at `list` actually costs. A negative figure (a
+ * cheaper quality swapped in, an α grade reverted, a Skillsoft taken back out)
+ * is the same purchase run backwards, so it scales too: refunding at list what
+ * was bought at −20% would let a toggle mint money. Selling an item on is a
+ * different thing and keeps its own price. */
+function adjustedPrice(list, pct = priceAdjust()) {
+  if (!list) return list;
+  return Math.sign(list) * Math.max(0, Math.round(Math.abs(list) * (1 + pct / 100)));
+}
+/* A ledger label for an adjusted purchase, so the Activity line explains the
+ * figure beside it ("Fitted Armor to Roto-Drone (−20%)"). */
+function adjustedLabel(label, list) {
+  const pct = priceAdjust();
+  return pct && list ? `${label} (${pctText(pct)})` : label;
 }
 
 /* Using something up belongs in the Activity ledger next to what was bought —
@@ -3025,7 +3054,12 @@ function sheetHeader() {
     el("div", { class: "sh-meter cash", role: "button", tabindex: "0",
       title: `Adjust ${RULES.currencyName().toLowerCase()}`, onclick: adjustCash,
       onkeydown: e => { if (e.key === "Enter") adjustCash(); } },
-      el("div", { class: "k" }, RULES.currencyName()),
+      el("div", { class: "k" }, RULES.currencyName(),
+        // A standing discount changes what every Buy button charges, so it is
+        // said where the money is rather than left for the ledger to reveal.
+        priceAdjust() ? el("span", { class: "sh-price-adj",
+          title: "Price adjustment on every purchase — change it on the Gear tab or in any Buy dialog" },
+          ` · prices ${pctText(priceAdjust())}`) : null),
       el("div", { class: "v" }, fmt(play.cash), el("span", { class: "plus" }, " +"))));
 
   // Top band: identity on the left, Condition (and Dodge beside it, when there
@@ -10484,7 +10518,7 @@ function weaponModSlots(entry, mult, weaponName, weaponRow) {
         const name = e.target.value;
         if (!name) return;
         const mr = table.find(m => m.Modification === name && m.Slot === slot);
-        const cost = priceOf(mr);
+        const cost = adjustedPrice(priceOf(mr));
         if (CHAR.play.cash < cost
             && !confirm(`${name} costs ${fmt(cost)} but you have ${fmt(CHAR.play.cash)}. Overdraw?`)) {
           e.target.value = ""; return;
@@ -10497,7 +10531,7 @@ function weaponModSlots(entry, mult, weaponName, weaponRow) {
         const eq = equipList();
         sub.add(name);
         if (!modName) eq.push(name);
-        logCash(`Bought ${name} for ${weaponName}`, -cost,
+        logCash(adjustedLabel(`Bought ${name} for ${weaponName}`, cost), -cost,
           { kind: "weapon_mod", host: weaponName, name });
         playChangedRecalc();
       },
@@ -10608,7 +10642,7 @@ function weaponUpgradeSlots(w, r, mult) {
         el("div", { class: "sh-modslot-eff" }, eff));
     } else {
       const { cash, special } = parseUpgradeCost(costStr);
-      const cost = Math.round(cash * mult);
+      const cost = adjustedPrice(Math.round(cash * mult));
       box.append(
         el("div", { class: "sh-modslot-active" }, fmt(cost) + (special ? ` + ${special}` : "")),
         el("div", { class: "sh-modslot-eff" }, eff),
@@ -10620,7 +10654,7 @@ function weaponUpgradeSlots(w, r, mult) {
                 && !confirm(`${label} costs ${fmt(cost)} but you have ${fmt(CHAR.play.cash)}. Overdraw?`))
               return;
             w[key] = true;
-            logCash(`Installed ${label} (${eff}) on ${w.name}`, -cost);
+            logCash(adjustedLabel(`Installed ${label} (${eff}) on ${w.name}`, cost), -cost);
             if (special)
               alert(`${label} on ${w.name} has an extra cost of ${special} on top of the Woolongs.\n\nMake sure that cost is paid — consult with the Agonarch.`);
             await playChangedRecalc();
@@ -10982,18 +11016,16 @@ function openShop({ title, sub, sections }) {
   // Price adjustment, in percent: haggling, a fence's markup, a GM's sale.
   // Each line carries its own (`adjust`) over its list price (`list`); the
   // basket-wide figure sets every line at once and is what a newly added line
-  // starts at. Cash only -- ZP isn't money, so nothing haggles it down.
-  let basketAdjust = 0;
-  const ADJUST_MIN = -100, ADJUST_MAX = 500;
-  const clampAdjust = v => {
-    const n = Math.round(Number(v));
-    return Number.isFinite(n) ? Math.max(ADJUST_MIN, Math.min(ADJUST_MAX, n)) : 0;
-  };
+  // starts at. It IS the sheet-wide figure (#108), so it opens at whatever was
+  // set last and changing it here changes it for every other purchase too.
+  // Cash only -- ZP isn't money, so nothing haggles it down.
+  let basketAdjust = priceAdjust();
+  const ADJUST_MIN = PRICE_ADJUST_MIN, ADJUST_MAX = PRICE_ADJUST_MAX;
+  const clampAdjust = clampPriceAdjust;
   const setAdjust = (line, pct) => {
     line.adjust = clampAdjust(pct);
-    line.cash = Math.max(0, Math.round(line.list * (1 + line.adjust / 100)));
+    line.cash = adjustedPrice(line.list, line.adjust);
   };
-  const pctText = n => (n > 0 ? "+" : n < 0 ? "−" : "") + Math.abs(n) + "%";
 
   const cartTotal = () => cart.reduce(
     (t, l) => ({ cash: t.cash + l.cash * l.qty, zp: t.zp + l.zp * l.qty, n: t.n + l.qty }),
@@ -11205,17 +11237,23 @@ function openShop({ title, sub, sections }) {
   };
 
   const drawFoot = () => {
-    const listTotal = cart.reduce((sum, l) => sum + l.list * l.qty, 0);
     const kids = [
       // One figure for the whole basket: sets every line, and new lines start
       // at it. A line changed on its own afterwards keeps its own figure.
-      listTotal ? el("label", { class: "sh-shop-adjust sh-shop-adjust-all",
+      // Shown on an empty basket too (#108): it is set before shopping as
+      // often as after, and a field that only appeared once something priced
+      // was in the basket read as "this dialog has no discount".
+      el("label", { class: "sh-shop-adjust sh-shop-adjust-all",
           title: "Set every item's price adjustment at once — negative for a discount, positive for a markup" },
         el("span", { class: "sub" }, "Price adjustment "),
         el("input", { type: "number", step: "5", min: String(ADJUST_MIN), max: String(ADJUST_MAX),
           value: String(basketAdjust), "aria-label": "Price adjustment for the whole basket, percent",
           oninput: e => {
             basketAdjust = clampAdjust(e.target.value);
+            // Saved straight away: it is the sheet-wide figure, not the
+            // basket's own, so it should survive Cancel as much as Buy.
+            CHAR.play.price_adjust = basketAdjust;
+            schedulePlaySave();
             for (const l of cart) {
               setAdjust(l, basketAdjust);
               if (!l.ui) continue;
@@ -11225,7 +11263,7 @@ function openShop({ title, sub, sections }) {
             refreshFigures();
           } }),
         el("span", {}, "%"),
-        listNote) : null,
+        listNote),
       figures,
     ];
     for (const s of sections) {
@@ -11266,8 +11304,12 @@ function openShop({ title, sub, sections }) {
     await playChangedRecalc();
   };
 
+  const openedAdjust = basketAdjust;
   openSheetModal({
     title, sub, maxWidth: "760px",
+    // The basket figure is the sheet-wide one, so a change to it shows on the
+    // Gear tab and the header even when the basket is cancelled.
+    onClose: () => { if (priceAdjust() !== openedAdjust) renderSheet(); },
     build: (refresh, close) => {
       closeShop = close;
       drawPills();
@@ -11275,6 +11317,21 @@ function openShop({ title, sub, sections }) {
       return [pills, toolbar, noteLine, listBox, cartBox, foot];
     },
   });
+}
+
+/* The sheet-wide price adjustment as a field (#108). Lives with the money on
+ * the Gear tab; every Buy dialog's footer carries the same figure. */
+function priceAdjustField() {
+  const ro = activeTabObj() && activeTabObj().readonly;
+  return el("label", { class: "sh-shop-adjust sh-price-adjust-field",
+      title: "Applies to every purchase — Buy dialogs, fitted mods, mounts, upgrades and repairs. "
+        + "Negative for a discount, positive for a markup. Set it back to 0 when the deal is done." },
+    el("span", { class: "sub" }, "Price adjustment on all purchases "),
+    el("input", { type: "number", step: "5", min: String(PRICE_ADJUST_MIN), max: String(PRICE_ADJUST_MAX),
+      value: String(priceAdjust()), disabled: ro ? "1" : null,
+      "aria-label": "Price adjustment on all purchases, percent",
+      onchange: e => { CHAR.play.price_adjust = clampPriceAdjust(e.target.value); playChanged(); } }),
+    el("span", {}, "%"));
 }
 
 /* The button that opens a tab's Buy dialog, parked at the top of the tab above
@@ -11314,10 +11371,10 @@ function armorTraitSelect({ entry, field, table, column, label, baseCost, mult, 
   const sel = el("select", { class: "btn-select",
     onchange: async e => {
       const next = e.target.value;
-      const delta = Math.round(baseCost * (multOf(next) - multOf(current)) * mult);
+      const delta = adjustedPrice(Math.round(baseCost * (multOf(next) - multOf(current)) * mult));
       if (delta > 0 && !overdrawOK(next || label, delta)) { e.target.value = current; return; }
       entry[field] = next;
-      logCash(next ? `${entry.name}: ${label} ${next}` : `${entry.name}: ${label} cleared`,
+      logCash(adjustedLabel(next ? `${entry.name}: ${label} ${next}` : `${entry.name}: ${label} cleared`, delta),
         -delta, { kind: "armor_trait", host: entry.name, field, from: current });
       await playChangedRecalc();
     } },
@@ -11364,12 +11421,12 @@ function shMountEditor(entry, hostRow, hostActive) {
         afterAdd: () => playChangedRecalc(),
         onAdd: name => {
           const row = augRow(name) || {};
-          const cost = Math.round((+row.Cost || 0) * mult);
+          const cost = adjustedPrice(Math.round((+row.Cost || 0) * mult));
           if (CHAR.play.cash < cost
               && !confirm(`${name} costs ${fmt(cost)} but you have ${fmt(CHAR.play.cash)}. Overdraw?`))
             return;
           sub.add({ name });
-          logCash(`Mounted ${name} on ${host.name}`, -cost,
+          logCash(adjustedLabel(`Mounted ${name} on ${host.name}`, cost), -cost,
             { kind: "mount", host: host.name, name });
         },
       }) }, "+ Mount")));
@@ -11397,9 +11454,10 @@ function shMountEditor(entry, hostRow, hostActive) {
             } else {
               m.alpha = now;
             }
-            logCash(now ? `Upgraded ${m.name} (${host.name}) to α-cyber grade`
-                        : `Reverted ${m.name} (${host.name}) from α-cyber grade`,
-              now ? -alphaExtra : alphaExtra);
+            const charge = adjustedPrice(alphaExtra);
+            logCash(adjustedLabel(now ? `Upgraded ${m.name} (${host.name}) to α-cyber grade`
+                        : `Reverted ${m.name} (${host.name}) from α-cyber grade`, charge),
+              now ? -charge : charge);
             await playChangedRecalc();
           } }, "α") : null,
         el("button", { class: "chip-btn", title: "Unmount — sell it on or write it off",
@@ -11632,6 +11690,7 @@ function shGear(body) {
         amt,
         el("button", { class: "btn good", onclick: () => applyCash(1) }, "+ Add"),
         el("button", { class: "btn warn", onclick: () => applyCash(-1) }, "− Subtract"))),
+    priceAdjustField(),
     el("p", { class: "hint" },
       "Unspent chargen cash was forfeited at finalize; starting cash was rolled 4d6×100. "
       + "Money gained in play can be spent any time — Buy equipment is at the top of this tab."));
@@ -11874,10 +11933,10 @@ function shGear(body) {
             })) }],
             onAdd: name => {
               const ex = DATA.tables.armor_extras.find(x => x.Extra === name) || {};
-              const cost = Math.round(baseCost * ((+ex.Multiplier || 1) - 1) * armorMult);
+              const cost = adjustedPrice(Math.round(baseCost * ((+ex.Multiplier || 1) - 1) * armorMult));
               if (!overdrawOK(name, cost)) return;
               extrasSub.add(name);
-              logCash(`Added ${name} to ${a.name}`, -cost,
+              logCash(adjustedLabel(`Added ${name} to ${a.name}`, cost), -cost,
                 { kind: "armor_extra", host: a.name, name });
             },
             onRemove: index => disposeOfMod({ entry: en, list: "extras", index,
@@ -12421,9 +12480,10 @@ function shAugments(body) {
           el("input", { type: "checkbox", ...(a.alpha ? { checked: 1 } : {}),
             onchange: async e => {
               a.alpha = e.target.checked;
-              logCash(a.alpha ? `Upgraded ${a.name} to α-cyber grade`
-                              : `Reverted ${a.name} from α-cyber grade`,
-                a.alpha ? -alphaExtra : alphaExtra);
+              const charge = adjustedPrice(alphaExtra);
+              logCash(adjustedLabel(a.alpha ? `Upgraded ${a.name} to α-cyber grade`
+                              : `Reverted ${a.name} from α-cyber grade`, charge),
+                a.alpha ? -charge : charge);
               await playChangedRecalc();
             } }),
           el("span", {}, `ZR ${a.alpha ? alphaZr : +r.ZR}`))
@@ -12452,13 +12512,13 @@ function shAugments(body) {
     // each unit adds a Knowledge skill point. Chargen-installed ones (or
     // other augments) show a static count; the chargen record is immutable
     // in play, so extra copies are bought in play instead.
-    const unitCost = Math.round((+r.Cost || 0) * augMult);
+    const unitCost = adjustedPrice(Math.round((+r.Cost || 0) * augMult));
     const countCell = (inPlay && a.name === "Knowledge Skillsoft")
       ? el("td", { class: "num" }, el("span", { class: "stepper" },
           el("button", { title: "Remove one (refunded)", onclick: async () => {
             if ((a.count || 1) <= 1) return;
             a.count -= 1;
-            logCash("Removed a Knowledge Skillsoft", unitCost);
+            logCash(adjustedLabel("Removed a Knowledge Skillsoft", unitCost), unitCost);
             await playChangedRecalc();
           } }, "–"),
           el("b", {}, String(a.count || 1)),
@@ -12467,7 +12527,7 @@ function shAugments(body) {
                 && !confirm(`Another Knowledge Skillsoft costs ${fmt(unitCost)} but you have ${fmt(CHAR.play.cash)}. Overdraw?`))
               return;
             a.count = (a.count || 1) + 1;
-            logCash("Installed Knowledge Skillsoft", -unitCost);
+            logCash(adjustedLabel("Installed Knowledge Skillsoft", unitCost), -unitCost);
             await playChangedRecalc();
           } }, "+")))
       : el("td", { class: "num" }, String(a.count || 1));
@@ -12486,13 +12546,13 @@ function shAugments(body) {
         const nv = e.target.value;
         const oldGun = (DATA.tables.cyberguns || []).find(g => g.Type === a.gunType);
         const newGun = (DATA.tables.cyberguns || []).find(g => g.Type === nv);
-        const delta = Math.round(((newGun ? +newGun.Cost : 0) - (oldGun ? +oldGun.Cost : 0)) * mult);
+        const delta = adjustedPrice(Math.round(((newGun ? +newGun.Cost : 0) - (oldGun ? +oldGun.Cost : 0)) * mult));
         if (delta > 0 && CHAR.play.cash < delta
             && !confirm(`${nv} costs ${fmt(delta)} more but you have ${fmt(CHAR.play.cash)}. Overdraw?`)) {
           e.target.value = a.gunType || ""; return;
         }
         a.gunType = nv;
-        if (delta !== 0) logCash(`Cybergun gun: ${oldGun ? oldGun.Type : "none"} → ${nv || "none"}`, -delta);
+        if (delta !== 0) logCash(adjustedLabel(`Cybergun gun: ${oldGun ? oldGun.Type : "none"} → ${nv || "none"}`, delta), -delta);
         await playChangedRecalc();
       } },
         el("option", { value: "" }, "Choose gun…"),
@@ -12509,14 +12569,14 @@ function shAugments(body) {
         const nv = e.target.value;
         const before = Math.round(RULES.augmentEffCost(r, a) * augMult);
         const after = Math.round(RULES.augmentEffCost(r, { ...a, quality: nv }) * augMult);
-        const delta = after - before;
+        const delta = adjustedPrice(after - before);
         if (delta > 0 && CHAR.play.cash < delta
             && !confirm(`${nv || "Normal"} costs ${fmt(delta)} more but you have ${fmt(CHAR.play.cash)}. Overdraw?`)) {
           e.target.value = a.quality || ""; return;
         }
         const prev = a.quality || "standard";
         a.quality = nv;
-        if (delta !== 0) logCash(`${a.name} quality: ${prev} → ${nv || "standard"}`, -delta);
+        if (delta !== 0) logCash(adjustedLabel(`${a.name} quality: ${prev} → ${nv || "standard"}`, delta), -delta);
         await playChangedRecalc();
       } },
         el("option", { value: "" }, "Quality…"),
@@ -12890,6 +12950,7 @@ function shMagic(body) {
       const force = sp.force + (play.spell_force_advances[sp.name] || 0);
       const lethal = force > zp;
       const perForce = Math.round(+r.Cost || 0);
+      const advanceCost = adjustedPrice(perForce);   // what +1 Force charges (#108)
       wrap.append(el("div", { class: "sh-spell" },
         el("div", {}, el("b", {}, sp.name), " ",
           el("span", { class: "chip magic" }, `F${force}`), " ",
@@ -12909,11 +12970,11 @@ function shMagic(body) {
           el("button", { class: "btn small",
             disabled: force >= SPELL_FORCE_MAX ? "1" : null,
             title: force >= SPELL_FORCE_MAX ? `Maximum Force is ${SPELL_FORCE_MAX}`
-              : `Advance Force (${fmt(perForce)} per Force)`,
+              : `Advance Force (${fmt(advanceCost)} per Force)`,
             onclick: async () => {
               if (force >= SPELL_FORCE_MAX) return;
-              if (play.cash < perForce
-                  && !confirm(`+1 Force costs ${fmt(perForce)} but you have ${fmt(play.cash)}. Overdraw?`))
+              if (play.cash < advanceCost
+                  && !confirm(`+1 Force costs ${fmt(advanceCost)} but you have ${fmt(play.cash)}. Overdraw?`))
                 return;
               play.spell_force_advances[sp.name] = (play.spell_force_advances[sp.name] || 0) + 1;
               // (#82) An advance is a FIELD change, not a purchase — there is
@@ -12921,11 +12982,11 @@ function shMagic(body) {
               // shape armor_trait and unit_condition use. `from` carries the
               // advance count rather than the Force, because that counter is
               // what is stored; the displayed Force is chargen + advances.
-              logCash(`${sp.name}: Force ${force} → ${force + 1}`, -perForce,
+              logCash(adjustedLabel(`${sp.name}: Force ${force} → ${force + 1}`, advanceCost), -advanceCost,
                 { kind: "spell_force", name: sp.name,
                   from: (play.spell_force_advances[sp.name] || 1) - 1 });
               await playChangedRecalc();
-            } }, force >= SPELL_FORCE_MAX ? `Force ${SPELL_FORCE_MAX} (max)` : `+1 Force (${fmt(perForce)})`),
+            } }, force >= SPELL_FORCE_MAX ? `Force ${SPELL_FORCE_MAX} (max)` : `+1 Force (${fmt(advanceCost)})`),
           // Sell a spell like any other bought thing (#82). Priced at the same
           // rate everything else about a spell is priced at: the table's Cost
           // is per Force, and that is what learning it and every advance since
@@ -13324,7 +13385,7 @@ function programUpgrade(name, mult) {
   return { from: name, to, rating: from + 1, fromCost, toCost,
     // A family priced flat across its ratings yields 0, not a refund: a
     // downgrade isn't on offer here, so the charge floors at nothing.
-    cost: Math.max(0, toCost - fromCost) };
+    cost: adjustedPrice(Math.max(0, toCost - fromCost)) };
 }
 
 /* Rename the owned program in place. The entry is a bare STRING in the array
@@ -13343,7 +13404,7 @@ async function raiseProgramRating(en, upgrade) {
   dk.loaded = (dk.loaded || []).map(n => (n === upgrade.from ? upgrade.to : n));
   for (const d of [...kitOf("decks"), ...(play.purchases.decks || [])])
     if (d && d.hacking === upgrade.from) d.hacking = upgrade.to;
-  logCash(`${upgrade.from} → rating ${upgrade.rating}`, -upgrade.cost,
+  logCash(adjustedLabel(`${upgrade.from} → rating ${upgrade.rating}`, upgrade.cost), -upgrade.cost,
     { kind: "program_rating", from: upgrade.from, to: upgrade.to });
   await playChangedRecalc();
 }
@@ -13521,11 +13582,11 @@ function shDecking(body) {
       items: modSub.items,
       groups: modGroups(DATA.tables.deck_mods, "Deck Mod", null, "Deck Mods"),
       onAdd: name => {
-        const cost = deckModCost(name);
+        const cost = adjustedPrice(deckModCost(name));
         if (CHAR.play.cash < cost
             && !confirm(`${name} costs ${fmt(cost)} but you have ${fmt(CHAR.play.cash)}. Overdraw?`)) return;
         modSub.add(name);
-        logCash(`Fitted ${name} to ${d.name}`, -cost,
+        logCash(adjustedLabel(`Fitted ${name} to ${d.name}`, cost), -cost,
           { kind: "deck_mod", host: d.name, name });
       },
       onRemove: index => disposeOfMod({ entry: en, list: "mods", index,
@@ -13796,7 +13857,7 @@ function unitConditionSelect(u, table, baseCost, mult, after = playChangedRecalc
   let previous = u.condition || "Pristine";
   const factor = c => RULES.VEHICLE_CONDITION_FACTORS[c] ?? 1;
   return vehicleConditionSelect(u, async () => {
-    const delta = Math.round(baseCost * (factor(u.condition) - factor(previous)) * mult);
+    const delta = adjustedPrice(Math.round(baseCost * (factor(u.condition) - factor(previous)) * mult));
     if (delta > 0 && CHAR.play.cash < delta
         && !confirm(`Changing ${u.name} to ${u.condition} costs ${fmt(delta)} but you have `
           + `${fmt(CHAR.play.cash)}. Overdraw?`)) {
@@ -13805,7 +13866,7 @@ function unitConditionSelect(u, table, baseCost, mult, after = playChangedRecalc
       return;
     }
     if (delta !== 0)
-      logCash(`${u.name}: condition ${previous} → ${u.condition}`, -delta,
+      logCash(adjustedLabel(`${u.name}: condition ${previous} → ${u.condition}`, delta), -delta,
         { kind: "unit_condition", table, name: u.name, from: previous });
     previous = u.condition;
     await after();
@@ -14368,24 +14429,24 @@ function unitRepairControls(cfg, unit, st, label, after = playChangedRecalc) {
     title: st.physical ? `Repair at ${fmt(perBox)} per box` : "No damage to repair",
     onclick: async () => {
       const want = Math.max(1, Math.min(st.physical, parseInt(repairQty.value, 10) || 1));
-      const cost = want * perBox;
+      const cost = adjustedPrice(want * perBox);
       if (CHAR.play.cash < cost
           && !confirm(`Repairing ${want} box(es) costs ${fmt(cost)} but you have ${fmt(CHAR.play.cash)}. Overdraw?`))
         return;
       st.physical -= want;
-      logCash(`Repaired ${want} Physical Condition box(es) on ${label}`, -cost);
+      logCash(adjustedLabel(`Repaired ${want} Physical Condition box(es) on ${label}`, cost), -cost);
       await after();
     } }, "Repair");
   const repairAllBtn = el("button", { class: "btn small",
     disabled: st.physical ? null : "1",
     title: st.physical ? `Repair all ${st.physical} — ${fmt(st.physical * perBox)}` : "No damage to repair",
     onclick: async () => {
-      const want = st.physical, cost = want * perBox;
+      const want = st.physical, cost = adjustedPrice(want * perBox);
       if (CHAR.play.cash < cost
           && !confirm(`Full repair costs ${fmt(cost)} but you have ${fmt(CHAR.play.cash)}. Overdraw?`))
         return;
       st.physical = 0;
-      logCash(`Repaired ${want} Physical Condition box(es) on ${label}`, -cost);
+      logCash(adjustedLabel(`Repaired ${want} Physical Condition box(es) on ${label}`, cost), -cost);
       await after();
     } }, "Repair all");
   const clearAllBtn = el("button", { class: "btn small", disabled: st.integrity ? null : "1",
@@ -14450,10 +14511,10 @@ function unitModifyBody(table, u, refresh, commit, close) {
   const unitScopedMods = DATA.tables[mtk].filter(x => x.Target !== "weapon");
   const buyMod = (name, targetLabel) => {
     const mr = unitFindModRow(cfg, name) || {};
-    const cost = Math.round((+mr.Cost || 0) * mult);
+    const cost = adjustedPrice(Math.round((+mr.Cost || 0) * mult));
     if (CHAR.play.cash < cost
         && !confirm(`${name} costs ${fmt(cost)} but you have ${fmt(CHAR.play.cash)}. Overdraw?`)) return false;
-    logCash(`Fitted ${name} to ${targetLabel}`, -cost);
+    logCash(adjustedLabel(`Fitted ${name} to ${targetLabel}`, cost), -cost);
     return true;
   };
 
@@ -14566,11 +14627,11 @@ function unitModifyBody(table, u, refresh, commit, close) {
     guard: name => RULES.aerialMountProblem(r, unitFindWeaponRow(cfg, name), u.label || u.name, name),
     onAdd: name => {
       const wr = unitFindWeaponRow(cfg, name) || {};
-      const cost = Math.round((+wr.Cost || 0) * mult);
+      const cost = adjustedPrice(Math.round((+wr.Cost || 0) * mult));
       if (CHAR.play.cash < cost
           && !confirm(`${name} costs ${fmt(cost)} but you have ${fmt(CHAR.play.cash)}. Overdraw?`)) return;
       u.weapons.push(name);
-      logCash(`Mounted ${name} on ${u.label || u.name}`, -cost);
+      logCash(adjustedLabel(`Mounted ${name} on ${u.label || u.name}`, cost), -cost);
     },
     onRemove: () => {}, rerender: refresh, afterAdd: commit,
   });
@@ -14864,11 +14925,11 @@ function shRigging(body) {
       items: modSub.items,
       groups: modGroups(DATA.tables.rig_mods, "Rig Mod", null, "Rig Mods"),
       onAdd: name => {
-        const cost = rigModCost(name);
+        const cost = adjustedPrice(rigModCost(name));
         if (CHAR.play.cash < cost
             && !confirm(`${name} costs ${fmt(cost)} but you have ${fmt(CHAR.play.cash)}. Overdraw?`)) return;
         modSub.add(name);
-        logCash(`Fitted ${name} to ${r.name}`, -cost,
+        logCash(adjustedLabel(`Fitted ${name} to ${r.name}`, cost), -cost,
           { kind: "rig_mod", host: r.name, name });
       },
       onRemove: index => disposeOfMod({ entry: en, list: "mods", index,
