@@ -9158,6 +9158,17 @@ async function runTimePasses() {
     entry.awards.push({ mission: a.mission, kismet: a.kismet || 0, cash: a.cash || 0 });
   }
 
+  // --- the familiar's gift (#109): a Shadow Cat's whispered secrets are a
+  // Kismet at the start of every sector turn. Kept off `awards`, which the
+  // month's Edit dialog rebuilds from its mission lines and would read as a
+  // mission award taken away; tagged like the awards so Undo finds it.
+  const familiar = CALC.magic.familiar || {};
+  if (familiar.kismet > 0) {
+    awardKismet(`${familiar.name} — familiar's gift`, familiar.kismet);
+    if (play.kismet_log[0]) play.kismet_log[0].cal = id;
+    entry.familiar_kismet = { name: familiar.name, kismet: familiar.kismet };
+  }
+
   // --- ammunition. adjustOwned floors at 0 and writes its own ledger line, so
   // a stack that ran out mid-month records what actually came off it.
   for (const a of result.ammo) {
@@ -9191,7 +9202,8 @@ async function undoCalendarEntry(entry) {
   // or that carried the character past a boon milestone they have redeemed,
   // cannot come back — and a month that reversed its ammunition and then stalled
   // there would be worse than one that refused as a whole.
-  const kismetBack = (entry.awards || []).reduce((n, a) => n + (a.kismet || 0), 0);
+  const kismetBack = (entry.awards || []).reduce((n, a) => n + (a.kismet || 0), 0)
+    + ((entry.familiar_kismet || {}).kismet || 0);
   const blocked = kismetUndoBlocker(kismetBack);
   if (blocked) { alert(`${calendarLabel(entry)} can't be undone yet.\n\n${blocked}`); return; }
 
@@ -9203,6 +9215,8 @@ async function undoCalendarEntry(entry) {
   (entry.awards || []).forEach(a => bits.push(
     `${a.mission} takes back ${[a.kismet ? `${a.kismet} Kismet` : null,
                                a.cash ? fmt(a.cash) : null].filter(Boolean).join(" and ")}`));
+  if (entry.familiar_kismet)
+    bits.push(`${entry.familiar_kismet.name} takes back ${entry.familiar_kismet.kismet} Kismet`);
   if (entry.lifespan) bits.push(`Replicant lifespan back to ${entry.lifespan.from}`);
   bits.push("The month's missions and sector actions are deleted");
   if (!confirm(`Undo ${calendarLabel(entry)}?\n\n  · ${bits.join("\n  · ")}`)) return;
@@ -12894,6 +12908,13 @@ function shMagic(body) {
   if (magicShopSections().length)
     appendIf(body, shopBar("Buy", openMagicShop,
       "Spells and amp powers — priced as a basket."));
+
+  // The adopted familiar (#109). Play's own choice, over chargen's.
+  if (type !== "Hedge")
+    body.append(familiarCard({ value: CALC.magic.familiar.name, readonly: ro,
+      onChange: async v => { play.familiar = v; await playChangedRecalc(); },
+      condition: { get: () => !!play.familiar_condition,
+        set: async on => { play.familiar_condition = on; await playChangedRecalc(); } } }));
 
   // House rule: gear/weapon ZR is a spellcasting dice penalty (−1d per full
   // point), not a ZP cost. Surface the current penalty at the top of the tab.

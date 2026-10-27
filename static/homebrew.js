@@ -40,8 +40,8 @@ function hbOnline() {
 }
 
 /* ---- per-table editor config ------------------------------------------ */
-/* The 17 homebrew-eligible data.js tables and the columns the editor exposes,
- * as 18 tabs -- Ammo and Gear are two views of misc_gear (see isAmmoRow).
+/* The 18 homebrew-eligible data.js tables and the columns the editor exposes,
+ * as 19 tabs -- Ammo and Gear are two views of misc_gear (see isAmmoRow).
  * Field flags: ta = textarea, select = fixed choices (app logic gates on the
  * value), datalist = suggestions but free-form allowed, hint = placeholder.
  *
@@ -85,6 +85,19 @@ const HOMEBREW_CONFIG = {
       hint: "one per entry, pipe-separated: “Bite, Attack 3, Damage 9 | Claw, Attack 9, Damage 3”. "
         + "A summoning spell that raises damage edits the Damage number in place, so keep that word." },
     { key: "Notes", ta: true, hint: "special rules — the Bear's free first claw, the Elephant's Trample" },
+  ]},
+  /* Familiars a magic user can adopt (#109), picked from the top of the Magic
+     tab. Only the dice columns are read by the engine (familiarState); Effect
+     is the short read-out beside the picker and Description its tooltip. */
+  familiars: { label: "Familiars", nameKey: "Familiar", fields: [
+    { key: "Familiar" },
+    { key: "Skill Dice", hint: "bonus dice on named skills, e.g. “Shadow +1, Subterfuge +1” — comma-separate several" },
+    { key: "Pool Dice", hint: "bonus dice on every skill in a pool, e.g. “Resolve +2”" },
+    { key: "Trained Dice", hint: "bonus dice on every trained-only (*) skill, ranks or not — a number" },
+    { key: "Condition", hint: "blank for always on; otherwise when the dice apply, e.g. “At night” — the sheet gets a toggle for it" },
+    { key: "Kismet", hint: "Kismet granted at the start of every sector turn — a number, blank for none" },
+    { key: "Effect", ta: true, hint: "one-line summary shown beside the picker, including anything the sheet doesn't automate" },
+    { key: "Description", ta: true },
   ]},
   rituals: { label: "Rituals", nameKey: "Name", fields: [
     { key: "Name" },

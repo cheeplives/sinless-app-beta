@@ -11,9 +11,9 @@ catalogue of every table, and the gotchas that bite people editing it.
 > | Where | What |
 > |---|---|
 > | `HOMEBREW_CONFIG` — `static/homebrew.js` | `nameKey` per homebrew-eligible table |
-> | `NAME_KEYS` — `tools/promote_homebrew.py` | the same 17 tables, for promotion |
+> | `NAME_KEYS` — `tools/promote_homebrew.py` | the same 18 tables, for promotion |
 > | `findRow(data.X, "Col")` — `static/rules.js` | per-lookup literals |
-> | the catalogue below | all 36 tables |
+> | the catalogue below | all 38 tables |
 >
 > **`python tools/check_data.py` mechanically verifies the first three against
 > each other and against the data.** Run it after editing any of them. It does
@@ -171,7 +171,7 @@ two. See `mergeMountedAugments` in `rules.js`.
 
 ## Table catalogue
 
-37 tables, 857 rows. “Key” is the column that identifies a row; a `+` means
+38 tables, 860 rows. “Key” is the column that identifies a row; a `+` means
 identity is composite. Consumer counts are rough reference-frequency hints, not
 call graphs.
 
@@ -185,6 +185,7 @@ call graphs.
 | `armor_styles` | 7 | `Style` | Style multiplier + `Etiquette Bonus` | rules, app |
 | `attribute_costs` | 29 | `Level` | Attribute point cost per level | rules |
 | `augments` | 154 | `Name` | Cyberware/bioware/Fashionware; attribute deltas, armor, `Type`, `Rarity`, `Quality` | rules, app, sheet, homebrew |
+| `familiars` | 3 | `Familiar` | Familiars a magic user can adopt (#109). `Skill Dice` / `Pool Dice` / `Trained Dice` are bonus dice; `Condition` gates them behind a sheet toggle; `Kismet` is granted each sector turn | rules, app, sheet, homebrew |
 | `fashionware_qualities` | 4 | `Quality` | Fashionware quality tiers, cost `Multiplier` | rules, app, sheet |
 | `cyberguns` | 4 | `Type` | Implanted gun frames; `Pen`, `Bar` | rules, app, sheet |
 | `deck_mods` | 4 | `Deck Mod` | Cyberdeck mods, `Slots` | rules, app, sheet |
@@ -216,14 +217,14 @@ call graphs.
 | `weapon_mods` | 18 | `Modification` | Weapon mods by `Slot` | rules, app, sheet, homebrew |
 | `weapons` | 110 | `Weapon` | Weapons by `Type`; `Accuracy`, `Damage`, `Pen`, `Bar`, `Hands` | rules, app, sheet, homebrew |
 
-17 of these are **homebrew-eligible** (users can add rows, and packs can be
-promoted): `animals`, `rituals`, `spells`, `speaker_spirits`, `misc_gear`,
+18 of these are **homebrew-eligible** (users can add rows, and packs can be
+promoted): `animals`, `familiars`, `rituals`, `spells`, `speaker_spirits`, `misc_gear`,
 `augments`, `weapons`, `armor`, `vehicles`, `drones`, `weapon_mods`,
 `vehicle_ballistic_weapons`, `vehicle_energy_weapons`,
 `drone_ballistic_weapons`, `drone_energy_weapons`, `vehicle_mods`,
 `drone_mods`. The rest are core rules data, editable only here.
 
-The editor shows **18 tabs** for those 17 tables: ammunition has no table of
+The editor shows **19 tabs** for those 18 tables: ammunition has no table of
 its own — a round is a `misc_gear` row whose `Class` starts with `Ammo` — so
 the Ammo tab and the Gear tab are two filtered views of `misc_gear`, declared
 with `table:` + `rowFilter` in `HOMEBREW_CONFIG`. Rows still store, merge,
