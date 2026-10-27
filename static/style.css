@@ -2315,8 +2315,6 @@ body.sheet-readonly .sh-readonly-banner .btn{pointer-events:auto;opacity:1}
 .sh-shop-adjust{display:inline-flex;align-items:center;gap:3px;flex-shrink:0;font-size:12px;color:var(--dim)}
 .sh-shop-adjust input[type=number]{width:58px;text-align:right}
 .sh-shop-adjust-all{margin-bottom:6px;flex-wrap:wrap}
-.sh-price-adjust-field{display:flex;margin-top:8px}
-.sh-price-adj{color:var(--amber);letter-spacing:normal;text-transform:none}
 .sh-shop-listprice{color:var(--dim);font-weight:normal}
 .sh-shop-qty button{background:var(--panel-2);border:1px solid var(--line);color:var(--text);
   border-radius:5px;width:22px;height:22px;line-height:1;cursor:pointer;font-size:13px}

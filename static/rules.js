@@ -36,7 +36,7 @@ const BUNDLE = (typeof DATA_BUNDLE !== "undefined")
  * default fill claim this build made it: "unknown" is a fact worth keeping,
  * and a confidently wrong version is worse than none when you are working out
  * why an old file behaves oddly. */
-const APP_VERSION = "384";
+const APP_VERSION = "385";
 
 // ============================================================== game constants
 // The numeric knobs the engine reads; grouped by chargen step below.
@@ -399,6 +399,16 @@ const HOUSE_RULE_DEFS = [
         help: "Every weapon's Conceal rating is exactly what the table lists." },
       { value: "houserule", label: "Conceal Tweaks",
         help: "Thrown weapons (grenades, knives, shuriken) read 1 easier to hide — Conceal −1, floored at 0. More weapon types may join this rule later." },
+    ] },
+  // #110. Read by gearZoeticRating, which is the one figure both ZR rules
+  // spend: Classic takes it off ZP, the Casting Penalty turns it into −1d per
+  // point -- so leaving armor out there covers both.
+  { id: "armor_zr", label: "Clothing/Armor ZR", default: "classic",
+    options: [
+      { value: "classic", label: "Classic",
+        help: "Worn clothing and armor carry ZR like any other gear: the table's ZR (Battle Armor and Power Armor are 2), plus 1 for any piece with an Extra fitted." },
+      { value: "houserule", label: "Clothing/Armor Ignored",
+        help: "Worn clothing and armor add no ZR at all — they never reduce ZP and never add to the ZR Casting Penalty. Augments mounted in armor are unaffected (their ZR never counted against ZP anyway)." },
     ] },
 ];
 
@@ -1171,7 +1181,11 @@ function defaultCharacter() {
       // equippedDeckName). Distinct from an empty active_deck, which means
       // "never chose" and resolves to the first owned deck.
       decking: { active_deck: "", loaded: [], jacked_out: false },
-      rigging: { active_rig: "", units: {} },
+      // linked / active / hotseat are keyed maps ("drones:0" -> true). Listed
+      // here so mergeDefaults repairs one that came back from the server as []
+      // (PHP decodes an empty {} to an array and re-encodes it as []), which
+      // silently dropped every flag set on it at the next save (#107).
+      rigging: { active_rig: "", units: {}, linked: {}, active: {}, hotseat: {} },
       // The campaign clock. `start` is null until the player sets one — a date
       // nobody chose is worse than no date, and the sheet refuses to advance
       // time without it. Months only ever move through the Time Passes dialog,
@@ -4874,8 +4888,10 @@ function gearZoeticRating(character, data) {
   add("weapons", "Weapon", character.weapons
     .filter(w => w.equipped !== false).map(w => w.name));
   // Armor: base row ZR, +1 for any piece with at least one Extra fitted
-  // (house rule: mods add circuitry to otherwise-inert armor).
-  for (const entry of character.armor.filter(a => a.active !== false)) {
+  // (house rule: mods add circuitry to otherwise-inert armor). The
+  // "Clothing/Armor Ignored" house rule (#110) leaves worn armor out entirely.
+  const armorCounts = houseRule("armor_zr") !== "houserule";
+  for (const entry of character.armor.filter(a => armorCounts && a.active !== false)) {
     const row = findRow(data.armor, "Armor", entry.name);
     if (row) total += asNumber(row.ZR) + ((entry.extras || []).length ? 1 : 0);
   }

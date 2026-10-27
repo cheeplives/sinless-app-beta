@@ -1,6 +1,6 @@
 // Drones on the Rigging tab: what ticking Active does, and what the card shows.
 const { test, expect } = require("@playwright/test");
-const { fixture, watchErrors, expectNoErrors, openWith, domClick } = require("./helpers");
+const { fixture, watchErrors, expectNoErrors, openWith, domClick, waitForApp } = require("./helpers");
 
 function character() {
   const c = fixture("kitchen-sink-final");
@@ -152,5 +152,52 @@ test("a weapon that can't go on aerial units is refused on a flying drone", asyn
   // And a save that already has one is flagged.
   await page.evaluate(async () => { allDrones()[0].weapons.push("Sentry Gun"); await recalc(); });
   expect(await page.evaluate(() => CALC.errors)).toContain("Orb: Sentry Gun cannot be mounted on an aerial unit.");
+  expectNoErrors(errors);
+});
+
+// #108: mounting a weapon in a drone's Modify dialog asks its own price.
+test("mounting a drone weapon asks for a price adjustment on top of the Modify dialog", async ({ page }) => {
+  const errors = watchErrors(page);
+  const c = fixture("kitchen-sink-final");
+  c.play.cash = 1000000;
+  c.play.purchases.drones = [{ name: "Dog-Patrol Drone", weapons: [], mods: [] }];
+  await openWith(page, [c]);
+  await openModify(page, "Dog-Patrol Drone");
+  const modify = page.locator(".mount-modal").first();
+  const gun = "Sentry Gun";
+  const list = await page.evaluate(n => Math.round(+(DATA.tables.drone_ballistic_weapons
+    .find(w => w["Drone Ballistic Weapon"] === n) || {}).Cost || 0), gun);
+  const cash = await page.evaluate(() => CHAR.play.cash);
+  const item = modify.locator(".cat-item", { has: page.locator("b", { hasText: new RegExp(`^${gun}$`) }) }).first();
+  await domClick(modify.locator(".cat-head", { hasText: /^Ballistic Weapon/ }).first());
+  await domClick(item.locator(".btn-add"));
+  const ask = page.locator(".mount-modal").last();
+  await expect(page.locator(".mount-modal")).toHaveCount(2);
+  await ask.locator("input[type=number]").fill("-50");
+  await domClick(ask.getByRole("button", { name: /^Buy/ }));
+  await expect(page.locator(".mount-modal")).toHaveCount(1);   // the Modify dialog stays open
+  await expect.poll(() => page.evaluate(() => CHAR.play.cash)).toBe(cash - Math.round(list * 0.5));
+  expect(await unitState(page)).toMatchObject([{ weapons: [gun] }]);
+  expect(await page.evaluate(() => CHAR.play.cash_log[0].label)).toMatch(/\(−50%\)$/);
+  expectNoErrors(errors);
+});
+
+// #107: a character that came back from the server carries its empty rigging
+// maps as [] (PHP turns {} into []). Ticking Active on one used to set a named
+// property on an array, which JSON drops -- so the tick vanished on save.
+test("Active survives a save and reopen after the rigging maps came back from the server as []", async ({ page }) => {
+  const errors = watchErrors(page);
+  const c = character();
+  c.play.rigging = { ...(c.play.rigging || {}), linked: [], active: [], hotseat: [] };
+  await openWith(page, [c]);
+  await domClick(page.locator(".sh-tabs button", { hasText: /rigging/i }));
+  await domClick(page.locator(".sh-unit", { hasText: "Bug-Spy" }).first()
+    .locator("label.opt", { hasText: "Active" }).locator("input"));
+  await page.waitForTimeout(1000);   // the play autosave's debounce
+  await page.reload(); await waitForApp(page);
+  expect(await page.evaluate(() => CHAR.play.rigging.active)).toEqual({ "drones:0": true });
+  await domClick(page.locator(".sh-tabs button", { hasText: /rigging/i }));
+  await expect(page.locator(".sh-unit", { hasText: "Bug-Spy" }).first()
+    .locator("label.opt", { hasText: "Active" }).locator("input")).toBeChecked();
   expectNoErrors(errors);
 });
