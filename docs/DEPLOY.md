@@ -148,6 +148,15 @@ git pull --ff-only        # or ./deploy.sh  (pull + php -l)
   ```
   (Fresh installs get these tables from `db/schema.sql`; migration 004 also folds
   each user's existing homebrew blob into a "My Homebrew" pack — run it only once.)
+- **Own approvals (005):** Sinless keeps its own approval list in `sinless_access`,
+  apart from Campaign Chronicle's, even when both apps share the `users` table.
+  Run once after the pull; everyone keeps the Sinless access they have:
+  ```bash
+  mysql -u YOUR_DB_USER -p YOUR_DB_NAME < db/migrations/005_sinless_access.sql
+  ```
+  From then on, signing in to Sinless is the request: a new person (or someone
+  who so far only used Chronicle) waits in the Admin panel and the signup alert
+  says "Sinless access request". Approving or revoking here never touches Chronicle.
 
 ## Notes
 

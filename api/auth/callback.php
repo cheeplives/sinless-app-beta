@@ -4,9 +4,10 @@
  * a token over TLS-verified cURL, fetches the (verified) email + profile, upserts
  * the user, establishes the session, and redirects back into the app.
  *
- * New users land as `status='pending'` (unless their identity is in
- * $ADMIN_IDENTITIES, which auto-approves + flags admin); a new pending user
- * triggers a fire-and-forget signup webhook.
+ * Someone with no sinless_access row (a new account, or one made in Campaign
+ * Chronicle) asks for access: a 'pending' row, unless their identity is in
+ * $ADMIN_IDENTITIES, which auto-approves + flags admin, and a fire-and-forget
+ * signup webhook naming Sinless.
  */
 declare(strict_types=1);
 require __DIR__ . '/../lib.php';
@@ -111,6 +112,10 @@ if ($provider === 'google') {
 
 // --- upsert the user -------------------------------------------------------
 $pdo = db();
+// Auto-approve + admin if this identity is configured as an owner.
+$admins = array_map('strtolower', (array) cfg('admin_identities', []));
+$isAdmin = in_array(strtolower($identity['email']), $admins, true)
+        || in_array(strtolower($provider . ':' . $identity['provider_user_id']), $admins, true);
 $sel = $pdo->prepare('SELECT * FROM users WHERE provider = ? AND provider_user_id = ? LIMIT 1');
 $sel->execute([$provider, $identity['provider_user_id']]);
 $user = $sel->fetch();
@@ -119,11 +124,9 @@ if ($user) {
   $upd = $pdo->prepare('UPDATE users SET email = ?, display_name = ?, avatar_url = ?, last_login_at = NOW() WHERE id = ?');
   $upd->execute([$identity['email'], $identity['name'], $identity['avatar'], $user['id']]);
   $userId = (int) $user['id'];
+  // An account made in Campaign Chronicle asks for Sinless the first time it signs in here.
+  sinless_access_request($userId, $isAdmin || (int) $user['is_admin'], $provider, $identity, false);
 } else {
-  // Auto-approve + admin if this identity is configured as an owner.
-  $admins = array_map('strtolower', (array) cfg('admin_identities', []));
-  $isAdmin = in_array(strtolower($identity['email']), $admins, true)
-          || in_array(strtolower($provider . ':' . $identity['provider_user_id']), $admins, true);
   $status = $isAdmin ? 'approved' : 'pending';
 
   $ins = $pdo->prepare(
@@ -132,12 +135,7 @@ if ($user) {
   $ins->execute([$provider, $identity['provider_user_id'], $identity['email'],
                  $identity['name'], $identity['avatar'], $status, $isAdmin ? 1 : 0]);
   $userId = (int) $pdo->lastInsertId();
-
-  if (!$isAdmin) {
-    post_signup_webhook(sprintf(
-      "🆕 Sinless access request\nName: %s\nEmail: %s\nProvider: %s\nApprove in the app's Admin panel.",
-      $identity['name'] !== '' ? $identity['name'] : '(none)', $identity['email'], $provider));
-  }
+  sinless_access_request($userId, $isAdmin, $provider, $identity, true);
 }
 
 // --- establish session + return to the app ---------------------------------

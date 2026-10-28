@@ -14,7 +14,7 @@ SET time_zone = '+00:00';
 -- ---------------------------------------------------------------------------
 -- users — one row per (OAuth provider identity). Keyed on the provider's
 -- stable user id, never on email (emails change / can be unverified).
--- New sign-ups land as 'pending' until an admin approves them.
+-- users.status is no longer read by Sinless: its approvals are in sinless_access.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS users (
   id                BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -31,6 +31,23 @@ CREATE TABLE IF NOT EXISTS users (
   PRIMARY KEY (id),
   UNIQUE KEY uq_provider_identity (provider, provider_user_id),
   KEY idx_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- sinless_access — who may use Sinless, apart from users.status (which Campaign
+-- Chronicle may share; it keeps its own list in chronicle_access). A sign-in with
+-- no row here asks for access (a 'pending' row); admins (users.is_admin) are
+-- approved on sign-in. See db/migrations/005_sinless_access.sql.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS sinless_access (
+  user_id       BIGINT UNSIGNED NOT NULL,
+  status        ENUM('pending','approved','revoked') NOT NULL DEFAULT 'pending',
+  requested_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  approved_at   DATETIME NULL DEFAULT NULL,
+  PRIMARY KEY (user_id),
+  KEY idx_status (status),
+  CONSTRAINT fk_sinless_access_user FOREIGN KEY (user_id)
+    REFERENCES users (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
