@@ -268,7 +268,14 @@ function require_method(string ...$allowed): void {
 }
 
 // --- auth guards -----------------------------------------------------------
-/** Current user row (or null). Cached per request. */
+/** Whether migration 005 has been run: Sinless keeps its own approvals in sinless_access. Until it has, users.status
+ * (which Campaign Chronicle may share) still decides, as before. */
+function has_access_table(): bool {
+  static $has = null;
+  return $has ??= (bool) db()->query("SHOW TABLES LIKE 'sinless_access'")->fetchColumn();
+}
+
+/** Current user row (or null), its status being their standing in Sinless. Cached per request. */
 function current_user(): ?array {
   static $u = false;
   if ($u !== false) return $u;
@@ -276,7 +283,38 @@ function current_user(): ?array {
   $st = db()->prepare('SELECT * FROM users WHERE id = ? LIMIT 1');
   $st->execute([$_SESSION['user_id']]);
   $row = $st->fetch();
+  if ($row && has_access_table()) {
+    $a = db()->prepare('SELECT status FROM sinless_access WHERE user_id = ?');
+    $a->execute([$row['id']]);
+    $row['status'] = (string) ($a->fetchColumn() ?: 'pending');
+  }
   return $u = ($row ?: null);
+}
+
+/**
+ * Make sure user $userId has a say in Sinless: an admin is approved; anyone else with no sinless_access row gets a
+ * 'pending' one and the signup alert goes out, naming Sinless, so it can't be mistaken for a Campaign Chronicle
+ * request. Someone already approved, waiting or revoked here is left as they are. Before migration 005 only a brand
+ * new account ($new) is announced, as before.
+ */
+function sinless_access_request(int $userId, bool $isAdmin, string $provider, array $identity, bool $new): void {
+  $pdo = db();
+  $alert = $new;
+  if (has_access_table()) {
+    if ($isAdmin) {
+      $pdo->prepare("INSERT INTO sinless_access (user_id, status, approved_at) VALUES (?, 'approved', NOW())
+                     ON DUPLICATE KEY UPDATE status = 'approved', approved_at = COALESCE(approved_at, NOW())")->execute([$userId]);
+      return;
+    }
+    $ins = $pdo->prepare("INSERT IGNORE INTO sinless_access (user_id, status) VALUES (?, 'pending')");
+    $ins->execute([$userId]);
+    $alert = $ins->rowCount() > 0;
+  }
+  if ($alert && !$isAdmin) {
+    post_signup_webhook(sprintf(
+      "🆕 Sinless access request\nName: %s\nEmail: %s\nProvider: %s\nApprove in Sinless's Admin panel (not Campaign Chronicle).",
+      $identity['name'] !== '' ? $identity['name'] : '(none)', $identity['email'], $provider));
+  }
 }
 
 function require_login(): array {
