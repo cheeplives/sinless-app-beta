@@ -3,7 +3,7 @@
  * lib.php — shared backend: config, PDO, hardened sessions, auth guards,
  * JSON I/O, security headers, and TLS-verified HTTP helpers.
  *
- * Every endpoint does `require __DIR__ . '/lib.php';` first. PHP 7.4+ / 8.x.
+ * Every endpoint does `require __DIR__ . '/lib.php';` first. PHP 7.4+ / 8.x (8.5 ok).
  *
  * Security posture (see the plan's hardening section):
  *  - PDO prepared statements only, emulate_prepares off, utf8mb4.
@@ -416,7 +416,8 @@ function http_request(string $method, string $url, array $opts = []): array {
   $body = curl_exec($ch);
   $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
   $err = curl_error($ch);
-  curl_close($ch);
+  // No curl_close(): it's a no-op since PHP 8.0 and deprecated in 8.5. The
+  // handle is freed when $ch goes out of scope (on 7.4 too).
   return ['status' => $status, 'body' => (string) $body, 'error' => $err];
 }
 
