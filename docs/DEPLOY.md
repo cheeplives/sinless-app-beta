@@ -24,7 +24,8 @@ see [HOSTING.md](HOSTING.md).
 
 - HTTPS working on `www.discreteinfinity.com`.
 - A MySQL database + user (from your host's control panel).
-- PHP 7.4+ with `pdo_mysql` and `curl` — check on the server: `php -m | grep -Ei 'pdo_mysql|curl'`.
+- PHP 7.4+ (up to 8.5) with `pdo_mysql`, `curl` and `mbstring` — check on the server: `php -m | grep -Ei 'pdo_mysql|curl|mbstring'`.
+  Switching PHP versions on DreamHost? Custom settings in `~/.php/<version>/phprc` don't carry over; copy them to the new version's folder.
 - OAuth app(s) registered (Google and/or GitHub) with the callback set **exactly** to:
   ```
   https://www.discreteinfinity.com/sinless/api/auth/callback.php

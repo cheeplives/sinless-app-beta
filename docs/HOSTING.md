@@ -13,8 +13,9 @@ still runs in the browser — the server only stores per-user character JSON.
 
 ## Requirements
 
-- Shared hosting (or any server) with **PHP 7.4+** (8.x fine) and the `pdo_mysql`
-  + `curl` extensions (both are standard).
+- Shared hosting (or any server) with **PHP 7.4+** (8.x fine, up to 8.5) and the
+  `pdo_mysql`, `curl` and `mbstring` extensions (all standard; on Debian/Ubuntu
+  packages `mbstring` is a separate `php<version>-mbstring` install).
 - A **MySQL** database.
 - **HTTPS** on your domain (required for OAuth + secure cookies; most hosts
   include free Let's Encrypt).
