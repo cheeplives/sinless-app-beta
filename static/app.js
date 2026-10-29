@@ -1643,7 +1643,7 @@ function familiarCard({ value, onChange, condition, readonly }) {
     // than silently reading as "No familiar".
     value && !row ? el("option", { value }, `${value} (not in this browser's data)`) : null);
   sel.value = value || "";
-  return el("div", { class: "card familiar-card", style: "max-width:520px" },
+  return el("div", { class: "card familiar-card", style: "grid-column:1/-1" },
     el("h3", {}, "Familiar"),
     sel,
     row && row.Effect ? el("p", { class: "sub familiar-effect", title: tip }, row.Effect) : null,
