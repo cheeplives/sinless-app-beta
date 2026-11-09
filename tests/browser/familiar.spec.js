@@ -16,7 +16,7 @@ test("picking a familiar in play applies its dice, and a night-only familiar wai
   await pick("Shadow Cat");
   await expect.poll(() => dice(page, "Shadow")).toBe(base.shadow + 1);
   expect(await dice(page, "Subterfuge")).toBe(base.subterfuge + 1);
-  await expect(page.locator(".familiar-card select")).toHaveAttribute("title", /plane of shadows/);
+  await expect(page.locator(".familiar-card select")).toHaveAttribute("data-tip", /plane of shadows/);
   await expect(page.locator(".familiar-effect")).toContainText("+1 Kismet");
 
   // Moon Moth: Resolve-pool dice, but only at night.

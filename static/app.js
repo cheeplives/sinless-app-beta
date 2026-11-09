@@ -53,6 +53,10 @@ const el = (tag, attrs = {}, ...kids) => {
     if (v == null) continue;              // skip null/undefined -> no attribute at all
     if (k === "class") n.className = v;
     else if (k.startsWith("on")) n.addEventListener(k.slice(2), v);
+    // A title is the kit's tooltip (static/kit.js): it shows on hover and keyboard focus as the browser's would,
+    // and on a touch screen, where a title never shows, a tap opens it. An <option> keeps the native title: the
+    // kit can't reach inside a select's own popup.
+    else if (k === "title" && tag !== "option") n.dataset.tip = v;
     else n.setAttribute(k, v);
   }
   // Arrays of children are flattened rather than appended whole. `append` takes

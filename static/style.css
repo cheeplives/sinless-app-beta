@@ -42,6 +42,9 @@
   --dim:#8792a6;
   --strong:#fff;          /* high-emphasis numerals/labels on neutral panels */
   --on-accent:#fff;       /* text/fill atop solid saturated accent backgrounds — stays white in both themes */
+  /* The token names static/kit.js's styles read (shared with Campaign Chronicle), as aliases of ours: they follow the
+     scheme and the light/dark mode wherever those set --manon, --ink and --panel. */
+  --accent:var(--manon); --bg:var(--ink); --stock:var(--panel); --radius:10px;
   --manon:#9d7bff;      /* magic / zoetics */
   --manon-dim:#5e49a6;
   --amber:#e8a33d;      /* money / budgets */
@@ -299,9 +302,9 @@ body.ws-reordering .ws-tab{transition:none}
  * button + panel offset were tuned for the taller sheet header; shrink to fit
  * the 40px strip and drop the panel just below the strip. */
 #workspace-tabs .sh-menu{align-self:center;margin-right:8px}
-#workspace-tabs .sh-menu-btn{width:34px;height:30px}
-#workspace-tabs .sh-menu-btn .bar{width:16px}
-#workspace-tabs .sh-menu-panel{top:37px;max-height:calc(100vh - 49px);max-height:calc(100dvh - 49px)}
+#workspace-tabs .sh-menu > summary{width:34px;height:30px}
+#workspace-tabs .sh-menu > summary .bar{width:16px}
+#workspace-tabs .sh-menu-panel{max-height:calc(100vh - 49px);max-height:calc(100dvh - 49px)}
 
 /* ---------- rail ---------- */
 #rail{background:linear-gradient(180deg,var(--rail-grad-1) 0%,var(--rail-grad-2) 100%);border-right:1px solid var(--line);
@@ -341,9 +344,9 @@ input:focus,select:focus,button:focus{outline:2px solid var(--manon-dim);outline
  * this a long character name in the Load…/Delete… <select> forces both columns
  * wide and overflows a narrowed rail on small screens. */
 .rail-actions>.btn,.rail-actions>.btn-select{min-width:0}
-.btn,.btn-select{background:var(--panel-2);border:1px solid var(--line);color:var(--text);border-radius:4px;
+.btn,.btn-select,.kit-menu > summary{background:var(--panel-2);border:1px solid var(--line);color:var(--text);border-radius:4px;
   padding:7px 8px;font-family:var(--disp);font-size:12px;letter-spacing:.06em;cursor:pointer}
-.btn:hover{border-color:var(--manon-dim)}
+.btn:hover,.kit-menu > summary:hover{border-color:var(--manon-dim)}
 .btn.ghost{color:var(--dim)}
 
 /* Alerts float over the rail so problems are impossible to miss: fixed to
@@ -1581,28 +1584,26 @@ input.sh-unit-name::placeholder{color:var(--dim);font-weight:600}
 .sh-windfall{margin:6px 0 0;padding-left:22px;font-size:12.5px;color:var(--dim)}
 .sh-windfall li{padding:2px 0}
 .sh-windfall li.wf-hit{color:var(--ok);font-weight:600}
-.sh-menu{position:relative;flex-shrink:0}
-.sh-menu-btn{width:38px;height:38px;border:1px solid var(--line);border-radius:8px;background:var(--panel-2);
-  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;cursor:pointer;padding:0}
-.sh-menu-btn .bar{width:18px;height:2px;background:var(--dim);border-radius:1px}
-.sh-menu-btn:hover .bar,.sh-menu-btn[aria-expanded="true"] .bar{background:var(--text)}
-.sh-menu-btn[aria-expanded="true"]{border-color:var(--manon-dim)}
-.sh-menu-backdrop{position:fixed;inset:0;z-index:45}
+.sh-menu{flex-shrink:0}
+/* The ☰ is a KIT.menu (static/kit.js): its button is the <summary>, drawn as three bars; the kit opens, places and
+   closes the list. */
+.sh-menu > summary{width:38px;height:38px;border-radius:8px;display:flex;flex-direction:column;align-items:center;
+  justify-content:center;gap:4px;padding:0}
+.sh-menu > summary .bar{width:18px;height:2px;background:var(--dim);border-radius:1px}
+.sh-menu > summary:hover .bar{background:var(--text)}
+.sh-menu[open] > summary .bar{background:var(--on-accent)}
 /* The panel is anchored under the ☰ and grows downward with no height of its
    own, so before this it could simply run past the bottom of the viewport with
    no scrollbar — the last rows were unreachable on a laptop or a landscape
    tablet. max-height is "viewport minus where the panel starts, minus a 12px
    breathing gap", and overscroll-behavior keeps a scroll that reaches the end
    of the menu from carrying on into the sheet behind it. Children are pinned
-   flex:none so an overflowing column squashes nothing. */
-.sh-menu-panel{position:absolute;top:44px;left:0;z-index:46;display:flex;flex-direction:column;gap:6px;
-  background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px;min-width:220px;
+   flex:none so an overflowing column squashes nothing. (Where it sits comes from .kit-menu-list.) */
+.sh-menu > .sh-menu-panel{padding:10px;min-width:220px;
   max-height:calc(100vh - 56px);max-height:calc(100dvh - 56px);overflow-y:auto;overscroll-behavior:contain;
   box-shadow:0 12px 28px rgba(0,0,0,.5)}
 .sh-menu-panel > *{flex:none}
 .sh-menu-panel .btn,.sh-menu-panel .btn-select{width:100%;text-align:left}
-/* thin divider between the menu's logical groups (Load/Save/New, Files/Homebrew, …) */
-.sh-menu-sep{height:1px;background:var(--line);margin:2px 0;flex:none}
 /* menu-item accent classes — theme-aware: load/files teal, save green,
    homebrew accent-purple. */
 .btn.sh-mi-load,.btn-select.sh-mi-load{border-color:var(--slot-overbarrel);color:var(--slot-overbarrel)}
@@ -1809,11 +1810,11 @@ tr.sh-modslots-row td{padding-top:0;padding-bottom:10px;border-bottom:1px solid 
 
 /* light/dark theme toggle — floats above every screen (#app, #sheet, #homebrew) */
 .theme-controls{position:fixed;top:2px;right:8px;z-index:85;display:flex;align-items:center;gap:8px}
-.theme-toggle{width:36px;height:36px;
+.theme-toggle,#account-menu .kit-menu > summary{width:36px;height:36px;
   border-radius:50%;border:1px solid var(--line);background:var(--panel-2);color:var(--text);
   font-size:16px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;
   box-shadow:0 4px 14px rgba(0,0,0,.35)}
-.theme-toggle:hover{border-color:var(--manon-dim)}
+.theme-toggle:hover,#account-menu .kit-menu > summary:hover{border-color:var(--manon-dim)}
 /* colour-scheme picker (pill + dropdown), sits left of the mode toggle */
 .scheme-menu{position:relative}
 .scheme-btn{display:flex;align-items:center;gap:7px;height:36px;padding:0 12px;
@@ -1870,10 +1871,54 @@ tr.sh-modslots-row td{padding-top:0;padding-bottom:10px;border-bottom:1px solid 
   .sh-files-row{flex-direction:column;gap:6px}
   .sh-files-row > .btn{flex:none;width:100%}
 }
-/* 👤 account panel — the settings panel's box, with stacked full-width rows. */
-.account-panel{min-width:200px}
-.account-who{margin:-4px 0 10px;word-break:break-word}
-.account-item{display:block;width:100%;text-align:left;margin-top:6px}
+/* 👤 account menu — a KIT.menu list with a heading, who is signed in, and stacked full-width rows. */
+.kit-menu-list.account-panel{min-width:200px;padding:12px 14px}
+.account-panel h4{margin:0 0 4px;font:600 11px/1 var(--disp);letter-spacing:.1em;text-transform:uppercase;color:var(--dim)}
+.account-who{margin:0 0 4px;word-break:break-word}
+.account-item{display:block;width:100%;text-align:left}
+
+/* ---------- kit (static/kit.js, shared with Campaign Chronicle) ----------
+ * KIT.toast, the tooltips every data-tip gets (el() turns a title into one), KIT.menu's drop-down and KIT.dialog. The
+ * rules are Campaign Chronicle's, on our tokens; the shapes are its so the two apps' kits feel the same. */
+#toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%) translateY(120px);background:var(--text);color:var(--bg);
+  padding:10px 18px;border-radius:8px;transition:transform .25s;z-index:1200;max-width:90vw;font:500 13px/1.4 var(--body)}
+#toast.show{transform:translateX(-50%) translateY(0)} #toast.bad{background:var(--bad);color:#fff}
+.tip{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;margin-left:6px;border-radius:50%;
+  border:1px solid var(--dim);color:var(--dim);font:600 .68rem/1 var(--body);text-transform:none;letter-spacing:0;cursor:help;vertical-align:middle}
+.tip:hover,.tip:focus-visible{border-color:var(--accent);color:var(--accent);outline:none}
+#tipbox{position:fixed;z-index:1200;max-width:min(320px,calc(100vw - 16px));padding:8px 10px;border-radius:7px;pointer-events:none;
+  background:var(--text);color:var(--bg);font:400 .82rem/1.4 var(--body);white-space:pre-line;box-shadow:0 4px 14px rgb(0 0 0 / .35);
+  opacity:0;visibility:hidden;transition:opacity .12s}
+#tipbox.show{opacity:1;visibility:visible}
+#tipbox.with-img img{display:block;max-width:100%;max-height:200px;margin:0 auto 6px;border-radius:4px}
+/* KIT.menu: a drop-down of actions behind one button (the ☰, the 👤) */
+.kit-menu{position:relative;display:inline-block}
+.kit-menu > summary{list-style:none;cursor:pointer;user-select:none;-webkit-user-select:none}
+.kit-menu > summary::-webkit-details-marker{display:none}
+.kit-menu[open] > summary{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
+.kit-menu-list{position:absolute;top:calc(100% + 4px);z-index:1100;
+  display:flex;flex-direction:column;align-items:stretch;gap:6px;min-width:11rem;padding:8px;
+  background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);box-shadow:0 8px 20px -8px rgb(0 0 0 / .5)}
+.kit-menu-right > .kit-menu-list{right:0} .kit-menu-left > .kit-menu-list{left:0}
+/* flipped (kit.js) when the list would run off the edge of the screen */
+.kit-menu-right.kit-menu-flip > .kit-menu-list{right:auto;left:0} .kit-menu-left.kit-menu-flip > .kit-menu-list{left:auto;right:0}
+.kit-menu-list{max-width:calc(100vw - 16px)}
+.kit-menu-list > *{text-align:left;white-space:nowrap}
+.kit-menu-list hr{border:0;border-top:1px solid var(--line);margin:2px 4px;width:auto}
+.kit-menu-list [hidden]{display:none}
+/* KIT.dialog: the in-page confirm / prompt / alert */
+dialog.kit-dialog{border:0;border-top:6px solid var(--accent);border-radius:var(--radius);background:var(--stock);color:var(--text);
+  padding:18px;width:min(440px,calc(100vw - 32px));box-shadow:0 10px 40px rgb(0 0 0 / .45);font:400 14px/1.45 var(--body)}
+dialog.kit-dialog::backdrop{background:rgb(0 0 0 / .55)}
+.kit-dialog h3{margin:0 0 .3em;color:var(--accent)}
+.kit-dialog-msg{margin:0 0 12px;white-space:pre-line}
+.kit-dialog-input{width:100%;margin-bottom:12px;font-size:16px}
+.kit-dialog-actions{display:flex;flex-direction:row-reverse;gap:8px;justify-content:flex-start}
+.kit-dialog-actions button{background:var(--panel-2);border:1px solid var(--line);color:var(--text);border-radius:4px;padding:6px 14px;
+  font:600 13px/1 var(--body);cursor:pointer}
+.kit-dialog-actions button:hover{border-color:var(--manon-dim)}
+.kit-dialog-actions button.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.kit-dialog-actions button.danger{border-color:var(--bad);color:var(--bad)}
 /* Click-to-roll dice figures (skill ratings, weapon dice chips, roll hints).
    A bare button so it inherits whatever it wraps — the reading must not move,
    only gain an affordance. Padding with a matching negative margin: the hit
@@ -2086,8 +2131,8 @@ tr.sh-modslots-row td{padding-top:0;padding-bottom:10px;border-bottom:1px solid 
    * The app's top-level navigation, and the one strip this block never
    * covered: chips measured 24px, the + 26px, the ☰ 30px, and ⎘ / × 15px
    * apiece sitting 3px apart. Everything here fits inside the existing 40px
-   * strip (--ws-h), so #workspace-tabs .sh-menu-panel{top:37px} still lines
-   * up and no height had to change.
+   * strip (--ws-h), so the ☰ list still hangs just under it and no height had
+   * to change.
    *
    * The chip takes min-height rather than padding, contrary to this block's
    * usual "padding where there's a label": a chip's height comes from the
@@ -2107,7 +2152,7 @@ tr.sh-modslots-row td{padding-top:0;padding-bottom:10px;border-bottom:1px solid 
   .ws-close{font-size:19px;min-width:32px;min-height:32px;padding:2px 6px}
   .ws-new{width:32px;height:32px}
   /* Same specificity as the base rule (which is ID-scoped) so this wins. */
-  #workspace-tabs .sh-menu-btn{height:32px}
+  #workspace-tabs .sh-menu > summary{height:32px}
 
   /* ---- click-to-roll ----
    * The core play verb (skill ratings, weapon dice chips) and the base rule
