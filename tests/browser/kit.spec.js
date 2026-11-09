@@ -22,6 +22,15 @@ test("the ☰ menu opens on screen, closes on Escape with focus back on its butt
   expectNoErrors(errors);
 });
 
+test("the ☰ menu stays open when the workspace strip redraws under it", async ({ page }) => {
+  // The strip redraws on its own (a dirty flag flipping, a save landing); the menu's open state has to survive that.
+  await openWith(page, [fixture("min-mundane")]);
+  await openMenu(page);
+  await page.evaluate(() => renderWorkspaceBar());
+  await expect(page.locator(".sh-menu .sh-menu-panel")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Files…" })).toBeVisible();
+});
+
 test("a title given to el() is a kit tooltip: no native title, and the tip box shows it on hover", async ({ page, isMobile }) => {
   await openWith(page, [fixture("min-mundane")]);
   expect(await page.locator("#app [title], #workspace-tabs [title]").count()).toBe(0);
