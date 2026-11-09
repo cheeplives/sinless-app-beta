@@ -63,8 +63,8 @@ async function domClick(locator) {
 }
 
 async function openMenu(page) {
-  await domClick(page.locator(".sh-menu-btn").first());
-  await expect(page.locator(".sh-menu-panel")).toBeVisible();
+  await domClick(page.locator(".sh-menu > summary").first());
+  await expect(page.locator(".sh-menu .sh-menu-panel")).toBeVisible();
 }
 
 module.exports = { ALL_FIXTURES, fixture, slug, watchErrors, expectNoErrors,

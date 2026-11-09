@@ -16,26 +16,24 @@
 <nav id="workspace-tabs" aria-label="Open characters"></nav>
 <div id="theme-controls" class="theme-controls">
   <div id="scheme-menu" class="scheme-menu">
-    <button id="scheme-btn" class="scheme-btn" type="button" aria-haspopup="true" aria-expanded="false" title="Colour scheme">
+    <button id="scheme-btn" class="scheme-btn" type="button" aria-haspopup="true" aria-expanded="false" data-tip="Colour scheme">
       <span class="scheme-dot"></span>
       <span class="scheme-name">Slate Violet</span>
       <span class="scheme-caret" aria-hidden="true">▾</span>
     </button>
     <ul id="scheme-list" class="scheme-list" role="menu" aria-label="Colour scheme" hidden></ul>
   </div>
-  <button id="theme-toggle" class="theme-toggle" type="button" title="Toggle light / dark mode" aria-label="Toggle light / dark mode">🌙</button>
+  <button id="theme-toggle" class="theme-toggle" type="button" data-tip="Toggle light / dark mode" aria-label="Toggle light / dark mode">🌙</button>
   <div id="settings-menu" class="scheme-menu">
-    <button id="settings-btn" class="theme-toggle" type="button" aria-haspopup="true" aria-expanded="false" title="House rules" aria-label="House rules">⚙</button>
+    <button id="settings-btn" class="theme-toggle" type="button" aria-haspopup="true" aria-expanded="false" data-tip="House rules" aria-label="House rules">⚙</button>
     <div id="settings-panel" class="settings-panel" role="menu" aria-label="House rules" hidden></div>
   </div>
   <!-- Account (Shared characters / Admin / Sign out). These are account
        actions, not character actions, so they sit with the other app-level
-       controls rather than in the character ☰ menu. Stays hidden in
-       local-only mode -- see initAccountMenu() in static/auth-ui.js. -->
-  <div id="account-menu" class="scheme-menu" hidden>
-    <button id="account-btn" class="theme-toggle" type="button" aria-haspopup="true" aria-expanded="false" title="Account" aria-label="Account">👤</button>
-    <div id="account-panel" class="settings-panel account-panel" role="menu" aria-label="Account" hidden></div>
-  </div>
+       controls rather than in the character ☰ menu. A KIT.menu (static/kit.js)
+       filled by initAccountMenu() in static/auth-ui.js; stays hidden in
+       local-only mode. -->
+  <div id="account-menu" hidden></div>
 </div>
 <div id="app">
   <aside id="rail">
@@ -87,6 +85,7 @@
 <div id="pending" hidden></div>
 <div id="admin" hidden></div>
 <div id="shared" hidden></div>
+<script src="static/kit.js"></script>
 <script src="static/data.js"></script>
 <script src="static/rules.js"></script>
 <script src="static/storage.js"></script>

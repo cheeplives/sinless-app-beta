@@ -30,6 +30,9 @@ screenshots and a trace (open with `npx playwright show-trace <trace.zip>`).
 - **storage**: a chargen draft survives leaving the page, with `pagehide`
   alone (iOS never sends `beforeunload`); the 7-day-deletion tip appears on
   WebKit only, and once; iOS text fields are 16px.
+- **kit**: the shared UI kit (`static/kit.js`, the same file as Campaign
+  Chronicle's): the ☰ menu opens on screen and closes on Escape and on a click
+  elsewhere, and a `title` given to `el()` is a kit tooltip that shows on hover.
 - **offline**: in every engine the service worker installs and caches every
   file it lists. In Chromium and Firefox it also serves them, and reopens the
   app, with the network off. (Playwright's WebKit blocks requests ahead of the

@@ -278,6 +278,9 @@ function renderWorkspaceBar() {
   // Admin, …) sits at the head of the tab strip so it's available in chargen
   // and play alike. sheetMenu() is defined in sheet.js but is mode-aware.
   const menu = (typeof sheetMenu === "function" && activeTabObj()) ? sheetMenu() : null;
+  // The ☰ is a KIT.menu whose open state lives in the DOM, so a redraw while it is open (a dirty flag flipping, a
+  // name typed) would snap it shut under the finger: carry the state over to the new one.
+  const menuWasOpen = !!bar.querySelector(".sh-menu[open]");
   syncThemeControlsGap();
   bar.replaceChildren(
     ...(menu ? [menu] : []),
@@ -321,11 +324,12 @@ function renderWorkspaceBar() {
     el("button", { class: "ws-new", title: "Open a new character",
       "aria-label": "New tab — load a character or start a new one",
       onclick: newTabPicker }, "+"));
+  if (menu && menuWasOpen) menu.open = true;
 }
 
 /* Re-render after a global-menu action. The ☰ menu lives in the workspace
- * strip and is available in both chargen and play, so redraw the strip (to
- * reflect the menu's open/closed state) plus the play sheet when it's showing. */
+ * strip and is available in both chargen and play, so redraw the strip (its
+ * rows follow the character's state) plus the play sheet when it's showing. */
 function rerenderApp() {
   renderWorkspaceBar();
   const sheet = $("#sheet");

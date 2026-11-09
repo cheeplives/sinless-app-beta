@@ -141,35 +141,27 @@ async function adminAct(userId, action) {
  * Open/close mirrors initHouseRules(): click toggles, a click anywhere else or
  * Escape closes, and clicks inside the panel don't bubble out to that handler. */
 function initAccountMenu() {
-  const wrap = $("#account-menu"), btn = $("#account-btn"), panel = $("#account-panel");
-  if (!wrap || !btn || !panel) return;
+  const wrap = $("#account-menu");
+  if (!wrap) return;
   if (!(typeof SYNC !== "undefined" && SYNC.enabled && SYNC.enabled())) {
     wrap.hidden = true;
     return;
   }
   const u = SYNC.user || {};
   const who = u.display_name || u.email || "";
-  const close = () => { panel.hidden = true; btn.setAttribute("aria-expanded", "false"); };
-  const item = (label, fn, cls) => el("button", {
-    class: "btn " + (cls || "ghost") + " account-item",
-    onclick: () => { close(); fn(); } }, label);
-
-  panel.replaceChildren(
-    el("h4", {}, "Account"),
-    who ? el("p", { class: "auth-meta account-who" }, who) : null,
-    item("Shared characters", openSharedGallery),
-    SYNC.isAdmin() ? item("Admin", openAdminPanel) : null,
-    item("Sign out", doSignOut, "warn"));
-
-  btn.addEventListener("click", e => {
-    e.stopPropagation();
-    const open = panel.hidden;
-    panel.hidden = !open;
-    btn.setAttribute("aria-expanded", String(open));
-  });
-  panel.addEventListener("click", e => e.stopPropagation());
-  document.addEventListener("click", () => { if (!panel.hidden) close(); });
-  document.addEventListener("keydown", e => { if (e.key === "Escape" && !panel.hidden) close(); });
+  // A KIT.menu (static/kit.js): it closes itself when a row is picked, on a click elsewhere and on Escape.
+  const item = (label, fn, cls) => el("button", { class: "btn " + (cls || "ghost") + " account-item", onclick: fn }, label);
+  wrap.replaceChildren(KIT.menu({
+    label: "👤", ariaLabel: "Account", tip: "Account", listCls: "account-panel",
+    items: [
+      el("h4", {}, "Account"),
+      who ? el("p", { class: "auth-meta account-who" }, who) : null,
+      item("Shared characters", openSharedGallery),
+      SYNC.isAdmin() ? item("Admin", openAdminPanel) : null,
+      el("hr"),
+      item("Sign out", doSignOut, "warn"),
+    ],
+  }));
   wrap.hidden = false;
 }
 

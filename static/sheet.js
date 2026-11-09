@@ -200,7 +200,6 @@ let calendarCollapsed = false;  // Calendar section folded shut on the Notes tab
 // where the player left it regardless of what gets bought or sold afterward.
 const unitGroupCollapsed = { drones: null, vehicles: null };
 let playSaveTimer = null;
-let sheetMenuOpen = false;    // hamburger menu (Back to Chargen / Homebrew / Export / …)
 let sheetHeadObserver = null; // IntersectionObserver toggling the compact sticky strip
 let sheetStickyScrolled = false;  // survives re-renders so the strip doesn't flicker
 let ghostEditing = false;  // Overview: Ghost Rating box expanded into its +/- adjuster
@@ -4545,7 +4544,7 @@ function openFilesModal() {
     title: "Character files",
     sub: "Bring a character in from a file, or take this one out.",
     maxWidth: "540px",
-    restoreSel: ".sh-menu-btn",
+    restoreSel: ".sh-menu > summary",
     build: () => {
       const exportJsonBtn = el("button", { class: "btn sh-mi-save", onclick: () => {
         // Two versions, because they answer different questions. `app_version`
@@ -4607,7 +4606,7 @@ function openChargenModal() {
     title: "Back to the character generator",
     sub: "Two ways back, and they differ in what happens to everything play has accumulated.",
     maxWidth: "540px",
-    restoreSel: ".sh-menu-btn",
+    restoreSel: ".sh-menu > summary",
     build: () => [
       el("div", { class: "sh-files-row" },
         el("button", { class: "btn sh-mi-plain",
@@ -4641,132 +4640,107 @@ function openChargenModal() {
  * account rows moved out to the 👤 control (initAccountMenu), Import/Export
  * collapsed into Files… and the two chargen exits into Chargen…, and the
  * panel itself now scrolls (.sh-menu-panel max-height) so no future addition
- * can run off the bottom again.
+ * can run off the bottom again. The menu is a KIT.menu (static/kit.js, shared
+ * with Campaign Chronicle): it opens and closes itself, keeps its list on
+ * screen, and the arrow keys walk its rows.
  *
  * Delete Character is gone with them. It was one row for the single case
  * "delete the character that happens to be open", which Manage saves… already
  * covers with a tick-box and the same shared-character lock; losing one-click
  * permanent deletion is no loss at all. */
 function sheetMenu() {
-  const act = fn => async () => {
-    sheetMenuOpen = false;
-    await fn();
-    rerenderApp();
-  };
+  // A menu row's click closes the menu by itself (KIT.menu); the app repaints once the action is done.
+  const act = fn => async () => { await fn(); rerenderApp(); };
+  const ro = !!(activeTabObj() && activeTabObj().readonly);
+  const synced = typeof SYNC !== "undefined" && SYNC.enabled && SYNC.enabled();
 
-  const toggle = el("button", {
-    class: "sh-menu-btn", "aria-label": "Menu", "aria-haspopup": "true",
-    "aria-expanded": String(sheetMenuOpen),
-    onclick: () => { sheetMenuOpen = !sheetMenuOpen; renderWorkspaceBar(); },
-  }, el("span", { class: "bar" }), el("span", { class: "bar" }), el("span", { class: "bar" }));
+  // Group 1 — Load / Save / New (character files). Load is the same picker as
+  // the header; Save mirrors it and says so with a toast. Save is hidden on a
+  // read-only shared view — use "Save a copy" in the banner instead.
+  const loadSel = el("select", { class: "btn-select sh-mi-load", onchange: async e => {
+    const name = e.target.value;
+    if (!name) return;
+    const loaded = STORAGE.loadCharacter(name);
+    if (!loaded) { e.target.value = ""; return; }
+    await openCharacter(RULES.mergeDefaults(loaded));
+    e.target.value = "";
+  } }, el("option", { value: "" }, "Load…"),
+    ...STORAGE.listCharacters().map(n => el("option", { value: n }, n)));
+  const saveBtn = !ro ? el("button", { class: "btn sh-mi-save", onclick: () => {
+    if (!CHAR.name) { alert("Give the character a street name first."); return; }
+    // Same silent-overwrite path as Finalize: the save keys on the sanitised
+    // name, so an unrelated character with a matching one is replaced.
+    const clash = STORAGE.collidingCharacter(CHAR);
+    if (clash && !confirm(`"${clash}" is already saved under this name.\n\n`
+      + "Saving REPLACES that character permanently. Overwrite them?")) return;
+    STORAGE.saveCharacter(CHAR);
+    if (typeof refreshLoadList === "function") refreshLoadList();
+    KIT.toast(`${CHAR.name} saved`);
+  } }, "Save") : null;
+  const renameBtn = !ro ? el("button", { class: "btn sh-mi-plain",
+    title: "Rename this character and move its save — not a copy",
+    onclick: act(renameCharacter) }, "Rename…") : null;
+  // Duplicate lives here as well as on the tab chip, because the chip's ⎘ is
+  // hidden on a coarse pointer: at 15px it sat 3px from ✕, and of the two
+  // mis-taps the one that WRITES is the copy — duplicateTab commits the new
+  // character to storage immediately, with no undo, while a closed tab is
+  // still in storage and reopens. A deliberate action belongs behind the
+  // menu. Read-only views are excluded: they offer "Save a copy" instead.
+  const dupBtn = !ro ? el("button", { class: "btn sh-mi-plain",
+    title: "Open a copy of this character in a new tab — saved straight away under a new name",
+    onclick: () => duplicateTab(WORKSPACE.active) },
+    "Duplicate") : null;
+  const newBtn = el("button", { class: "btn sh-mi-plain", onclick: () => newCharacterTab() }, "New");
 
-  const wrap = el("div", { class: "sh-menu" }, toggle);
-  if (sheetMenuOpen) {
-    const ro = !!(activeTabObj() && activeTabObj().readonly);
-    const synced = typeof SYNC !== "undefined" && SYNC.enabled && SYNC.enabled();
-    // Opening a dialog from a menu row: the menu has to go, and the strip has
-    // to repaint so the ☰ button loses its open state, before the modal traps
-    // focus behind it.
-    const openDialog = fn => () => { sheetMenuOpen = false; renderWorkspaceBar(); fn(); };
+  // Group 2 — Files… (import/export) and Homebrew.
+  const filesBtn = el("button", { class: "btn sh-mi-load",
+    title: "Import a character from a file, or export this one",
+    onclick: openFilesModal }, "Files…");
+  const homebrewBtn = el("button", { class: "btn sh-mi-brew", onclick: act(enterHomebrew) }, "Homebrew");
 
-    // Group 1 — Load / Save / New (character files). Load is the same picker as
-    // the header; Save mirrors it (incl. the "Saved ✓" flash) and stays open so
-    // the confirmation is visible. Save is hidden on a read-only shared view —
-    // use "Save a copy" in the banner instead.
-    const loadSel = el("select", { class: "btn-select sh-mi-load", onchange: async e => {
-      const name = e.target.value;
-      if (!name) return;
-      const loaded = STORAGE.loadCharacter(name);
-      if (!loaded) { e.target.value = ""; return; }
-      sheetMenuOpen = false;
-      await openCharacter(RULES.mergeDefaults(loaded));
-      e.target.value = "";
-    } }, el("option", { value: "" }, "Load…"),
-      ...STORAGE.listCharacters().map(n => el("option", { value: n }, n)));
-    const saveBtn = !ro ? el("button", { class: "btn sh-mi-save", onclick: () => {
-      if (!CHAR.name) { alert("Give the character a street name first."); return; }
-      // Same silent-overwrite path as Finalize: the save keys on the sanitised
-      // name, so an unrelated character with a matching one is replaced.
-      const clash = STORAGE.collidingCharacter(CHAR);
-      if (clash && !confirm(`"${clash}" is already saved under this name.\n\n`
-        + "Saving REPLACES that character permanently. Overwrite them?")) return;
-      STORAGE.saveCharacter(CHAR);
-      if (typeof refreshLoadList === "function") refreshLoadList();
-      saveBtn.textContent = "Saved ✓";
-      setTimeout(() => { saveBtn.textContent = "Save"; }, 1200);
-    } }, "Save") : null;
-    const renameBtn = !ro ? el("button", { class: "btn sh-mi-plain",
-      title: "Rename this character and move its save — not a copy",
-      onclick: act(renameCharacter) }, "Rename…") : null;
-    // Duplicate lives here as well as on the tab chip, because the chip's ⎘ is
-    // hidden on a coarse pointer: at 15px it sat 3px from ✕, and of the two
-    // mis-taps the one that WRITES is the copy — duplicateTab commits the new
-    // character to storage immediately, with no undo, while a closed tab is
-    // still in storage and reopens. A deliberate action belongs behind the
-    // menu. Read-only views are excluded: they offer "Save a copy" instead.
-    const dupBtn = !ro ? el("button", { class: "btn sh-mi-plain",
-      title: "Open a copy of this character in a new tab — saved straight away under a new name",
-      onclick: () => { sheetMenuOpen = false; duplicateTab(WORKSPACE.active); } },
-      "Duplicate") : null;
-    const newBtn = el("button", { class: "btn sh-mi-plain", onclick: () => {
-      sheetMenuOpen = false; newCharacterTab();
-    } }, "New");
+  // Group 3 — Sharing (needs a backend, a name, and write access).
+  const sharingBtn = (synced && !ro && CHAR.name)
+    ? el("button", { class: "btn sh-mi-plain", onclick: act(toggleSharing) },
+        SYNC.isPublic(STORAGE.sanitizeName(CHAR.name))
+          ? "Sharing: Public ✓ — make private"
+          : "Sharing: Private — make public")
+    : null;
 
-    // Group 2 — Files… (import/export) and Homebrew.
-    const filesBtn = el("button", { class: "btn sh-mi-load",
-      title: "Import a character from a file, or export this one",
-      onclick: openDialog(openFilesModal) }, "Files…");
-    const homebrewBtn = el("button", { class: "btn sh-mi-brew", onclick: act(enterHomebrew) }, "Homebrew");
+  // Group 4 — play state. Chargen… only applies to a finalized character
+  // (both of its choices toggle play state), so it's absent in chargen.
+  const chargenBtn = CHAR.finalized
+    ? el("button", { class: "btn sh-mi-plain",
+        title: "Reopen the character generator — keeping play, or rewinding to the end of chargen",
+        onclick: openChargenModal }, "Chargen…") : null;
+  const resyncBtn = (CHAR.finalized && !ro && CHAR.play && CHAR.play.kit)
+    ? el("button", { class: "btn sh-mi-plain",
+        title: "Rebuild play's copy of the items you still own from the chargen build",
+        onclick: act(resyncKitFromBuild) }, "Re-sync Build → Kit") : null;
+  const manageBtn = el("button", { class: "btn sh-mi-delete",
+    title: "Tick saved characters — including this one — and delete them in one go",
+    onclick: act(manageSavesModal) }, "Manage saves…");
 
-    // Group 3 — Sharing (needs a backend, a name, and write access).
-    const sharingBtn = (synced && !ro && CHAR.name)
-      ? el("button", { class: "btn sh-mi-plain", onclick: act(toggleSharing) },
-          SYNC.isPublic(STORAGE.sanitizeName(CHAR.name))
-            ? "Sharing: Public ✓ — make private"
-            : "Sharing: Private — make public")
-      : null;
+  // The members' gallery: open, view or copy anyone's shared characters.
+  // Also on the 👤 Account menu; here too because this is where a player
+  // looks for a character to load.
+  const galleryBtn = synced
+    ? el("button", { class: "btn sh-mi-load",
+        title: "Characters other members have shared — view them, or save a copy as your own",
+        onclick: openSharedGallery }, "Shared characters…")
+    : null;
 
-    // Group 4 — play state. Chargen… only applies to a finalized character
-    // (both of its choices toggle play state), so it's absent in chargen.
-    const chargenBtn = CHAR.finalized
-      ? el("button", { class: "btn sh-mi-plain",
-          title: "Reopen the character generator — keeping play, or rewinding to the end of chargen",
-          onclick: openDialog(openChargenModal) }, "Chargen…") : null;
-    const resyncBtn = (CHAR.finalized && !ro && CHAR.play && CHAR.play.kit)
-      ? el("button", { class: "btn sh-mi-plain",
-          title: "Rebuild play's copy of the items you still own from the chargen build",
-          onclick: act(resyncKitFromBuild) }, "Re-sync Build → Kit") : null;
-    const manageBtn = el("button", { class: "btn sh-mi-delete",
-      title: "Tick saved characters — including this one — and delete them in one go",
-      onclick: act(manageSavesModal) }, "Manage saves…");
-
-    // The members' gallery: open, view or copy anyone's shared characters.
-    // Also on the 👤 Account menu; here too because this is where a player
-    // looks for a character to load.
-    const galleryBtn = synced
-      ? el("button", { class: "btn sh-mi-load",
-          title: "Characters other members have shared — view them, or save a copy as your own",
-          onclick: openDialog(openSharedGallery) }, "Shared characters…")
-      : null;
-
-    const groups = [
-      [loadSel, saveBtn, renameBtn, dupBtn, newBtn],
-      [filesBtn, homebrewBtn],
-      [galleryBtn, sharingBtn],
-      [chargenBtn, resyncBtn, manageBtn],
-    ].map(g => g.filter(Boolean)).filter(g => g.length);
-
-    const panel = el("div", { class: "sh-menu-panel", role: "menu" });
-    groups.forEach((g, i) => {
-      if (i > 0) panel.append(el("div", { class: "sh-menu-sep" }));
-      g.forEach(b => panel.append(b));
-    });
-
-    wrap.append(
-      el("div", { class: "sh-menu-backdrop", onclick: () => { sheetMenuOpen = false; renderWorkspaceBar(); } }),
-      panel);
-  }
-  return wrap;
+  // The groups, a rule between each (KIT.menu drops the empty ones and the rules left with nothing beside them).
+  const groups = [
+    [loadSel, saveBtn, renameBtn, dupBtn, newBtn],
+    [filesBtn, homebrewBtn],
+    [galleryBtn, sharingBtn],
+    [chargenBtn, resyncBtn, manageBtn],
+  ];
+  return KIT.menu({
+    label: [el("span", { class: "bar" }), el("span", { class: "bar" }), el("span", { class: "bar" })],
+    ariaLabel: "Menu", align: "left", cls: "sh-menu", listCls: "sh-menu-panel",
+    items: groups.flatMap((g, i) => (i ? [el("hr"), ...g] : g)),
+  });
 }
 /* Rename a character, moving its save rather than forking it. Typing a new name
  * into the chargen field and saving leaves the old slot behind — two characters
