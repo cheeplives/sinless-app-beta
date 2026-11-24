@@ -1,49 +1,56 @@
 # Sinless Character Dossier
 
-A fully offline, client-side web app for building and running characters for
-the **Sinless** tabletop RPG — a cyberpunk game of chrome, Zoetics, and street
-grit. It covers full character generation and an interactive play-mode sheet
-for use at the table, installable as a PWA so it works with no connection.
+A character builder and play sheet for the Sinless tabletop RPG. You build a
+character tab by tab, finalize it, and then run it at the table from the same
+page. It installs as a PWA and works with no connection.
 
-No build step, no framework, no backend, no accounts. It's static files plus a
-service worker for offline use — open it and play.
+There is no build step and no framework. The app is static files and a service
+worker. With no server behind it, everything stays in the browser. An optional
+PHP server adds sign-in and cloud saves; see [`docs/HOSTING.md`](docs/HOSTING.md).
 
-> This repository is the canonical source of truth for the app and its rules.
-> An older Python/Flask version once served the same logic over HTTP; it is
-> now out of date and is **not** the reference. Change behavior here.
+> This repository is the source of truth for the app and its rules. An older
+> Python/Flask version served the same logic over HTTP. It is out of date and
+> is not the reference. Change behavior here.
 
-## Features
+## What it does
 
-**Character creation** walks through the full build, tab by tab:
-Priorities · Heritage · Stats & Skills · Knowledge & Etiquette · Magic &
-Rituals · Speaker · Augments · Weapons & Armor · Decks & Programs · Drones &
-Vehicles · Gear & Costs. A live sidebar tracks pools, condition, every point
-budget, and Zoetic stats (ZP, ZR, Body Index) as you spend, with errors and
-warnings surfaced immediately — so the sheet is self-checking, not just a form.
+### Character creation
 
-**Play mode** takes over once a character is finalized:
-- Kismet-based advancement (raise attributes/skills, learn new skills, buy
-  gear/augments/spells/Amp powers during play) — all priced per the same rules
-  engine used at chargen, so nothing is hand-waved.
+The build runs through eleven tabs: Priorities, Heritage, Stats & skills,
+Knowledge & etiquette, Magic & rituals, Speaker, Augments, Weapons & armor,
+Decks & programs, Drones & vehicles, and Gear & costs. The sidebar keeps the
+pools, condition tracks, point budgets and Zoetic stats (ZP, ZR, Body Index)
+current as you spend. Anything that breaks a rule is listed under the
+character's name, and the character cannot be finalized until the list is clear.
+
+### Play mode
+
+A finalized character opens as a play sheet.
+
+- Kismet advancement: raise attributes and skills, learn new skills, and buy
+  gear, augments, spells and Amp powers. Prices come from the same rules engine
+  that character creation uses.
 - Condition tracks with cumulative wound penalties, initiative, combat stats,
-  and everything else needed to run a scene without leaving the sheet.
-- Auto-saves (debounced) to `localStorage` as you play — no explicit save step.
+  a dice roller, and the other things a scene needs.
+- Changes save to `localStorage` as you make them. There is no save button.
 
-**Homebrew editor** lets anyone add or tweak custom Augments, Weapons, Armor,
-Gear, Vehicles, Drones, Spells, Rituals, and their mods/sub-items, right in the
-app. Custom content merges live into every picker and calculation alongside
-the base tables. Export/import a homebrew "pack" (JSON) to share content, and
-see [Promoting homebrew into the base data](#promoting-homebrew-into-the-base-data)
-for how the app owner can fold a pack into the shipped base rules.
+### Homebrew
 
-**Offline-first**: installable as a PWA (manifest + service worker); once
-loaded, it keeps working with no network. Everything — characters, homebrew,
-theme — lives in the browser's `localStorage`; nothing is ever sent anywhere.
+The homebrew editor adds or changes Augments, Weapons, Armor, Gear, Vehicles,
+Drones, Spells, Rituals and their mods. Custom rows show up in every picker and
+calculation next to the base tables. A homebrew pack exports and imports as
+JSON, and the owner can fold a pack into the shipped data; see
+[Promoting homebrew into the base data](#promoting-homebrew-into-the-base-data).
+
+### Offline
+
+Once loaded, the app keeps working with no network. Characters, homebrew and
+the theme live in the browser's `localStorage`.
 
 ## Running it
 
-It's a static site — serve the repo root over HTTP (the service worker needs a
-real origin, so opening `index.html` from `file://` won't fully work):
+It's a static site. Serve the repo root over HTTP. The service worker needs a
+real origin, so opening `index.html` from `file://` won't fully work.
 
 ```sh
 python -m http.server 8753
@@ -52,14 +59,16 @@ python -m http.server 8753
 
 Any static file server works. The bundled `.claude/launch.json` uses the
 command above. To install it as an app, open it in a browser and use
-"Install" / "Add to Home Screen" — the manifest and icons are already wired up.
+"Install" or "Add to Home Screen".
 
 ## Architecture
 
-`index.html` loads six scripts, in order:
+`index.html` loads its scripts in a fixed order. The main ones:
 
 | File | Role |
 |------|------|
+| `static/icons.js` | The drawn icons (`ICON_SHAPES`), generated by `tools/ui-icons-build.js`. Do not edit by hand. |
+| `static/kit.js` | Small shared UI kit (`KIT`): menus, tooltips, icons. Shared with the GM's Almanac app. |
 | `static/data.js` | All game data tables + rule constants, as the `DATA_BUNDLE` global. **Canonical, hand-maintained** (see below). |
 | `static/rules.js` | The rules engine (`RULES`). Pure functions: character in, derived sheet out. The source of truth for all calculations. |
 | `static/storage.js` | Character + homebrew persistence (`STORAGE`) via `localStorage`. |
@@ -86,7 +95,7 @@ sw.js                 service worker: offline caching
 icons/                PWA icons
 static/
   data.js             game data tables + rule constants (DATA_BUNDLE)
-  rules.js            rules engine (RULES) — all calculations
+  rules.js            rules engine (RULES): all calculations
   storage.js          localStorage persistence for characters + homebrew
   homebrew.js         homebrew editor UI + merge into DATA_BUNDLE
   app.js              chargen UI (tabs, sidebar rail, boot())
@@ -106,7 +115,7 @@ docs/
 `static/data.js` is one large JSON literal, formatted **one table row per
 line** (each row itself stays compact) so git can diff and merge data changes
 instead of conflicting on a single giant line. It was originally generated
-from a spreadsheet by a Python step, but that pipeline is out of date — the
+from a spreadsheet by a Python step, but that pipeline is out of date. The
 tables here are now maintained by hand. To change a stat, feature, or price,
 edit the relevant row's line directly in `static/data.js`; add new rows as new
 lines in the same table array. Keep the header comment ASCII-only, preserve
@@ -114,7 +123,7 @@ the row-per-line layout, and confirm the file still parses (it's plain JSON
 after the `const DATA_BUNDLE =` prefix). The homebrew promoter re-emits this
 exact format, so promotions keep the layout stable.
 
-**[`docs/DATA.md`](docs/DATA.md) is the reference for this file** — a catalogue of
+[`docs/DATA.md`](docs/DATA.md) is the reference for this file: a catalogue of
 all 36 tables (row counts, which column keys each one, what the table holds),
 the shared column families (`ZR`/`BI`/`Cost`…), the conventions (every value is a
 string; `""` means absent) and the gotchas worth knowing before you edit.
@@ -156,17 +165,27 @@ editing `data.js`:
    Review the diff, commit both files, and deploy.
 
 Note: if you promote your *own* homebrew, that item still exists in your
-browser's local homebrew afterward — delete it from the Homebrew screen so you
+browser's local homebrew afterward. Delete it from the Homebrew screen so you
 don't see both the base copy and your custom copy.
 
 ## Notes
 
-- Entirely client-side: no accounts, no network calls, no secrets. Characters
-  live in your browser's `localStorage`; use **Export JSON** to back one up.
+- With no server, nothing leaves the browser. Characters live in
+  `localStorage`; use Export JSON to back one up.
 - `rules.js` and `data.js` also load under Node (`require("./data.js")`), which
   is handy for scripting or testing the engine in isolation.
-- No test suite is committed today; verify changes by running the app in a
-  browser and exercising the affected flow end-to-end.
+- Browser tests live in `tests/` and run on every pull request. See
+  [`tests/README.md`](tests/README.md).
+- How the app should look, and the rules that keep it that way, are in
+  [`AGENTS.md`](AGENTS.md).
+
+## Credits
+
+The interface icons are from [game-icons.net](https://game-icons.net), by Lorc,
+Delapouite and sbed, used under
+[CC BY 3.0](https://creativecommons.org/licenses/by/3.0/). The sources are in
+`tools/icon-src/`. To add or change one, edit the list in
+`tools/ui-icons-build.js` and run `node tools/ui-icons-build.js`.
 
 ## House Rules
 -Minimum Alpha Cyber ZR Reduction of 0.1

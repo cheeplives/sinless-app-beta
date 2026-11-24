@@ -749,16 +749,16 @@ function renderHomebrewEditor(root) {
 
   root.append(el("div", { class: "hb-head" },
     el("div", {},
-      el("h2", {}, "Homebrew Content"),
+      el("h2", {}, "Homebrew content"),
       el("p", { class: "hint" },
         "Custom items merge into every picker and price calculation. Organise them "
         + "into packs, publish a pack to share it with other members, or subscribe "
         + "to someone else's — subscribed items appear everywhere, read-only.")),
     el("div", { class: "hb-head-actions" },
       el("button", { class: "btn ghost", onclick: exitHomebrew }, "← Back"),
-      el("button", { class: "btn", onclick: openHomebrewGallery }, "Browse Shared"),
-      pack ? el("button", { class: "btn", onclick: () => exportActivePack() }, "Export File") : null,
-      el("button", { class: "btn", onclick: () => importInput.click() }, "Import File"),
+      el("button", { class: "btn", onclick: openHomebrewGallery }, "Browse shared"),
+      pack ? el("button", { class: "btn", onclick: () => exportActivePack() }, "Export file") : null,
+      el("button", { class: "btn", onclick: () => importInput.click() }, "Import file"),
       importInput)));
 
   /* ---- pack bar: choose / create / rename / delete / publish ------------- */
@@ -970,7 +970,7 @@ async function openHomebrewGallery() {
 
 function renderHomebrewGallery(root) {
   root.append(el("div", { class: "hb-head" },
-    el("div", {}, el("h2", {}, "Shared Homebrew"),
+    el("div", {}, el("h2", {}, "Shared homebrew"),
       el("p", { class: "hint" }, "Packs published by other members. Subscribe to merge a pack live "
         + "(read-only, always current), or import a copy into one of your own packs.")),
     el("div", { class: "hb-head-actions" },

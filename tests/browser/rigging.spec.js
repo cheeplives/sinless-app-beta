@@ -110,13 +110,13 @@ test("Swap moves drone weapons (with their mods and magazine) and stows what com
   expectNoErrors(errors);
 });
 
-test("the die roller has a New Round button that refills pools", async ({ page }) => {
+test("the die roller has a New round button that refills pools", async ({ page }) => {
   const errors = watchErrors(page);
   await openWith(page, [fixture("kitchen-sink-final")]);
   const used = () => page.evaluate(() => POOL_ORDER.map(p => poolState(p).used));
   await page.evaluate(() => { poolState(POOL_ORDER[0]).setUsed(2); CHAR.play.actions_used = { simple: 1 }; });
   await domClick(page.locator(".sh-roller-fab"));
-  await domClick(page.locator("#die-roller").getByRole("button", { name: "↻ New Round" }));
+  await domClick(page.locator("#die-roller").getByRole("button", { name: "New round" }));
   expect((await used()).every(n => n === 0)).toBe(true);
   expect(await page.evaluate(() => CHAR.play.actions_used)).toEqual({});
   await expect(page.locator("#die-roller .sh-roller")).toBeVisible();   // roller stays open

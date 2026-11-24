@@ -63,7 +63,7 @@ test("Homebrew pack exports as a file", async ({ page }) => {
   await openMenu(page);
   await domClick(page.getByRole("button", { name: "Homebrew" }));
   await domClick(page.getByRole("button", { name: "+ Create a pack" }));
-  const out = await download(page, () => domClick(page.getByRole("button", { name: "Export File" })));
+  const out = await download(page, () => domClick(page.getByRole("button", { name: "Export file" })));
   expect(out.name).toBe("sinless-homebrew-Test-Pack.json");
   expect(JSON.parse(out.text)).toMatchObject({ format: "sinless-homebrew", name: "Test Pack" });
   expectNoErrors(errors);
