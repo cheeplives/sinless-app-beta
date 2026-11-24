@@ -93,7 +93,7 @@ const HOMEBREW_CONFIG = {
     { key: "Familiar" },
     { key: "Skill Dice", hint: "bonus dice on named skills, e.g. “Shadow +1, Subterfuge +1” — comma-separate several" },
     { key: "Pool Dice", hint: "bonus dice on every skill in a pool, e.g. “Resolve +2”" },
-    { key: "Trained Dice", hint: "bonus dice on every trained-only (*) skill, ranks or not — a number" },
+    { key: "Trained Dice", hint: "bonus dice on every Needs training skill, ranks or not — a number" },
     { key: "Condition", hint: "blank for always on; otherwise when the dice apply, e.g. “At night” — the sheet gets a toggle for it" },
     { key: "Kismet", hint: "Kismet granted at the start of every sector turn — a number, blank for none" },
     { key: "Effect", ta: true, hint: "one-line summary shown beside the picker, including anything the sheet doesn't automate" },
