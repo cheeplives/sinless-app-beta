@@ -659,14 +659,18 @@ function chipValue(key) {
 }
 const chip = (key, magic) => el("span", Object.assign({ class: "chip", "data-chip": key }, magic ? { "data-magic": "1" } : {}), "\u2026");
 
-/* The "Trained only" marker, in its neutral state \u2014 for section headers (Martial
- * Arts, Rituals) that cover a whole list rather than one skill, and for chargen,
- * where every skill starts at 0 and an unusable-state chip would light up the
- * entire table on load. Per-skill rows on the sheet build their own two-state
- * chip in skillTableRow(); shared here because sheet.js renders headers too. */
-const trainedOnlyChip = () => el("span", { class: "skill-to-chip",
-  title: "Trained only \u2014 cannot be used without dice in the skill or its group" },
-  "Trained");
+/* The "Needs training" marker for skills that cannot be used unskilled
+ * (RULES.TRAINED_ONLY_SKILLS). Its title becomes a kit tooltip, which opens on
+ * hover, keyboard focus and tap, so the rule is one touch away on a phone too.
+ * Section headers (Martial Arts, Rituals) and chargen use the neutral state:
+ * in chargen every skill starts at 0, and the unusable state would light up the
+ * whole table on load. The sheet's per-skill rows pass `unusable` once the
+ * character has no dice to roll it with. Shared here because sheet.js uses it too. */
+const TRAINED_ONLY_TIP = "Cannot be used unskilled. Needs at least 1 die in this skill or its group to roll.";
+const trainedOnlyChip = (unusable = false) => el("span", {
+  class: "skill-to-chip" + (unusable ? " unusable" : ""), tabindex: "0",
+  title: unusable ? TRAINED_ONLY_TIP + "\nThis character has none yet, so it can't be rolled." : TRAINED_ONLY_TIP },
+  "Needs training");
 
 /* Skill points remaining, pinned to the viewport while the Stats & Skills tab
  * is open. The skill list runs well past a screen, so the rail's budget row

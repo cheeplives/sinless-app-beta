@@ -9533,7 +9533,7 @@ function skillTableRow(name, dim = false, editable = false, bareName = false) {
   // group-derived dice so Pts + Bonus + Group reads as Final.
   const groupDice = s.points === 0 && s.group_value != null ? s.group_value - s.bonus : 0;
 
-  // Inline chips that sit beside the name. The Trained Only marker goes on every
+  // Inline chips that sit beside the name. The Needs training marker goes on every
   // view (read-only and untrained rows included) -- it's needed most exactly when
   // the skill is unusable -- and turns amber once the character genuinely can't
   // roll it. Editable specialization (Skills tab only) is a "Spec" toggle plus a
@@ -9542,11 +9542,7 @@ function skillTableRow(name, dim = false, editable = false, bareName = false) {
   const chips = [];
   if (s.trained_only && !bareName) {
     const unusable = !(s.final > 0 || s.dice_bonus);
-    chips.push(el("span", { class: "skill-to-chip" + (unusable ? " unusable" : ""),
-      title: unusable
-        ? "Trained only — unusable: needs at least 1 die in this skill or its group"
-        : "Trained only — cannot be used without dice in the skill or its group" },
-      "Trained"));
+    chips.push(trainedOnlyChip(unusable));
   }
   let nameCell, specText = null;
   if (editable && s.final > 0) {
