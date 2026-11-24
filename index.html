@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="#0d1017">
+<meta name="theme-color" content="#101214">
 <title>Sinless — Character Dossier</title>
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icons/icon-192.png">
@@ -14,26 +14,21 @@
 </head>
 <body>
 <nav id="workspace-tabs" aria-label="Open characters"></nav>
+<!-- App-level controls at the right end of the top bar: Account (hidden in local-only mode; a KIT.menu filled by
+     initAccountMenu() in static/auth-ui.js) and Settings, which holds the colour scheme, light/dark mode and the
+     open character's house rules. Character actions live in the menu at the left end of the bar. -->
 <div id="theme-controls" class="theme-controls">
-  <div id="scheme-menu" class="scheme-menu">
-    <button id="scheme-btn" class="scheme-btn" type="button" aria-haspopup="true" aria-expanded="false" data-tip="Colour scheme">
-      <span class="scheme-dot"></span>
-      <span class="scheme-name">Slate Violet</span>
-      <span class="scheme-caret" aria-hidden="true">▾</span>
-    </button>
-    <ul id="scheme-list" class="scheme-list" role="menu" aria-label="Colour scheme" hidden></ul>
-  </div>
-  <button id="theme-toggle" class="theme-toggle" type="button" data-tip="Toggle light / dark mode" aria-label="Toggle light / dark mode">🌙</button>
-  <div id="settings-menu" class="scheme-menu">
-    <button id="settings-btn" class="theme-toggle" type="button" aria-haspopup="true" aria-expanded="false" data-tip="House rules" aria-label="House rules">⚙</button>
-    <div id="settings-panel" class="settings-panel" role="menu" aria-label="House rules" hidden></div>
-  </div>
-  <!-- Account (Shared characters / Admin / Sign out). These are account
-       actions, not character actions, so they sit with the other app-level
-       controls rather than in the character ☰ menu. A KIT.menu (static/kit.js)
-       filled by initAccountMenu() in static/auth-ui.js; stays hidden in
-       local-only mode. -->
   <div id="account-menu" hidden></div>
+  <div id="settings-menu" class="scheme-menu">
+    <button id="settings-btn" class="theme-toggle" type="button" aria-haspopup="true" aria-expanded="false" data-tip="Settings" aria-label="Settings"></button>
+    <div id="settings-pop" class="settings-panel" aria-label="Settings" hidden>
+      <h4>Appearance</h4>
+      <ul id="scheme-list" class="scheme-list" role="menu" aria-label="Colour scheme"></ul>
+      <button id="theme-toggle" class="mode-row" type="button"></button>
+      <div id="settings-panel"></div>
+      <p class="settings-credit">Icons from game-icons.net by Lorc, Delapouite and sbed, CC BY 3.0.</p>
+    </div>
+  </div>
 </div>
 <div id="app">
   <aside id="rail">
@@ -46,6 +41,10 @@
       <input id="char-name" class="name-input" placeholder="Street name" spellcheck="false">
       <input id="char-player" class="player-input" placeholder="Player" spellcheck="false">
     </div>
+
+    <!-- What still has to be fixed before this character is legal. In the rail's own flow so it never covers
+         anything; on a narrow screen it becomes a one-line bar along the bottom that opens on a tap. -->
+    <div id="rail-alerts"></div>
 
     <div class="rail-block">
       <div class="rail-label">Pools</div>
@@ -67,11 +66,6 @@
       <div id="rail-zoetics"></div>
     </div>
 
-    <!-- Character actions (Save/Load/New/Files/Homebrew/Sharing) live in the
-         ☰ menu on the workspace tab strip, reachable from both chargen and
-         play — see renderWorkspaceBar() / sheetMenu(). Account actions
-         (Shared characters/Admin/Sign out) are in the 👤 menu top-right. -->
-    <div id="rail-alerts"></div>
   </aside>
 
   <main id="main">
@@ -85,6 +79,7 @@
 <div id="pending" hidden></div>
 <div id="admin" hidden></div>
 <div id="shared" hidden></div>
+<script src="static/icons.js"></script>
 <script src="static/kit.js"></script>
 <script src="static/data.js"></script>
 <script src="static/rules.js"></script>

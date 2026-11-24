@@ -47,6 +47,9 @@ const $ = (sel, el = document) => el.querySelector(sel);
  * via Node.append(), so there is no raw-HTML injection path here by
  * construction — build any dynamic HTML-flavored content as real nodes,
  * not with innerHTML. */
+const ICON_TEXT_ATTRS = new Set(["placeholder", "aria-label", "alt"]);
+const ICON_NAMED_TAGS = new Set(["button", "a", "summary"]);
+const ICON_PLAIN_TAGS = new Set(["option", "optgroup", "textarea", "title", "style", "script"]);
 const el = (tag, attrs = {}, ...kids) => {
   const n = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs)) {
@@ -57,8 +60,14 @@ const el = (tag, attrs = {}, ...kids) => {
     // and on a touch screen, where a title never shows, a tap opens it. An <option> keeps the native title: the
     // kit can't reach inside a select's own popup.
     else if (k === "title" && tag !== "option") n.dataset.tip = v;
-    else n.setAttribute(k, v);
+    // Where only text can go, a character that stands for an icon is left out rather than shown raw.
+    else n.setAttribute(k, ICON_TEXT_ATTRS.has(k) ? KIT.noIcons(String(v)) : v);
   }
+  // A string child may carry a character that stands for an icon ("🛒 Buy equipment", "⚄ Dodge"): KIT.withIcons
+  // draws it from static/icons.js, the same picture on every device. An <option> can't hold a picture, so there
+  // the character is dropped. A control whose whole label is one icon gets that icon's name for screen readers.
+  const plain = ICON_PLAIN_TAGS.has(tag);
+  const named = ICON_NAMED_TAGS.has(tag) && !n.hasAttribute("aria-label");
   // Arrays of children are flattened rather than appended whole. `append` takes
   // Nodes and strings, so handing it an array stringifies it — a cell built as
   // `el("td", {}, cond ? [a, b] : [c, d])` rendered the literal text
@@ -67,7 +76,9 @@ const el = (tag, attrs = {}, ...kids) => {
   const add = kid => {
     if (kid == null) return;
     if (Array.isArray(kid)) { for (const k of kid) add(k); return; }
-    n.append(kid);
+    if (kid instanceof Node) n.append(kid);
+    else if (plain) n.append(KIT.noIcons(String(kid)));
+    else n.append(...KIT.withIcons(String(kid), named && kids.length === 1));
   };
   for (const k of kids) add(k);
   return n;
@@ -201,78 +212,62 @@ function maybeShowWebKitStorageTip() {
   document.body.append(tip);
 }
 
-/* Theme has two independent axes, both applied pre-paint by theme-init.js:
- *   - light/dark MODE  -> data-theme (the 🌙/☀ toggle, a simple flip)
- *   - colour SCHEME    -> data-scheme (the pill dropdown, lists accent colours)
- * This wires up both controls and keeps the button labels + PWA theme-color
- * meta in sync with the active mode×scheme combination. */
-// Colour schemes shown in the picker dropdown (id must match a data-scheme
-// block in style.css; dot is the swatch colour). To add one: add its dark+light
-// var blocks in style.css, add an entry here AND to the BG map in initTheme(),
-// then bump CACHE_VERSION. `default` is the base violet (no CSS override). See
-// the theming header comment at the top of style.css for the full contract.
+/* Theme has two independent axes, both applied before first paint by theme-init.js and both picked in Settings:
+ *   - light/dark MODE  -> data-theme
+ *   - colour SCHEME    -> data-scheme
+ * This wires up both controls and keeps the PWA theme-color meta in step with the active combination. */
+// Colour schemes listed in Settings (id must match a data-scheme block in style.css; dot is the swatch colour).
+// To add one: add its dark and light var blocks in style.css, add an entry here AND to the BG map in initTheme(),
+// then bump CACHE_VERSION. `default` is Chrome, the base palette with no override.
 const SCHEMES = [
-  { id: "default", name: "Slate Violet", dot: "#9d7bff" },
+  { id: "default", name: "Chrome",       dot: "#c9d3de" },
   { id: "azure",   name: "Azure Steel",  dot: "#4a90e2" },
   { id: "ghost",   name: "Ghost Aqua",   dot: "#2fd0cf" },
   { id: "rose",    name: "Neon Rose",    dot: "#ff6ec7" },
+  { id: "violet",  name: "Slate Violet", dot: "#9d7bff" },
 ];
 function initTheme() {
   const html = document.documentElement;
   const meta = $('meta[name="theme-color"]');
   const modeBtn = $("#theme-toggle");
-  const schemeBtn = $("#scheme-btn");
   const schemeList = $("#scheme-list");
   // Top-of-page browser chrome colour per mode×scheme (matches --ink).
   const BG = {
-    "default|dark": "#0d1017", "default|light": "#f2f3f8",
+    "default|dark": "#101214", "default|light": "#f1f2f4",
     "azure|dark":   "#0d1220", "azure|light":   "#eef1f9",
     "ghost|dark":   "#0e141c", "ghost|light":   "#eef4f4",
     "rose|dark":    "#150f18", "rose|light":    "#f9eef4",
+    "violet|dark":  "#12151d", "violet|light":  "#f2f3f8",
   };
   const mode = () => (html.getAttribute("data-theme") === "light" ? "light" : "dark");
   const scheme = () => (SCHEMES.some(s => s.id === html.getAttribute("data-scheme"))
     ? html.getAttribute("data-scheme") : "default");
-  const schemeOf = id => SCHEMES.find(s => s.id === id) || SCHEMES[0];
 
   const syncMeta = () => { if (meta) meta.setAttribute("content", BG[`${scheme()}|${mode()}`]); };
+  // The row says where it takes you, like every other switch in the app.
   const syncModeBtn = () => {
-    const m = mode();
-    modeBtn.textContent = m === "light" ? "☀" : "🌙";
-    modeBtn.setAttribute("aria-label", `Switch to ${m === "light" ? "dark" : "light"} mode`);
-  };
-  const syncSchemeBtn = () => {
-    const s = schemeOf(scheme());
-    schemeBtn.querySelector(".scheme-dot").style.background = s.dot;
-    schemeBtn.querySelector(".scheme-name").textContent = s.name;
+    const to = mode() === "light" ? "dark" : "light";
+    modeBtn.replaceChildren(KIT.icon(to === "dark" ? "moon" : "sun"), ` Switch to ${to} mode`);
   };
   const markActive = () => schemeList.querySelectorAll(".scheme-opt").forEach(b =>
     b.setAttribute("aria-checked", b.dataset.id === scheme() ? "true" : "false"));
 
-  // ----- light/dark mode toggle (restored simple flip) -----
   modeBtn.addEventListener("click", () => {
     html.setAttribute("data-theme", mode() === "light" ? "dark" : "light");
     try { localStorage.setItem("sinless:theme", mode()); } catch { /* best-effort */ }
     syncModeBtn(); syncMeta();
   });
 
-  // ----- colour-scheme dropdown -----
   schemeList.replaceChildren(...SCHEMES.map(s => el("li", { role: "none" },
     el("button", { type: "button", role: "menuitemradio", class: "scheme-opt", "data-id": s.id,
-      onclick: () => { setScheme(s.id); closeMenu(); } },
+      onclick: () => setScheme(s.id) },
       el("span", { class: "scheme-dot", style: `background:${s.dot}` }),
       el("span", {}, s.name)))));
   function setScheme(id) {
     html.setAttribute("data-scheme", id);
     try { localStorage.setItem("sinless:scheme", id); } catch { /* best-effort */ }
-    syncSchemeBtn(); syncMeta(); markActive();
+    syncMeta(); markActive();
   }
-  let open = false;
-  function closeMenu() { open = false; schemeList.hidden = true; schemeBtn.setAttribute("aria-expanded", "false"); }
-  function openMenu() { open = true; schemeList.hidden = false; schemeBtn.setAttribute("aria-expanded", "true"); markActive(); }
-  schemeBtn.addEventListener("click", e => { e.stopPropagation(); open ? closeMenu() : openMenu(); });
-  document.addEventListener("click", () => { if (open) closeMenu(); });
-  document.addEventListener("keydown", e => { if (e.key === "Escape" && open) closeMenu(); });
 
   if (!html.getAttribute("data-scheme")) html.setAttribute("data-scheme", "default");
   // Persist canonical values so any migrated/legacy storage is cleaned up.
@@ -280,10 +275,10 @@ function initTheme() {
     localStorage.setItem("sinless:theme", mode());
     localStorage.setItem("sinless:scheme", scheme());
   } catch { /* best-effort */ }
-  syncModeBtn(); syncSchemeBtn(); syncMeta();
+  syncModeBtn(); syncMeta(); markActive();
 }
 
-/* House-rules settings panel (⚙): a gear button opening a small panel built
+/* House rules, in the Settings panel: built
  * from RULES.HOUSE_RULE_DEFS. Choices are PER CHARACTER — a change writes to the
  * active character's house_rules, recomputes, saves, and re-renders. The panel
  * reflects whichever character is active (refreshed on every recalc). */
@@ -331,8 +326,9 @@ function houseRuleHelp() {
 
 let houseRuleControls = [];
 function initHouseRules() {
-  const btn = $("#settings-btn"), panel = $("#settings-panel");
-  if (!btn || !panel) return;
+  const btn = $("#settings-btn"), panel = $("#settings-panel"), pop = $("#settings-pop");
+  if (!btn || !panel || !pop) return;
+  btn.replaceChildren(KIT.icon("cog"));
   houseRuleControls = [];
   panel.replaceChildren(el("h4", {}, "House rules"),
     el("p", { class: "settings-help", style: "margin:-2px 0 8px" },
@@ -358,12 +354,13 @@ function initHouseRules() {
       return el("label", { class: "settings-rule" }, el("span", {}, def.label), sel, help);
     }));
   let open = false;
-  const close = () => { open = false; panel.hidden = true; btn.setAttribute("aria-expanded", "false"); };
+  const close = () => { open = false; pop.hidden = true; btn.setAttribute("aria-expanded", "false"); };
   btn.addEventListener("click", e => {
     e.stopPropagation();
-    open = !open; panel.hidden = !open; btn.setAttribute("aria-expanded", String(open));
+    open = !open; pop.hidden = !open; btn.setAttribute("aria-expanded", String(open));
+    if (open) KIT.hideTip();
   });
-  panel.addEventListener("click", e => e.stopPropagation());
+  pop.addEventListener("click", e => e.stopPropagation());
   document.addEventListener("click", () => { if (open) close(); });
   document.addEventListener("keydown", e => { if (e.key === "Escape" && open) close(); });
 }
@@ -407,7 +404,7 @@ function promptHouseRules(initial) {
         "Choose the optional rules for your new character. You can change these any time in ⚙ Settings."),
       ...rows,
       el("div", { style: "display:flex;gap:8px;margin-top:14px" },
-        el("button", { class: "btn-add", onclick: () => done(chosen) }, "Create character"),
+        el("button", { class: "btn-add primary", onclick: () => done(chosen) }, "Create character"),
         el("button", { class: "btn", onclick: () => done(null) }, "Cancel")));
     backdrop.append(modal);
     backdrop.addEventListener("click", e => { if (e.target === backdrop) done(null); });
@@ -435,7 +432,7 @@ async function recalc() {
   if (finalizeBtn) {
     const blocked = !!(CALC.errors && CALC.errors.length);
     finalizeBtn.disabled = blocked;
-    finalizeBtn.textContent = blocked ? "Resolve errors to finalize" : "Finalize Character ✓";
+    finalizeBtn.textContent = blocked ? "Resolve errors to finalize" : "Finalize character";
   }
 }
 
@@ -615,9 +612,29 @@ function renderRail() {
       bodyTrack);
   }
   // alerts
-  const ra = $("#rail-alerts"); ra.innerHTML = "";
-  for (const e2 of CALC.errors) ra.append(el("div", { class: "alert" }, e2));
-  for (const w of CALC.warnings) ra.append(el("div", { class: "alert warn" }, w));
+  renderProblems();
+}
+
+/* The errors and warnings the rules engine found, as one folding list. It sits in the rail's flow, so it pushes
+ * the budgets down instead of covering them. On a narrow screen the rail is at the foot of the page, so there the
+ * list is a bar along the bottom of the screen, shut to one line until it is tapped. Whether it is open is
+ * remembered across redraws (every stepper click redraws it), per kind of screen. */
+const problemsOpen = { wide: true, narrow: false };
+function renderProblems() {
+  const ra = $("#rail-alerts");
+  const errs = CALC.errors.length, warns = CALC.warnings.length;
+  if (!errs && !warns) { ra.replaceChildren(); return; }
+  const narrow = matchMedia("(max-width:680px)").matches;
+  const key = narrow ? "narrow" : "wide";
+  const count = [errs ? `${errs} ${errs === 1 ? "problem" : "problems"} to fix` : null,
+    warns ? `${warns} ${warns === 1 ? "warning" : "warnings"}` : null].filter(Boolean).join(", ");
+  const box = el("details", { class: "problems" + (errs ? "" : " warn-only") },
+    el("summary", {}, count),
+    ...CALC.errors.map(e2 => el("div", { class: "alert" }, e2)),
+    ...CALC.warnings.map(w => el("div", { class: "alert warn" }, w)));
+  box.open = problemsOpen[key];
+  box.addEventListener("toggle", () => { problemsOpen[key] = box.open; });
+  ra.replaceChildren(box);
 }
 
 /* budget chips inside panels get refreshed without a full re-render */
@@ -672,16 +689,6 @@ const trainedOnlyChip = (unusable = false) => el("span", {
   title: unusable ? TRAINED_ONLY_TIP + "\nThis character has none yet, so it can't be rolled." : TRAINED_ONLY_TIP },
   "Needs training");
 
-/* Skill points remaining, pinned to the viewport while the Stats & Skills tab
- * is open. The skill list runs well past a screen, so the rail's budget row
- * scrolls out of reach exactly when you're spending. Built on the same
- * [data-chip] hook as the inline chips, so renderBudgetChips() keeps it current
- * after every stepper click without a re-render. */
-function skillPointsTracker() {
-  return el("div", { class: "sp-fab", title: "Skill points remaining" },
-    el("span", { class: "k" }, "Skill pts"), chip("skill-left"));
-}
-
 /* ZR house rule: each full point of gear/weapon ZR is \u22121d on spellcasting rolls
  * (Channeling, Conjuring, Sorcery). Renders the current penalty as a note for
  * the Magic tab \u2014 an alert when active, a plain reminder when not yet triggered. */
@@ -703,15 +710,15 @@ function zrCastingPenaltyNote() {
 const TABS = [
   ["priorities", "Priorities"],
   ["heritage", "Heritage"],
-  ["stats", "Stats & Skills"],
-  ["knowledge", "Knowledge & Etiquette"],
-  ["magic", "Magic & Rituals"],
+  ["stats", "Stats & skills"],
+  ["knowledge", "Knowledge & etiquette"],
+  ["magic", "Magic & rituals"],
   ["speaker", "Speaker"],
   ["augments", "Augments"],
-  ["weapons", "Weapons & Armor"],
-  ["decks", "Decks & Programs"],
-  ["drones", "Drones & Vehicles"],
-  ["gear", "Gear & Costs"],
+  ["weapons", "Weapons & armor"],
+  ["decks", "Decks & programs"],
+  ["drones", "Drones & vehicles"],
+  ["gear", "Gear & costs"],
 ];
 /* The chargen tab strip is sticky and wraps to two or three rows as the window
  * narrows, so its height isn't a constant anything can hard-code. Publish it the
@@ -731,6 +738,9 @@ function renderTabs() {
     }, label));
   }
   publishTabsHeight();
+  // The tabs are one scrolling row: keep the open one in view.
+  const on = nav.querySelector(".active");
+  if (on && on.scrollIntoView) on.scrollIntoView({ block: "nearest", inline: "nearest" });
 }
 function renderPanel() {
   const p = $("#panel"); p.innerHTML = "";
@@ -740,6 +750,8 @@ function renderPanel() {
     augments: tabAugments, weapons: tabWeapons, decks: tabDecks,
     drones: tabDrones, gear: tabGear,
   })[activeTab](p);
+  // A table wider than a phone scrolls in its own box instead of pushing the page sideways (sheet.js).
+  wrapScrollableTables(p);
   renderPanelNav(p);
   renderBudgetChips();
 }
@@ -748,9 +760,9 @@ function renderPanelNav(p) {
   if (idx === TABS.length - 1) {
     const blocked = !!(CALC && CALC.errors && CALC.errors.length);
     p.append(el("div", { class: "panel-nav" },
-      el("button", { id: "btn-finalize", class: "btn-add",
+      el("button", { id: "btn-finalize", class: "btn-add primary",
         disabled: blocked ? "1" : null, onclick: finalizeCharacter },
-        blocked ? "Resolve errors to finalize" : "Finalize Character ✓"),
+        blocked ? "Resolve errors to finalize" : "Finalize character"),
       el("p", { class: "hint", style: "margin-top:8px" },
         "Locks character generation. Any unspent points — attribute, skill, magic, and remaining cash — are lost. "
         + "Unspent Knowledge points carry over and stay spendable on the character sheet. "
@@ -1111,9 +1123,9 @@ function spellcastingFirst(a, b) {
 function tabPriorities(p) {
   const classic = RULES.houseRule("priorities") === "classic";
   const LETTERS = { 4: "A", 3: "B", 2: "C", 1: "D", 0: "E" };
-  p.append(el("h2", {}, "Set Starting Priorities ", chip("prio")));
+  p.append(el("h2", {}, "Starting priorities ", chip("prio")));
   p.append(el("p", { class: "hint" }, classic
-    ? "Classic: assign the letters A\u2013E (= priority 4, 3, 2, 1, 0) across the five categories \u2014 each used exactly once. Picking a letter already in use swaps it with the other category."
+    ? "Classic: give each of the five categories one letter, A to E. A is priority 4 and E is 0. Picking a letter that is taken swaps the two."
     : "Distribute 10 priority points, 0\u20134 per category. Each level sets what the category grants below."));
 
   const cats = [
@@ -1196,7 +1208,7 @@ function tabPriorities(p) {
   }
 
   const steps = el("div", { class: "card", style: "max-width:720px" });
-  steps.append(el("h3", {}, "Character generation order (Process-CharGen)"));
+  steps.append(el("h3", {}, "How to build a character"));
   ["1. Set starting priorities", "2. Make heritage decision (type, then features)",
    "3. Spend starting attribute points (cost table applies above 10)",
    "4. Spend starting skill points 1-for-1, max 6 per skill",
@@ -1392,10 +1404,11 @@ function tabStats(p) {
     ...["Brawn", "Finesse", "Focus", "Resolve"].map(x => el("option", {}, x)));
   chaSel.value = CHAR.cha_pool_choice || "Brawn";
   p.append(el("div", { class: "card", style: "max-width:520px;margin-top:14px" },
-    el("h3", {}, "Charisma Pool Bonus \u2014 add \u00bc CHA to one pool"), chaSel));
+    el("h3", {}, "Charisma pool bonus: add \u00bc CHA to one pool"), chaSel));
 
-  p.append(el("h2", {}, "Skills ", chip("skill")));
-  p.append(skillPointsTracker());
+  // The Skills heading carries the points left and stays put under the tabs while the long skill list scrolls,
+  // so the count is in view exactly when it is being spent.
+  p.append(el("div", { class: "sticky-head" }, el("h2", {}, "Skills ", chip("skill"))));
   p.append(el("p", { class: "hint" },
     "1 point per rank, max 6 at creation. Untrained skills in a group roll at the group's best skill \u22122. "
     + "Martial Arts sits with the Brawn skills \u2014 one skill per style, 2 points per rank."));
@@ -1556,7 +1569,7 @@ function tabStats(p) {
   const chosenStyles = CHAR.martial_arts.filter(ma => ma.style);
   if (chosenStyles.length) {
     const mcard = el("div", { class: "card", style: "max-width:640px" },
-      el("h3", {}, "Martial Art Style Effects"));
+      el("h3", {}, "Martial art style effects"));
     chosenStyles.forEach(ma => {
       const resolved = (CALC.martial_arts || []).find(r => r.style === ma.style);
       mcard.append(el("div", { class: "sh-h4", style: "margin:10px 0 2px" }, ma.style,
@@ -1609,7 +1622,7 @@ function tabKnowledge(p) {
       "Gear bonuses come from what's worn, carried or equipped — they don't spend "
       + "points and they sit outside the cap of 6."));
 
-  p.append(el("h2", {}, "Knowledge Skills ", chip("know")));
+  p.append(el("h2", {}, "Knowledge skills ", chip("know")));
   p.append(el("p", { class: "hint" },
     "2 × Intelligence points (+1 per Knowledge Skillsoft augment), free-form "
     + "(e.g. Poetry, Corporate Law, Sprawl Gangs)."));
@@ -1706,7 +1719,7 @@ function tabMagic(p) {
         el("h3", {}, "Archmage \u2014 all schools available"), bind));
     }
 
-    p.append(el("h2", {}, "Known Spells"));
+    p.append(el("h2", {}, "Known spells"));
     p.append(el("p", { class: "hint" },
       "Each spell is learned at a Force level (max 6); total learned Force is limited by Starting Force (Mage 25, Archmage 35)."));
     const pool = type === "Mage" && CHAR.magic.school
@@ -1744,7 +1757,7 @@ function tabMagic(p) {
   }
 
   if (type === "Amp" || type === "Archmage") {
-    p.append(el("h2", {}, "Amp Powers"));
+    p.append(el("h2", {}, "Amp powers"));
     p.append(el("p", { class: "hint" },
       type === "Amp"
         ? "Amps pay half the listed ZP cost. Attribute Boost/Increase and Expertise need a target and can be taken multiple times."
@@ -1806,7 +1819,7 @@ function tabSpeaker(p) {
       ? "Spend Relationship points (11) on spirits and bonds; spend Infusion points (10) on infusions. Bonds cost 0 / 3 / 8 / 13 cumulatively."
       : "Only Speakers get the free starting Relationship and Infusion pools — as an Archmage, every spirit relationship, bond, and infusion here is bought with your Starting Force, point for point."));
 
-  p.append(el("h2", {}, "Spirit Relationships"));
+  p.append(el("h2", {}, "Spirit relationships"));
   p.append(listEditor({
     items: CHAR.speaker.relationships,
     options: optGroups(DATA.tables.speaker_spirits, "Element", "Spirit", r => ` (${r.Cost})`),
@@ -1828,7 +1841,7 @@ function tabSpeaker(p) {
   }));
 
   const bcard = el("div", { class: "card", style: "max-width:520px" });
-  bcard.append(el("h3", {}, "Spirit Bonds"));
+  bcard.append(el("h3", {}, "Spirit bonds"));
   bcard.append(el("div", { class: "stat-line" }, "Bonds ",
     stepper(() => CHAR.speaker.bonds || 0, v => { CHAR.speaker.bonds = v; }, 0, 4)));
   bcard.append(el("p", { class: "hint" }, "1st bond free, 2nd costs 3, 3rd costs 8, 4th costs 13 relationship points."));
@@ -1849,7 +1862,7 @@ function tabSpeaker(p) {
   });
   p.append(icard);
 
-  p.append(el("h2", {}, "Elemental Pools (reference)"));
+  p.append(el("h2", {}, "Elemental pools (reference)"));
   const t = el("table");
   t.append(el("tr", {}, el("th", {}, "Element"), el("th", {}, "Pool"), el("th", { class: "num" }, "Cost")));
   DATA.tables.speaker_elements.forEach(r => t.append(el("tr", {},
@@ -2750,7 +2763,7 @@ function tabDecks(p) {
   // What each owned deck needs, and whether its slotted program covers it. The
   // program itself is bought below with the rest, and slotted on the deck row.
   const hackCard = el("div", { class: "card", style: "max-width:640px" });
-  hackCard.append(el("h3", {}, "Hacking Programs"));
+  hackCard.append(el("h3", {}, "Hacking programs"));
   hackCard.append(el("p", { class: "hint" },
     "A deck runs on a Hacking program slotted into it \u2014 buy one below, then pick it "
     + "on the deck. It must be rated at least \u00bd the deck's MCP (round down, min 1); "
@@ -3202,7 +3215,7 @@ function tabGear(p) {
   }
   p.append(lcard);
 
-  p.append(el("h2", {}, "Cost Breakdown ", chip("cash")));
+  p.append(el("h2", {}, "Cost breakdown ", chip("cash")));
   const t = el("table", { style: "max-width:560px" });
   t.append(el("tr", {}, el("th", {}, "Category"), el("th", { class: "num" }, "Spent")));
   for (const [k, v] of Object.entries(CALC.budget.categories))

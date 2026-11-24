@@ -9,7 +9,7 @@ const plus = page => page.locator("#die-roller .sh-roller-step", { hasText: "+" 
 
 async function clickButton(page, text) {
   // The Dodge/Soak buttons live on the Overview's header tiles and cards; find
-  // the one on screen by its label.
+  // the one on screen by its label, with its icon left out.
   await page.evaluate(t => {
     const b = [...document.querySelectorAll("button")].find(x => x.textContent.trim() === t);
     if (!b) throw new Error(`no button "${t}"`);
@@ -17,8 +17,8 @@ async function clickButton(page, text) {
   }, text);
 }
 
-for (const [label, pool] of [["⚄ Dodge", "Finesse"], ["⚄ Soak", "Brawn"]]) {
-  test(`${label.slice(2)} can't dial in more ${pool} than is left this round`, async ({ page }) => {
+for (const [label, pool] of [["Dodge", "Finesse"], ["Soak", "Brawn"]]) {
+  test(`${label} can't dial in more ${pool} than is left this round`, async ({ page }) => {
     const errors = watchErrors(page);
     // Unhurt: wound penalties cancel dialled dice before the pool is charged,
     // which would leave a die unspent and blur what this test is about.
@@ -27,7 +27,7 @@ for (const [label, pool] of [["⚄ Dodge", "Finesse"], ["⚄ Soak", "Brawn"]]) {
     await openWith(page, [c]);
     // Leave exactly 2 dice in the pool.
     await page.evaluate(p => { const ps = poolState(p); ps.setUsed(ps.max - 2); renderSheet(); }, pool);
-    if (label === "⚄ Dodge") {
+    if (label === "Dodge") {
       // Dodge's roll button sits in its header tile's popover.
       await page.evaluate(() => {
         const face = [...document.querySelectorAll(".sh-box-face")].find(x => /dodge/i.test(x.textContent));
@@ -52,8 +52,8 @@ for (const [label, pool] of [["⚄ Dodge", "Finesse"], ["⚄ Soak", "Brawn"]]) {
     await expect(count(page)).toHaveValue("0");
     await expect(plus(page)).toBeDisabled();
 
-    // A New Round refills the pool and lifts the cap with it.
-    await domClick(page.locator("#die-roller").getByRole("button", { name: "↻ New Round" }));
+    // A new round refills the pool and lifts the cap with it.
+    await domClick(page.locator("#die-roller").getByRole("button", { name: "New round" }));
     await domClick(plus(page));
     await expect(count(page)).toHaveValue("1");
     expectNoErrors(errors);

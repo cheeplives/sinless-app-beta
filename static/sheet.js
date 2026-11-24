@@ -2339,7 +2339,7 @@ function rollerOverlay() {
       (activeTabObj() && activeTabObj().readonly) ? null
         : el("button", { class: "btn small good sh-roller-newround",
             title: "Start a new round: refill every pool and clear spent actions",
-            onclick: () => { newRound(); rollerRefresh(); } }, "↻ New Round"),
+            onclick: () => { newRound(); rollerRefresh(); } }, "↻ New round"),
       el("button", { class: "sh-roller-close", title: "Close",
         onclick: () => { st.open = false; rollerRefresh(); } }, "✕")),
     el("div", { class: "sh-roller-controls" },
@@ -2740,10 +2740,10 @@ function conditionCard() {
   return el("div", { class: "card sh-card" },
     el("div", { class: "sh-card-head" }, el("h3", {}, "Condition"),
       el("span", {},
-        counterBtn("Heal Stun", () => {
+        counterBtn("Heal stun", () => {
           play.stun_damage = 0; playChanged();
         }), " ",
-        counterBtn("Full Heal", () => {
+        counterBtn("Full heal", () => {
           play.physical_damage = 0; play.stun_damage = 0; playChanged();
         }, "good"))),
     conditionTrack("Physical", CALC.condition.physical,
@@ -3252,7 +3252,7 @@ function sheetStickyBar() {
       onkeydown: e => { if (e.key === "Enter") adjustCash(); } },
       fmt(CHAR.play.cash)));
   // The actions strip sits between the pool pills and the tab strip — right
-  // under the pool tiles that "↻ New Round" refills, and it never depends on
+  // under the pool tiles that "↻ New round" refills, and it never depends on
   // .scrolled the way .sh-compact does: it's live from the first render, not
   // only once the header has scrolled out of view.
   return el("div", { class: "sh-stickybar" + (sheetStickyScrolled ? " scrolled" : "") },
@@ -3950,7 +3950,7 @@ function openKismetRoller() {
         onclick: () => { state.count = Math.max(1, Math.min(remaining, state.count + delta)); refresh(); } },
         delta < 0 ? "–" : "+");
 
-      const body = [popoverHead("🎲 Kismet Dice", close)];
+      const body = [popoverHead("🎲 Kismet dice", close)];
 
       if (remaining < 1) {
         body.push(el("div", { class: "sh-roller-avail" }, "No Kismet dice left to roll."));
@@ -4098,7 +4098,7 @@ function runningNowPanel() {
     class: `card sh-card sh-running ${anyOn ? "warn" : "info"}`,
     role: "button", tabindex: "0",
     title: anyOn ? "What is running right now — click for the controls"
-                 : "Nothing running — click to switch something on",
+                 : "Nothing running. Click to switch something on.",
     "aria-label": `Running now: ${count} active`,
     onclick: () => openRunningPopover(),
     onkeydown: e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openRunningPopover(); } },
@@ -4108,7 +4108,7 @@ function runningNowPanel() {
         anyOn ? " " : null, anyOn ? el("b", {}, String(count)) : null)),
     el("div", { class: "sh-fold-sum" },
       anyOn ? bits.join(" · ")
-        : nothingToSwitch ? "Nothing running — no spells up, no doses, nothing switched on."
+        : nothingToSwitch ? "No spells, doses or gear running."
         : fx.map(e => e.label).join(" · ") + " — none active"),
     // The deck rides on its own line rather than joining `bits`: a jacked-in
     // deck is not a switched-on effect and must not make the card read "warn"
@@ -4161,7 +4161,7 @@ function openRunningPopover() {
     build: (refresh, close) => {
       const ro = !!(activeTabObj() && activeTabObj().readonly);
       const spells = activeSpells();
-      const body = [popoverHead("⚡ Running Now", close)];
+      const body = [popoverHead("⚡ Running now", close)];
       if (spells.length) {
         body.push(el("div", { class: "sh-run-group" },
           el("div", { class: "sh-popover-sub" }, "Active spells"),
@@ -4249,7 +4249,7 @@ function openSensesPopover(senses) {
   openAnchoredPopover({
     kind: "senses", anchorSel: ".sh-pool.senses", label: "Enhanced senses",
     build: (refresh, close) => [
-      popoverHead("👁 Enhanced Senses", close),
+      popoverHead("👁 Enhanced senses", close),
       ...senses.map(s => el("div", { class: "sh-sense" },
         el("div", {}, s.capability),
         el("div", { class: "sub" },
@@ -4332,7 +4332,7 @@ function dosesBanner({ after = null } = {}) {
 
   const card = el("div", { class: "sh-callout warn sh-doses" },
     el("div", { class: "sh-doses-head" },
-      el("span", {}, "💊 Under the Effects Of ",
+      el("span", {}, "💊 Under the effects of ",
         el("b", {}, String(doses.length)))));
   card.classList.add("is-open");
 
@@ -4715,7 +4715,7 @@ function sheetMenu() {
   const resyncBtn = (CHAR.finalized && !ro && CHAR.play && CHAR.play.kit)
     ? el("button", { class: "btn sh-mi-plain",
         title: "Rebuild play's copy of the items you still own from the chargen build",
-        onclick: act(resyncKitFromBuild) }, "Re-sync Build → Kit") : null;
+        onclick: act(resyncKitFromBuild) }, "Re-sync build → kit") : null;
   const manageBtn = el("button", { class: "btn sh-mi-delete",
     title: "Tick saved characters — including this one — and delete them in one go",
     onclick: act(manageSavesModal) }, "Manage saves…");
@@ -5111,7 +5111,7 @@ function calcRowFor(entry, entries) {
   return rows[nth] || rows[0] || {};
 }
 
-/* "Reload All Weapons" (issue #85): a bulk, between-fights action from the
+/* "Reload all weapons" (issue #85): a bulk, between-fights action from the
  * Gear tab's Ammo section. Tops off every owned weapon's `w.loaded` to a full
  * magazine and spends nothing — the single-weapon Reload button on a hand
  * card is a combat action (costs a Simple Action, or two for a crossbow) and
@@ -5676,7 +5676,7 @@ function promptOverheat(label, overBy) {
         `Gun Overheated, if you fire, roll ${overBy}d6 after the attack. `
         + "If any dice come up a 1, it explodes dealing 18d6 damage."),
       el("div", { style: "display:flex;gap:8px;flex-wrap:wrap;margin-top:14px" },
-        el("button", { class: "btn-add", onclick: () => done(true) }, "Continue to Fire"),
+        el("button", { class: "btn-add", onclick: () => done(true) }, "Continue to fire"),
         el("button", { class: "btn ghost", onclick: () => done(false) }, "Cancel")));
     backdrop.append(modal);
     backdrop.addEventListener("click", e => { if (e.target === backdrop) done(false); });
@@ -6462,7 +6462,7 @@ function shOverview(body) {
   const onStation = deployedUnits();
   const stationCard = onStation.length
     ? (() => {
-        const card = el("div", { class: "card sh-card" }, el("h3", {}, "Drones on Station"));
+        const card = el("div", { class: "card sh-card" }, el("h3", {}, "Drones on station"));
         // Every seat the rig can fly, not just the first (#87). A Master VCR is
         // four cockpits and the player is in all of them.
         const seats = onStation.filter(d => d.hotseat);
@@ -6532,7 +6532,7 @@ function shOverview(body) {
   const maStylesWithLevels = (CALC.martial_arts || []).filter(m => m.levels.length);
   const maCard = maStylesWithLevels.length
     ? el("div", { class: "card sh-card" },
-        el("h3", {}, "Martial Arts"),
+        el("h3", {}, "Martial arts"),
         ...maStylesWithLevels.flatMap(m => [
           el("div", { class: "sh-h4", style: "margin:6px 0 2px" }, m.style),
           ...m.levels.map(lvl => el("div", { class: "stat-line" },
@@ -6554,7 +6554,7 @@ function shOverview(body) {
   const infusionList = CALC.infusions || [];
   const infCard = infusionList.length
     ? el("div", { class: "card sh-card" },
-        el("h3", {}, "Speaker Infusions"),
+        el("h3", {}, "Speaker infusions"),
         ...infusionList.map(inf => el("div", { class: "stat-line" },
           el("span", { class: "sub", style: "white-space:nowrap" },
             `${inf.slot} · ${inf.spirit}`),
@@ -7464,7 +7464,7 @@ function shOverview(body) {
   // the other option and would have been the same mistake in a new shape: the
   // dice are signed, so the sign already says which it is.
   mergeTrackedEffects(play);
-  body.append(trackedEffectList("Effects & Modifiers", play.effects, "Add",
+  body.append(trackedEffectList("Effects and modifiers", play.effects, "Add",
     "Haste F4 · Cover · Smartlink", "Nothing active."));
 
   // --- notes
@@ -7568,7 +7568,7 @@ function decrementAllHeat() {
 
 /* Fresh round: every pool back to full, every action unspent, Beast and MCP
  * dice refreshed, and every gun a point cooler (#92). Shared by
- * actionsCard()'s "↻ New Round" button and actionsStrip()'s copy of the same
+ * actionsCard()'s "↻ New round" button and actionsStrip()'s copy of the same
  * button, so both clear the same things. */
 function newRound() {
   for (const p of POOL_ORDER) { poolState(p).setUsed(0); delete unskilledRollResult[p]; }
@@ -7602,8 +7602,8 @@ function actionsCard() {
   const rows = actionRows();
 
   const card = el("div", { class: "card sh-card" },
-    el("div", { class: "sh-card-head" }, el("h3", {}, "Actions This Round"),
-      ro ? null : counterBtn("↻ New Round", newRound, "good")));
+    el("div", { class: "sh-card-head" }, el("h3", {}, "Actions this round"),
+      ro ? null : counterBtn("↻ New round", newRound, "good")));
   for (const r of rows) {
     const spent = Math.max(0, Math.min(used[r.key] || 0, r.total));
     const left = r.total - spent;
@@ -7715,7 +7715,7 @@ function actionsStrip() {
       return `${r.label} ${r.total - spent}/${r.total}`;
     }).join(" · ");
     return el("div", { class: "sh-actions-strip collapsed" },
-      ro ? null : counterBtn("↻ New Round", newRound, "good"),
+      ro ? null : counterBtn("↻ New round", newRound, "good"),
       el("button", { class: "sh-strip-toggle", title: "Show the action counters",
         onclick: toggle }, "▸ Actions"),
       el("span", { class: "sh-apill-summary" }, summary),
@@ -7725,7 +7725,7 @@ function actionsStrip() {
   }
 
   const strip = el("div", { class: "sh-actions-strip" },
-    ro ? null : counterBtn("↻ New Round", newRound, "good"),
+    ro ? null : counterBtn("↻ New round", newRound, "good"),
     el("button", { class: "sh-strip-toggle", title: "Fold the action counters away",
       onclick: toggle }, "▾ Actions"));
   for (const r of rows) {
@@ -8134,7 +8134,7 @@ async function castSpell(name, knownForce, after) {
         ? `Drain: ${row.Drain || "Special"} — this spell states no fixed Drain; the table decides.`
         : `Soak ${drain} Drain, taken as ${damage} damage.`)
     + `\n\n${drainSoakText(name, lethal)}`
-    + `\n\nThe soak buttons on the Active Spells row load the right pool.`);
+    + `\n\nThe soak buttons on the Active spells row load the right pool.`);
   // The casting roll comes last so it is what's left on screen: the alert above
   // is a statement about a cost that lands AFTER the spell goes off, while this
   // is the roll being made right now.
@@ -8347,7 +8347,7 @@ function activeSpellsBanner() {
   const ro = !!(activeTabObj() && activeTabObj().readonly);
   const card = el("div", { class: "sh-callout sh-active-spells" },
     el("div", { class: "sh-doses-head" },
-      el("span", {}, "✨ Active Spells ", el("b", {}, String(list.length)))));
+      el("span", {}, "✨ Active spells ", el("b", {}, String(list.length)))));
   for (const s of list) card.append(activeSpellRow(s, { detail: true, ro }));
   card.append(el("p", { class: "hint" },
     "Spells stay up until dismissed — durations here are fiction-paced, so nothing "
@@ -8842,7 +8842,7 @@ function calendarCard() {
     el("button", { class: "btn-add", disabled: cal.start ? null : "1",
       title: cal.start ? "Close out this month — missions, lifestyle, ammunition — and move to the next"
                        : "Set a campaign start date first",
-      onclick: runTimePasses }, "⏭ Time Passes")));
+      onclick: runTimePasses }, "Time passes")));
 
   if (!cal.entries.length) {
     card.append(el("p", { class: "hint", style: "margin:8px 0 0" },
@@ -9728,7 +9728,7 @@ function shSkills(body) {
       el("button", { class: "btn small", disabled: ps.remaining < 1 ? "1" : null,
         title: `Throw all ${ps.remaining} remaining ${pool} dice with no skill behind them -- `
           + "1 success counted per 4 rolled, and the pool empties for the round.",
-        onclick: () => unskilledRoll(pool) }, "🎲 Unskilled Roll"),
+        onclick: () => unskilledRoll(pool) }, "🎲 Unskilled roll"),
       unskilledRollResult[pool] ? (() => {
         const r = unskilledRollResult[pool];
         return el("span", { class: "sub sh-unskilled-result" },
@@ -9779,7 +9779,7 @@ function shSkills(body) {
     "Raise skills and attributes with Kismet on the Kismet tab."));
 
   const know = el("div", { class: "card sh-card" },
-    el("h3", {}, "Knowledge & Etiquette"));
+    el("h3", {}, "Knowledge & etiquette"));
   // Rated off CALC, not CHAR: what you bought plus what you're currently
   // wearing. An etiquette at 0 points still shows when gear is carrying it.
   const ep = CALC.etiquette_points || {};
@@ -9882,7 +9882,7 @@ function shSkills(body) {
   // Style effects only — rank and "add style" live in the Brawn card above.
   if (maList.length) {
     const maCard = el("div", { class: "card sh-card" },
-      el("h3", {}, "Martial Art Style Effects"));
+      el("h3", {}, "Martial art style effects"));
     maList.forEach(ma => {
       maCard.append(el("div", { class: "sh-h4", style: "margin:8px 0 2px" }, ma.style,
         el("span", { class: "sub" }, ` · rank ${ma.rank}`)));
@@ -9944,7 +9944,7 @@ function shKismet(body) {
       const n = parseInt(customAmt.value, 10);
       if (n > 0 && spendKismet("Custom spend", n, { kind: "custom" })) playChanged();
     } }, "Spend")));
-  balance.append(el("h4", { class: "sh-h4" }, "Session Awards"), awardRow);
+  balance.append(el("h4", { class: "sh-h4" }, "Session awards"), awardRow);
   body.append(balance);
 
   // --- spending: attributes + skills + magic
@@ -9957,7 +9957,7 @@ function shKismet(body) {
       + "a style is still 4."));
   const two = el("div", { class: "sh-two" });
 
-  const attrBox = el("div", {}, el("h4", { class: "sh-h4" }, "Raise Attributes"));
+  const attrBox = el("div", {}, el("h4", { class: "sh-h4" }, "Raise attributes"));
   for (const [full] of ATTR_ABBR) {
     const a = CALC.attributes[full];
     const cost = attrRaiseCost(a.final + 1);
@@ -9975,7 +9975,7 @@ function shKismet(body) {
       }, capped ? "max" : `+1 (${cost})`)));
   }
 
-  const skillBox = el("div", {}, el("h4", { class: "sh-h4" }, "Raise Existing Skills"));
+  const skillBox = el("div", {}, el("h4", { class: "sh-h4" }, "Raise existing skills"));
   const ranked = Object.keys(DATA.skills)
     .filter(n => CALC.skills[n].points > 0)
     .sort((a, b) => CALC.skills[b].points - CALC.skills[a].points);
@@ -10023,7 +10023,7 @@ function shKismet(body) {
   // costs, same rank-6 cap, same mastery/major boons as the skill list above.
   const two2 = el("div", { class: "sh-two" });
 
-  const etiquetteBox = el("div", {}, el("h4", { class: "sh-h4" }, "Raise Etiquettes"));
+  const etiquetteBox = el("div", {}, el("h4", { class: "sh-h4" }, "Raise etiquettes"));
   const etqValues = (CALC.etiquette_points || {}).values || {};
   const rankedEtiquettes = RULES.ETIQUETTES.filter(n => (etqValues[n] || 0) > 0)
     .sort((a, b) => (etqValues[b] || 0) - (etqValues[a] || 0));
@@ -10066,7 +10066,7 @@ function shKismet(body) {
   // Knowledge points are also free-form via 2×Intelligence any time (see the
   // Knowledge & Etiquette card on the Skills tab) — this is the second, Kismet
   // -funded path onto the same play.kit entries, for when that budget's spent.
-  const knowledgeBox = el("div", {}, el("h4", { class: "sh-h4" }, "Raise Knowledges"));
+  const knowledgeBox = el("div", {}, el("h4", { class: "sh-h4" }, "Raise knowledges"));
   const rankedKnowledge = allKnowledgeSkills().filter(k => k.name && (k.points || 0) > 0)
     .sort((a, b) => (b.points || 0) - (a.points || 0));
   if (!rankedKnowledge.length) knowledgeBox.append(el("p", { class: "hint" }, "No trained knowledges yet."));
@@ -10104,7 +10104,7 @@ function shKismet(body) {
   two2.append(etiquetteBox, knowledgeBox);
   spend.append(two2);
 
-  const ritualBox = el("div", {}, el("h4", { class: "sh-h4" }, "Raise Rituals"));
+  const ritualBox = el("div", {}, el("h4", { class: "sh-h4" }, "Raise rituals"));
   const ritualNames = DATA.tables.rituals.map(r => r.Name);
   const rankedRituals = ritualNames.filter(n => (CALC.ritual_skills[n] || 0) > 0)
     .sort((a, b) => (CALC.ritual_skills[b] || 0) - (CALC.ritual_skills[a] || 0));
@@ -10149,7 +10149,7 @@ function shKismet(body) {
   // and the same two gates as the Skills-tab copy, so the views cannot drift:
   // a style never outranks Unarmed Combat, and you cannot learn one before you
   // can throw a punch.
-  const maBox = el("div", {}, el("h4", { class: "sh-h4" }, "Martial Arts"));
+  const maBox = el("div", {}, el("h4", { class: "sh-h4" }, "Martial arts"));
   const maUnarmed = (CALC.skills["Unarmed Combat"] || { points: 0 }).points;
   const maOwned = CALC.martial_arts || [];
   const maStyles = [...new Set(DATA.tables.martial_arts.map(r => r.Style))].sort();
@@ -10319,7 +10319,7 @@ function shKismet(body) {
 
   // --- specific MAJOR boon options
   play.pool_kismet = play.pool_kismet || {};
-  boons.append(el("h4", { class: "sh-h4" }, "Major Boons"));
+  boons.append(el("h4", { class: "sh-h4" }, "Major boons"));
   const spendMajor = (label, undo) => {
     if (econ.majorsAvail < 1) { alert("No major boons available."); return false; }
     play.major_boons_spent++;
@@ -10362,7 +10362,7 @@ function shKismet(body) {
   const wfRows = WINDFALL_TABLE.map(w => { const li = el("li", {}, w); wf.append(li); return li; });
   const wfResult = el("div", { class: "sh-callout", hidden: true });
   boons.append(el("div", { class: "sh-card-head" },
-    el("h4", { class: "sh-h4", style: "margin:0" }, "Financial Windfall Table (d6)"),
+    el("h4", { class: "sh-h4", style: "margin:0" }, "Financial windfall table (d6)"),
     counterBtn("🎲 Roll windfall", () => {
       const roll = rollDie(6);
       const rolled = rollDiceInText(WINDFALL_TABLE[roll - 1]);
@@ -10845,7 +10845,7 @@ function shUseDoseBtn(entry, row, owned) {
     title = `Take one more ${entry.name}. ${cap} already counting, so this dose `
           + `adds nothing (stacks up to ${cap}) — but it still leaves the stack`;
   else title = `Take one ${entry.name}`
-          + (swing ? ` — ${swing} until you dismiss it` : " — tracked in Under the Effects Of");
+          + (swing ? ` — ${swing} until you dismiss it` : ", tracked in Under the effects of");
 
   return el("button", {
     class: "btn small use-dose" + (owned ? "" : " off"),
@@ -11309,7 +11309,7 @@ function openShop({ title, sub, sections }) {
 function shopBar(label, open, note) {
   if (activeTabObj() && activeTabObj().readonly) return null;
   return el("div", { class: "sh-shop-bar" },
-    el("button", { class: "btn-add sh-shop-open", onclick: open }, "🛒 " + label),
+    el("button", { class: "btn-add primary sh-shop-open", onclick: open }, "🛒 " + label),
     note ? el("span", { class: "sub" }, note) : null,
     el("span", { class: "sh-shop-cash" }, "On hand ", el("b", {}, fmt(CHAR.play.cash))));
 }
@@ -11633,7 +11633,7 @@ function shGear(body) {
   // The shopfront that used to close the tab is now one button at the top of
   // it, so the tab reads as an inventory and buying is a thing you go and do.
   appendIf(body, shopBar("Buy equipment", openGearShop,
-    "Weapons, armor and gear — priced as a basket."));
+    "Weapons, armor and gear, priced as one basket."));
   const jump = id => () => document.getElementById(id)
     ?.scrollIntoView({ behavior: "smooth", block: "start" });
   body.append(el("div", { class: "gear-submenu" },
@@ -11649,7 +11649,7 @@ function shGear(body) {
     el("div", { class: "sh-cash-row" },
       el("div", { class: "big cash" }, fmt(play.cash)),
       ro ? null : el("button", { class: "btn sh-cash-adjust", onclick: adjustCash,
-        title: "Add or subtract an amount, with a note saying why" }, "Adjust Money Manually")),
+        title: "Add or subtract an amount, with a note saying why" }, "Adjust money manually")),
     el("p", { class: "hint" },
       "Unspent chargen cash was forfeited at finalize; starting cash was rolled 4d6×100. "
       + "Money gained in play can be spent any time — Buy equipment is at the top of this tab."));
@@ -12107,7 +12107,7 @@ function shGear(body) {
           title: "Top off every owned weapon's magazine. Costs no Actions — "
             + "for the moment before a session starts, not the moment before a shot.",
           onclick: e => { e.stopPropagation(); reloadAllWeapons(); } },
-          "Reload All Weapons") : null)));
+          "Reload all weapons") : null)));
     if (!open) return;
     // Rows of one category run kit-first then bought-in-play, so a neighbour in
     // the same backing array is simply the adjacent row of this block.
@@ -12147,7 +12147,7 @@ function shGear(body) {
   const gearDrones = allDrones(), gearVehicles = allVehicles();
   if (gearRigs.length || gearDecks.length || gearDrones.length || gearVehicles.length) {
     const vcard = el("div", { class: "card sh-card", id: "gear-vehicles" },
-      el("h3", {}, "Vehicles, Rigs & Decks"),
+      el("h3", {}, "Vehicles, rigs and decks"),
       el("p", { class: "hint" }, "Bought, modified and removed on the Rigging and Decking tabs."));
     const unitEntries = [
       ...gearDrones.map(u => ({ table: "drones", u })),
@@ -12381,7 +12381,7 @@ function shAugments(body) {
   const mult = CALC.budget.gear_cost_multiplier || 1;
   const z = CALC.zoetics;
   appendIf(body, shopBar("Buy augments", openAugmentShop,
-    "Chrome and bioware — priced as a basket."));
+    "Chrome and bioware, priced as one basket."));
 
   const augEntries = ownedAugments();
   // Slotted Skillsofts grant their bonus; how many can be slotted at once is
@@ -12865,7 +12865,7 @@ function shMagic(body) {
   // something to sell.
   if (magicShopSections().length)
     appendIf(body, shopBar("Buy", openMagicShop,
-      "Spells and amp powers — priced as a basket."));
+      "Spells and amp powers, priced as one basket."));
 
   // The adopted familiar (#109). Play's own choice, over chargen's.
   if (type !== "Hedge")
@@ -13008,7 +13008,7 @@ function shMagic(body) {
     const zo = CALC.zoetics;
     const wrap = el("div", { class: "card sh-card" },
       el("div", { class: "sh-card-head" },
-        el("h3", {}, "Amp Powers"),
+        el("h3", {}, "Amp powers"),
         el("span", {},
           el("span", { class: "chip magic" }, `Amp ZP spent ${zo.amp_zp_spent}`), " ",
           el("span", { class: "chip" + (zo.zp_remaining < 0 ? " neg" : "") },
@@ -13083,7 +13083,7 @@ function shMagic(body) {
     };
     const spiritRow = name => DATA.tables.speaker_spirits.find(x => x.Spirit === name) || {};
     const card = el("div", { class: "card sh-card" },
-      el("h3", {}, "Speaker — Spirits, Infusions & Bonds"));
+      el("h3", {}, "Speaker: spirits, infusions and bonds"));
 
     // Bond count and slot array grown up front — not just in the Bonds
     // section below — so the Infusions section, which renders first, already
@@ -13546,7 +13546,7 @@ function shDecking(body) {
   // small-heritage surcharge never applies (surchargeFor("deck") → 1).
   const mult = RULES.surchargeFor("deck", CALC.budget.gear_cost_multiplier || 1);
   appendIf(body, shopBar("Buy decks & programs", openDeckingShop,
-    "Cyberdecks and programs — priced as a basket."));
+    "Cyberdecks and programs, priced as one basket."));
   const deckCard = el("div", { class: "card sh-card" }, el("h3", {}, "Cyberdecks"));
   deckEntries.forEach((en, di) => {
     const { ref: d, arr: deckArr, i: deckIndex, inPlay, category } = en;
@@ -13639,7 +13639,7 @@ function shDecking(body) {
   const meets = !active || (slotted && ownedHacking.includes(slotted) && rating >= required);
   const hackBox = el("div", { class: "sh-hackbox" },
     el("div", { class: "sh-card-head" },
-      el("h4", { class: "sh-h4", style: "margin:0" }, "Hacking Program"),
+      el("h4", { class: "sh-h4", style: "margin:0" }, "Hacking program"),
       el("span", { class: "chip" + (meets ? " ok" : " neg") },
         !active ? "no active deck"
           : !slotted ? "none slotted"
@@ -14891,7 +14891,7 @@ function shRigging(body) {
     "New chassis — owned units are outfitted from Modify."));
 
   // --- VCRs
-  const rigCard = el("div", { class: "card sh-card" }, el("h3", {}, "Vehicle Control Rigs"));
+  const rigCard = el("div", { class: "card sh-card" }, el("h3", {}, "Vehicle control rigs"));
   // Owned VCRs go in their own column so the deployment notes below can sit
   // beside them instead of underneath -- the card runs the full width of the
   // sheet body, and a couple of short paragraphs stacked under a handful of
@@ -14937,7 +14937,7 @@ function shRigging(body) {
               // drones, not here (#44).
               st.unit_hardening ? ` · +${st.unit_hardening} Hardening to linked units` : null)),
           isActive ? el("span", { class: "chip ok" }, "Active VCR")
-            : counterBtn("Set Active", () => { rg.active_rig = r.name; playChanged(); })),
+            : counterBtn("Set active", () => { rg.active_rig = r.name; playChanged(); })),
         el("div", { class: "sh-unit-add" }, el("b", {}, "Mods"), modEditor)),
       el("button", { class: "row-del", title: "Sell / remove VCR",
         onclick: async () => {
@@ -15327,7 +15327,7 @@ function shNotes(body) {
   // warning about it. (The one exception is the "No Recoil" house rule, which
   // takes the stat away entirely — #61.)
   const dossier = el("div", { class: "card sh-card" },
-    el("h3", {}, "Dossier Notes"),
+    el("h3", {}, "Dossier notes"),
     el("p", { class: "hint" }, "Generated from your build — reminders that don't fit the other tabs."));
   const dossierRecoil = recoilStatLine();
   if (dossierRecoil) dossier.append(dossierRecoil);
@@ -15386,7 +15386,7 @@ function heritageTraitsCard() {
   const entries = heritageTraitEntries();
   if (!entries.length) return null;
   const card = el("div", { class: "card sh-card" },
-    el("h3", {}, "Heritage Traits"),
+    el("h3", {}, "Heritage traits"),
     el("p", { class: "hint" }, `${CHAR.heritage.type}${CHAR.heritage.uplift_type ? " · " + CHAR.heritage.uplift_type : ""} — trait effects for quick reference.`));
   const t = el("table");
   t.append(el("tr", {}, el("th", {}, "Trait"), el("th", {}, "Effect")));
@@ -15702,7 +15702,7 @@ function poolEffectsPanel({ after = null } = {}) {
 
   const card = el("div", { class: `sh-callout sh-fx ${anyOn ? "warn" : "info"}` },
     el("div", { class: "sh-fx-head" },
-      el("span", {}, anyOn ? "⚡ " : "○ ", el("b", {}, "Conditional Effects"), " ",
+      el("span", {}, anyOn ? "⚡ " : "○ ", el("b", {}, "Conditional effects"), " ",
         el("b", {}, anyOn ? `${onCount}/${total}` : String(total)))));
   card.classList.add("is-open");
 

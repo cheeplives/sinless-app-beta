@@ -23,6 +23,8 @@ screenshots and a trace (open with `npx playwright show-trace <trace.zip>`).
 
 - **smoke**: every QA fixture opens and every tab of its view renders with no
   script or console error. The hostile-payload fixture must never run a probe.
+- **accessibility**: axe-core finds no text-contrast failure (WCAG AA) on any
+  tab, in light and dark mode and in every accent. Chromium only.
 - **rules-parity**: `RULES.calculate` gives exactly the same result in the
   browser as under Node, for every fixture.
 - **files**: Export JSON, Export Markdown and homebrew pack export really

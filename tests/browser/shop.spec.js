@@ -113,14 +113,14 @@ test("augments can be bought at α-cyber grade: ZR reduced, price doubled, Undo 
 });
 
 // #111: the Gear tab adjusts money through the same dialog as the header tile.
-test("Adjust Money Manually on the Gear tab asks for an amount and a reason", async ({ page }) => {
+test("Adjust money manually on the Gear tab asks for an amount and a reason", async ({ page }) => {
   const errors = watchErrors(page);
   await openWith(page, [fixture("kitchen-sink-final")]);
   await domClick(page.locator(".sh-tabs button", { hasText: /gear/i }));
   const answers = ["-250", "Bribed the doorman"];
   page.on("dialog", d => d.accept(answers.shift()));
   const cash = await page.evaluate(() => CHAR.play.cash);
-  await page.locator("#gear-cash").getByRole("button", { name: "Adjust Money Manually" }).click();
+  await page.locator("#gear-cash").getByRole("button", { name: "Adjust money manually" }).click();
   await expect.poll(() => page.evaluate(() => CHAR.play.cash)).toBe(cash - 250);
   expect(await page.evaluate(() => CHAR.play.cash_log[0])).toMatchObject(
     { label: "Bribed the doorman", delta: -250 });

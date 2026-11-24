@@ -1,4 +1,4 @@
-/* kit.js — small shared UI kit, written to be identical in Campaign Chronicle
+/* kit.js — small shared UI kit, written to be identical in GM's Almanac
  * and Sinless: the DOM builder, toasts, tooltips that also work on touch
  * screens, and in-page confirm/prompt/alert dialogs that replace the browser's
  * blocking confirm(), prompt() and alert().
@@ -23,13 +23,66 @@ const KIT = (() => {
       else if (k.startsWith('on') && typeof v === 'function') node.addEventListener(k.slice(2), v);
       else if (k === 'value') node.value = v;
       else if (k === 'checked') node.checked = !!v;
-      else node.setAttribute(k, v === true ? '' : v);
+      else node.setAttribute(k, v === true ? '' : (ICON_RE && TEXT_ATTRS.has(k) ? noIcons(String(v)) : v));
     }
-    for (const kid of kids.flat(Infinity)) {
-      if (kid === null || kid === undefined || kid === false) continue;
-      node.append(kid instanceof Node ? kid : document.createTextNode(String(kid)));
+    const plain = !ICON_RE || PLAIN_TAGS.has(tag);
+    const all = kids.flat(Infinity).filter(k => k !== null && k !== undefined && k !== false);
+    // an icon that is all there is in a control nobody else names (a 🎲 button) gets the icon's name
+    const named = all.length === 1 && NAMED_TAGS.has(tag) && !node.hasAttribute('aria-label') && !node.hasAttribute('aria-hidden');
+    for (const kid of all) {
+      if (kid instanceof Node) node.append(kid);
+      else if (plain) node.append(document.createTextNode(ICON_RE ? noIcons(String(kid)) : String(kid)));
+      else node.append(...withIcons(String(kid), named));
     }
     return node;
+  }
+
+  // ------------------------------------------------------------ icons
+  /* When the page has loaded static/icons.js (both apps do; without it the label stays plain text), el()
+   * draws each emoji in a label as its icon: '🔒 GM only' becomes the padlock icon then " GM only". The same picture
+   * on every device, in the text's colour. Tooltips (data-tip) are drawn the same way. Where a picture can't go (an
+   * <option>, a title, a placeholder, an aria-label) the emoji is left out instead. icon('lock') makes one directly. */
+  const NS = 'http://www.w3.org/2000/svg';
+  const ICON_RE = typeof ICON_FOR_EMOJI === 'undefined' ? null
+    : new RegExp(`(${Object.keys(ICON_FOR_EMOJI).sort((a, b) => b.length - a.length).join('|')})\uFE0F?`, 'gu');
+  const TEXT_ATTRS = new Set(['title', 'placeholder', 'aria-label', 'alt']);   // a data-tip keeps its emoji: showTip draws them
+  const NAMED_TAGS = new Set(['button', 'a', 'summary']);
+  const PLAIN_TAGS = new Set(['option', 'optgroup', 'textarea', 'title', 'style', 'script']);
+  /** An icon by name (static/icons.js), in the text's colour and size. With a label it is a picture a screen reader
+   * names (by its <title>, so it never answers for a field's label); without one it is hidden from them, for an icon
+   * beside words that already say it. */
+  function icon(name, label) {
+    const svg = document.createElementNS(NS, 'svg');
+    svg.setAttribute('viewBox', '0 0 512 512');
+    svg.setAttribute('class', `ico ico-${name}`);
+    svg.setAttribute('focusable', 'false');
+    if (!label) svg.setAttribute('aria-hidden', 'true');
+    svg.innerHTML = ICON_SHAPES[name] || '';   // our own build's shapes (paths only), never user text
+    if (label) {
+      svg.setAttribute('role', 'img');
+      const t = document.createElementNS(NS, 'title');
+      t.textContent = label;
+      svg.prepend(t);
+    }
+    return svg;
+  }
+  /** A string as text and icons. With named, a string that is only an icon gets the icon's name for a screen reader. */
+  function withIcons(text, named = true) {
+    if (!ICON_RE) return [document.createTextNode(text)];
+    const parts = text.split(ICON_RE);
+    if (parts.length === 1) return [document.createTextNode(text)];
+    const alone = named && parts.length === 3 && !parts[0].trim() && !parts[2].trim();
+    return parts.map((p, i) => {
+      if (!(i % 2)) return p ? document.createTextNode(p) : null;
+      const name = ICON_FOR_EMOJI[p];
+      return icon(name, alone ? ICON_LABELS[name] : null);
+    }).filter(Boolean);
+  }
+  /** A string with its emoji left out, for where only text can go. */
+  function noIcons(text) {
+    if (!ICON_RE) return text;
+    const out = text.replace(ICON_RE, '');
+    return out === text ? text : out.replace(/\(\s*\)/g, '').replace(/ {2,}/g, ' ').replace(/ +([,.:;)])/g, '$1').replace(/^ +| +$/gm, '');
   }
   const $ = (s, root = document) => root.querySelector(s);
 
@@ -62,7 +115,7 @@ const KIT = (() => {
     tipEl = target;
     // data-tip-img adds a picture above the text; the box is placed again once it has loaded and has its size.
     const src = target.dataset.tipImg;
-    tipBox.replaceChildren(...(src ? [el('img', { src, alt: '', referrerpolicy: 'no-referrer', onload: () => { if (tipEl === target) placeTip(target); } }), el('span', {}, target.dataset.tip)] : [target.dataset.tip]));
+    tipBox.replaceChildren(...(src ? [el('img', { src, alt: '', referrerpolicy: 'no-referrer', onload: () => { if (tipEl === target) placeTip(target); } }), el('span', {}, target.dataset.tip)] : withIcons(target.dataset.tip)));
     tipBox.className = 'show' + (src ? ' with-img' : '');
     placeTip(target);
   }
@@ -190,8 +243,9 @@ const KIT = (() => {
     };
     d.addEventListener('toggle', () => {
       summary.setAttribute('aria-expanded', String(d.open));
-      if (d.open) { if (tipEl === summary) hideTip(); place(); document.addEventListener('click', outside, true); document.addEventListener('keydown', keys, true); d.addEventListener('focusout', away); }
-      else { document.removeEventListener('click', outside, true); document.removeEventListener('keydown', keys, true); d.removeEventListener('focusout', away); }
+      // pointerdown as well as click: iPad Safari sends no click for a tap on plain page background, so the menu would stay open
+      if (d.open) { if (tipEl === summary) hideTip(); place(); document.addEventListener('click', outside, true); document.addEventListener('pointerdown', outside, true); document.addEventListener('keydown', keys, true); d.addEventListener('focusout', away); }
+      else { document.removeEventListener('click', outside, true); document.removeEventListener('pointerdown', outside, true); document.removeEventListener('keydown', keys, true); d.removeEventListener('focusout', away); }
     });
     // Arrow down on the closed button opens the menu on its first item (Enter and Space open it as a <summary> does)
     summary.addEventListener('keydown', ev => {
@@ -201,5 +255,5 @@ const KIT = (() => {
     return d;
   }
 
-  return { el, $, toast, tip, tipped, showTip, hideTip, dialog, confirmDialog, promptDialog, alertDialog, menu };
+  return { el, icon, withIcons, noIcons, $, toast, tip, tipped, showTip, hideTip, dialog, confirmDialog, promptDialog, alertDialog, menu };
 })();

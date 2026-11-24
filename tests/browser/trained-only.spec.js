@@ -6,7 +6,7 @@ const { fixture, watchErrors, expectNoErrors, openWith, domClick } = require("./
 test("chargen marks trained-only skills, and focusing the marker shows the unskilled rule", async ({ page }) => {
   const errors = watchErrors(page);
   await openWith(page, [fixture("fresh-default")]);
-  await domClick(page.locator("#tabs button", { hasText: /Skills/ }).first());
+  await domClick(page.locator("#tabs button", { hasText: /skills/i }).first());
   const row = page.locator("tr", { has: page.locator(".skill-name-line", { hasText: "Cybertech Combat" }) });
   const chip = row.locator(".skill-to-chip");
   await expect(chip).toHaveText(/Needs training/i);
