@@ -47,6 +47,7 @@ const ICONS = [
   ['warning', 'lorc/hazard-sign', 'Warning', '⚠'],
   ['refresh', 'delapouite/clockwise-rotation', 'Refresh', '↻'],
   ['reset', 'delapouite/anticlockwise-rotation', 'Reset', '↺'],
+  ['book', 'lorc/open-book', 'Needs training', '📖'],
 ];
 
 function source(src) {
