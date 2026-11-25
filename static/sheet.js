@@ -9535,7 +9535,7 @@ function skillTableRow(name, dim = false, editable = false, bareName = false) {
 
   // Inline chips that sit beside the name. The Needs training marker goes on every
   // view (read-only and untrained rows included) -- it's needed most exactly when
-  // the skill is unusable -- and reads a shade stronger once the character genuinely can't
+  // the skill is unusable -- and its tooltip says so once the character genuinely can't
   // roll it. Editable specialization (Skills tab only) is a "Spec" toggle plus a
   // text field; a specialized skill splits its rating into −1 / +1, and only
   // trained skills can carry one. Read-only views just show the note.

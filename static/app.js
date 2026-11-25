@@ -676,18 +676,18 @@ function chipValue(key) {
 }
 const chip = (key, magic) => el("span", Object.assign({ class: "chip", "data-chip": key }, magic ? { "data-magic": "1" } : {}), "\u2026");
 
-/* The "Needs training" marker for skills that cannot be used unskilled
+/* The "Needs training" marker, a small book icon, for skills that cannot be used unskilled
  * (RULES.TRAINED_ONLY_SKILLS). Its title becomes a kit tooltip, which opens on
  * hover, keyboard focus and tap, so the rule is one touch away on a phone too.
  * Section headers (Martial Arts, Rituals) and chargen use the neutral state:
  * in chargen every skill starts at 0, and the unusable state would light up the
  * whole table on load. The sheet's per-skill rows pass `unusable` once the
  * character has no dice to roll it with. Shared here because sheet.js uses it too. */
-const TRAINED_ONLY_TIP = "Cannot be used unskilled. Needs at least 1 die in this skill or its group to roll.";
+const TRAINED_ONLY_TIP = "Needs training. Cannot be used unskilled: it takes at least 1 die in this skill or its group to roll.";
 const trainedOnlyChip = (unusable = false) => el("span", {
-  class: "skill-to-chip" + (unusable ? " unusable" : ""), tabindex: "0",
+  class: "skill-to-chip" + (unusable ? " unusable" : ""), tabindex: "0", role: "img", "aria-label": "Needs training",
   title: unusable ? TRAINED_ONLY_TIP + "\nThis character has none yet, so it can't be rolled." : TRAINED_ONLY_TIP },
-  "Needs training");
+  KIT.icon("book"));
 
 /* ZR house rule: each full point of gear/weapon ZR is \u22121d on spellcasting rolls
  * (Channeling, Conjuring, Sorcery). Renders the current penalty as a note for
